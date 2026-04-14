@@ -54,6 +54,15 @@ async function updateBadge() {
   }
 }
 
+// ─── Side Panel ──────────────────────────────────────────────────────────────
+
+// Open the side panel when the user clicks the extension's toolbar icon.
+// This provides an alternative to the new-tab-page override for browsers
+// that don't support chrome_url_overrides or override it themselves.
+chrome.action.onClicked.addListener(async (tab) => {
+  await chrome.sidePanel.open({ windowId: tab.windowId });
+});
+
 // ─── Event listeners ──────────────────────────────────────────────────────────
 
 // Update the badge immediately when the extension is first installed

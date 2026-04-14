@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tab Out</title>
   <style>
-    /* Reset all default browser spacing so the iframe fills the entire tab */
     * {
       margin: 0;
       padding: 0;
@@ -13,23 +12,19 @@
     }
 
     body {
-      /* Neutral warm background visible briefly while iframe loads */
       background: #f8f5f0;
       overflow: hidden;
-      width: 100vw;
+      width: 100%;
       height: 100vh;
     }
 
-    /* The iframe stretches to fill the full tab with no visual border */
     #dashboard-frame {
-      width: 100vw;
+      width: 100%;
       height: 100vh;
       border: none;
       display: block;
     }
 
-    /* Fallback overlay — shown only when the local server is not running.
-       Hidden by default via the .hidden class on the element. */
     #fallback {
       position: fixed;
       inset: 0;
@@ -41,29 +36,27 @@
       justify-content: center;
       gap: 16px;
       text-align: center;
-      padding: 32px;
+      padding: 24px;
     }
 
-    /* Utility: hide elements. newtab.js removes this class to show fallback. */
     .hidden {
       display: none !important;
     }
 
-    /* When fallback is visible (not .hidden), use flex layout */
     #fallback:not(.hidden) {
       display: flex;
     }
 
     #fallback h1 {
-      font-size: 1.6rem;
+      font-size: 1.4rem;
       font-weight: bold;
-      color: #c8713a; /* amber — matches the extension icon */
+      color: #c8713a;
     }
 
     #fallback p {
-      font-size: 1rem;
+      font-size: 0.9rem;
       line-height: 1.6;
-      max-width: 480px;
+      max-width: 360px;
       color: #6b5a47;
     }
 
@@ -72,21 +65,19 @@
       border-radius: 4px;
       padding: 2px 6px;
       font-family: "Courier New", monospace;
-      font-size: 0.9em;
+      font-size: 0.85em;
       color: #3a2e22;
     }
   </style>
 </head>
 <body>
 
-  <!-- Primary view: the full-screen dashboard iframe -->
   <iframe
     id="dashboard-frame"
-    src="http://localhost:3456"
+    src="http://localhost:3456?mode=sidepanel"
     title="Tab Out Dashboard"
   ></iframe>
 
-  <!-- Fallback view: shown when the server at localhost:3456 is not reachable -->
   <div id="fallback" class="hidden">
     <h1>Tab Out is not running</h1>
     <p>
@@ -95,11 +86,10 @@
     </p>
     <p><code>cd tab-out &amp;&amp; npm start</code></p>
     <p>
-      Once the server is running, open a new tab and Tab Out will appear.
+      Once the server is running, click the Tab Out icon to open the side panel.
     </p>
   </div>
 
-  <!-- Bridge script: connects this page to the Chrome tabs API -->
-  <script type="module" src="newtab.js"></script>
+  <script type="module" src="sidepanel.js"></script>
 </body>
 </html>
