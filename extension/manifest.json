@@ -3,9 +3,10 @@
   "name": "Tab Out",
   "version": "1.0.0",
   "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain and lets you close them with style.",
-  "permissions": ["tabs", "activeTab"],
+  "permissions": ["tabs", "activeTab", "sidePanel"],
   "host_permissions": ["http://localhost:3456/*"],
   "chrome_url_overrides": { "newtab": "newtab.html" },
+  "side_panel": { "default_path": "sidepanel.html" },
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "Tab Out",

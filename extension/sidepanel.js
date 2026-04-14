@@ -1,5 +1,5 @@
 /**
- * newtab.js — New Tab entry point
+ * sidepanel.js — Side Panel entry point
  *
  * Bootstraps the postMessage bridge between the dashboard iframe and
  * Chrome's tabs API.  All shared logic lives in bridge.js.
