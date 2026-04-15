@@ -1477,6 +1477,44 @@ document.addEventListener('input', async (e) => {
 
 
 /* ----------------------------------------------------------------
+   LIVE TAB LISTENERS — re-render when tabs change
+   Debounced so rapid tab changes don't cause excessive re-renders.
+   ---------------------------------------------------------------- */
+let _tabRefreshTimer = null;
+let _initialRenderDone = false;
+
+function scheduleRefresh() {
+  if (_tabRefreshTimer) clearTimeout(_tabRefreshTimer);
+  _tabRefreshTimer = setTimeout(() => {
+    // Skip entrance animations on subsequent renders to prevent flickering
+    if (_initialRenderDone) {
+      document.body.classList.add('no-entrance-anim');
+    }
+    renderDashboard();
+  }, 300);
+}
+
+if (typeof chrome !== 'undefined' && chrome.tabs) {
+  chrome.tabs.onCreated.addListener(scheduleRefresh);
+  chrome.tabs.onRemoved.addListener(scheduleRefresh);
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+    // Only refresh when the tab finishes loading or the URL changes
+    if (changeInfo.status === 'complete' || changeInfo.url) {
+      scheduleRefresh();
+    }
+  });
+  // Only refresh when switching BACK to Tab Out, not on every tab switch
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      if (tab.url && tab.url.startsWith(`chrome-extension://${chrome.runtime.id}/`)) {
+        scheduleRefresh();
+      }
+    } catch { /* tab may have been closed before we could query it */ }
+  });
+}
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+renderDashboard().then(() => { _initialRenderDone = true; });
