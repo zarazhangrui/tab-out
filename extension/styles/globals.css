@@ -1,0 +1,158 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Legacy Tab Out palette → shadcn semantic tokens (extension is light-only) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-tab-ink: #1a1613;
+  --color-tab-paper: #f8f5f0;
+  --color-tab-warm-gray: #e8e2da;
+  --color-tab-muted: #9a918a;
+  --color-tab-amber: #c8713a;
+  --color-tab-sage: #5a7a62;
+  --color-tab-slate: #5a6b7a;
+  --color-tab-rose: #b35a5a;
+  --color-tab-status-active: #3d7a4a;
+  --color-tab-status-cooling: #b8892e;
+  --color-tab-card: #fffdf9;
+  --shadow-mission: 0 4px 20px rgba(26, 22, 19, 0.06);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-fade-up: fade-up 0.5s ease both;
+  --animate-fade-up-card: fade-up 0.4s ease both;
+  --animate-check-pop: check-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: #f8f5f0;
+  --foreground: #1a1613;
+  --card: #fffdf9;
+  --card-foreground: #1a1613;
+  --popover: #fffdf9;
+  --popover-foreground: #1a1613;
+  --primary: #1a1613;
+  --primary-foreground: #f8f5f0;
+  --secondary: #e8e2da;
+  --secondary-foreground: #1a1613;
+  --muted: #ebe4db;
+  --muted-foreground: #9a918a;
+  --accent: rgba(200, 113, 58, 0.08);
+  --accent-foreground: #c8713a;
+  --destructive: #b35a5a;
+  --destructive-foreground: #fffdf9;
+  --border: #e8e2da;
+  --input: #e8e2da;
+  --ring: #c8713a;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes check-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
+@layer utilities {
+  .font-newsreader {
+    font-family: 'Newsreader', serif;
+  }
+
+  .animate-fade-up {
+    animation: fade-up 0.5s ease both;
+  }
+
+  .animate-fade-up-delay-1 {
+    animation: fade-up 0.5s ease 0.1s both;
+  }
+
+  .animate-fade-up-delay-2 {
+    animation: fade-up 0.5s ease 0.2s both;
+  }
+
+  .animate-check-pop {
+    animation: check-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+  }
+}
+
+/* Sonner → legacy toast: ink bar, paper text, sage accent icon area */
+[data-sonner-toaster][data-y-position='bottom'] {
+  bottom: 2rem;
+}
+
+[data-sonner-toast] {
+  border-radius: 0.5rem !important;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  padding: 0.75rem 1.5rem !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
+  background: var(--foreground) !important;
+  color: var(--background) !important;
+  border: none !important;
+}
+
+[data-sonner-toast] [data-icon] {
+  color: var(--color-tab-status-active) !important;
+}
