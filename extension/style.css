@@ -20,6 +20,24 @@
   --shadow: rgba(26, 22, 19, 0.06);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e2da;
+    --paper: #1a1713;
+    --warm-gray: #2d2825;
+    --muted: #6b6460;
+    --accent-amber: #d4855a;
+    --accent-sage: #6a9172;
+    --accent-slate: #6a7d8e;
+    --accent-rose: #c46a6a;
+    --status-active: #4e9960;
+    --status-cooling: #c99a3a;
+    --status-abandoned: #c46a6a;
+    --card-bg: #211e1b;
+    --shadow: rgba(0, 0, 0, 0.3);
+  }
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
