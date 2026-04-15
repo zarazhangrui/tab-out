@@ -31,28 +31,7 @@ The agent will walk you through it. Takes about 1 minute.
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
 - **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
-
----
-
-## Manual Setup
-
-**1. Clone the repo**
-
-```bash
-git clone https://github.com/zarazhangrui/tab-out.git
-```
-
-**2. Load the Chrome extension**
-
-1. Open Chrome and go to `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
-
-**3. Open a new tab**
-
-You'll see Tab Out.
+- **Pure Chrome extension** no server or account; at runtime nothing leaves your machine (building from source uses Node in `extension/`)
 
 ---
 
@@ -75,10 +54,49 @@ Everything runs inside the Chrome extension. No external server, no API calls, n
 
 | What | How |
 |------|-----|
-| Extension | Chrome Manifest V3 |
-| Storage | chrome.storage.local |
-| Sound | Web Audio API (synthesized, no files) |
-| Animations | CSS transitions + JS confetti particles |
+| Language | [TypeScript](https://www.typescriptlang.org/) |
+| Extension tooling | [WXT](https://wxt.dev) (bundles with [Vite](https://vitejs.dev/)) |
+| UI library | [React](https://react.dev/) 19 |
+| Styling | [Tailwind CSS](https://tailwindcss.com/) 4 (`@tailwindcss/vite`) |
+| Components | [shadcn/ui](https://ui.shadcn.com/) ([Radix UI](https://www.radix-ui.com/) primitives) |
+| Data / caching | [TanStack Query](https://tanstack.com/query) |
+| Icons | [Lucide React](https://lucide.dev/) |
+| Toasts | [Sonner](https://sonner.emilkowal.ski/) |
+| Class helpers | [class-variance-authority](https://cva.style/docs), [clsx](https://github.com/lukeed/clsx), [tailwind-merge](https://github.com/dcastil/tailwind-merge) |
+| Package manager | [pnpm](https://pnpm.io/) (see `extension/pnpm-lock.yaml`) |
+
+---
+
+## Development build
+
+From the repo root:
+
+```
+cd extension
+pnpm i
+npm run dev
+```
+
+WXT starts the dev server and opens a browser with the extension loaded so you can iterate on changes.
+
+---
+
+## Install manually
+
+From the repo root:
+
+```
+cd extension
+pnpm i
+npm run build
+```
+
+Then add the built extension to Chrome:
+
+1. Open `chrome://extensions`
+2. Turn on **Developer mode**
+3. Click **Load unpacked**
+4. Choose the `extension/.output/chrome-mv3` folder (the directory that contains `manifest.json`)
 
 ---
 

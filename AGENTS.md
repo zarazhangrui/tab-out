@@ -32,19 +32,28 @@ cd tab-out
 
 ---
 
-## Step 2 -- Install the Chrome extension
+## Step 2 -- Build and install the Chrome extension
 
-This is the one step that requires manual action from the user. Make it as easy as possible.
+The installable extension is the **production build** under `extension/.output/chrome-mv3/` (WXT output). The raw `extension/` source tree is not what you load in Chrome.
 
-**First**, print the full path to the `extension/` folder:
+**First**, install dependencies and build from the repo root:
+
 ```bash
-echo "Extension folder: $(cd extension && pwd)"
+cd extension
+pnpm i
+npm run build
 ```
 
-**Then**, copy the `extension/` folder path to their clipboard:
-- macOS: `cd extension && pwd | pbcopy && echo "Path copied to clipboard"`
-- Linux: `cd extension && pwd | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)"`
-- Windows: `cd extension && echo %CD% | clip`
+**Then**, print the full path to the built folder (this is what **Load unpacked** must point at). You should still be inside `extension/` after the build:
+
+```bash
+echo "Load this folder in Chrome: $(pwd)/.output/chrome-mv3"
+```
+
+**Then**, copy that `.output/chrome-mv3` path to their clipboard:
+- macOS: `pwd | sed 's|$|/.output/chrome-mv3|' | pbcopy && echo "Path copied to clipboard"` (run from `extension/`)
+- Linux: `pwd | sed 's|$|/.output/chrome-mv3|' | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)/.output/chrome-mv3"` (run from `extension/`)
+- Windows (PowerShell): from `extension/`, `(Resolve-Path .\\.output\\chrome-mv3).Path | Set-Clipboard`
 
 **Then**, open the extensions page:
 ```bash
@@ -53,7 +62,7 @@ open "chrome://extensions"
 
 **Then**, walk the user through it step by step:
 
-> I've copied the extension folder path to your clipboard. Now:
+> I've copied the **built** extension folder path (it ends in `.output/chrome-mv3`) to your clipboard. Now:
 >
 > 1. You should see Chrome's extensions page. In the **top-right corner**, toggle on **Developer mode** (it's a switch).
 > 2. Once Developer mode is on, you'll see a button called **"Load unpacked"** appear in the top-left. Click it.
@@ -62,10 +71,24 @@ open "chrome://extensions"
 >
 > You should see "Tab Out" appear in your extensions list.
 
-**Also**, open the file browser directly to the extension folder as a fallback:
-- macOS: `open extension/`
-- Linux: `xdg-open extension/`
-- Windows: `explorer extension\\`
+**Also**, open the file browser directly to the built folder as a fallback:
+- macOS: `open extension/.output/chrome-mv3`
+- Linux: `xdg-open extension/.output/chrome-mv3`
+- Windows: `explorer extension\\.output\\chrome-mv3`
+
+---
+
+## Optional -- Development build (for contributors)
+
+If the user wants to hack on the extension, from the repo root:
+
+```bash
+cd extension
+pnpm i
+npm run dev
+```
+
+WXT starts the dev server and opens a browser with the extension loaded. Use this instead of Step 2's production build when iterating on code.
 
 ---
 
@@ -90,7 +113,8 @@ Once the extension is loaded:
 
 ## Key Facts
 
-- Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
+- Tab Out is a pure Chrome extension at **runtime**: no server, no account, no external API calls.
+- **Building from source** uses Node in `extension/` ([pnpm](https://pnpm.io/) + `npm run build` or `npm run dev`); the loadable artifact is `extension/.output/chrome-mv3/`.
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
-- 100% local. No data is sent to any external service.
-- To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.
+- 100% local at runtime. No data is sent to any external service.
+- To update after pulling changes: `cd extension && pnpm i && npm run build`, then click **Reload** on the extension card in `chrome://extensions`.
