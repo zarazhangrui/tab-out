@@ -767,7 +767,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
@@ -848,7 +848,7 @@ function renderDomainCard(group) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
@@ -966,7 +966,7 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : '';
   const ago = timeAgo(item.savedAt);
 
   return `
