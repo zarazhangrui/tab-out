@@ -45,6 +45,7 @@ async function fetchOpenTabs() {
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
+      pinned:   t.pinned,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
@@ -81,6 +82,7 @@ async function closeTabsByUrls(urls) {
   const allTabs = await chrome.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
+      if (tab.pinned) return false; // never close pinned tabs
       const tabUrl = tab.url || '';
       if (tabUrl.startsWith('file://') && exactUrls.has(tabUrl)) return true;
       try {
@@ -104,7 +106,7 @@ async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
   const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
+  const toClose = allTabs.filter(t => !t.pinned && urlSet.has(t.url)).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
 }
@@ -158,10 +160,12 @@ async function closeDuplicateTabs(urls, keepOne = true) {
     if (keepOne) {
       const keep = matching.find(t => t.active) || matching[0];
       for (const tab of matching) {
-        if (tab.id !== keep.id) toClose.push(tab.id);
+        if (tab.id !== keep.id && !tab.pinned) toClose.push(tab.id);
       }
     } else {
-      for (const tab of matching) toClose.push(tab.id);
+      for (const tab of matching) {
+        if (!tab.pinned) toClose.push(tab.id);
+      }
     }
   }
 
@@ -721,6 +725,7 @@ let domainGroups = [];
  */
 function getRealTabs() {
   return openTabs.filter(t => {
+    if (t.pinned) return false; // ignore pinned tabs
     const url = t.url || '';
     return (
       !url.startsWith('chrome://') &&
@@ -1227,9 +1232,9 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
+    // Close the tab in Chrome directly (skip pinned tabs)
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
+    const match   = allTabs.find(t => t.url === tabUrl && !t.pinned);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
