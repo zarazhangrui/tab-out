@@ -67,7 +67,16 @@ https://github.com/jacky-ch93/tab-out
 
 The agent will walk you through it.
 
-**Manual setup**
+**Download a Release**
+
+1. Go to the [Releases page](https://github.com/jacky-ch93/tab-out/releases) and download the latest `Source code (zip)`
+2. Unzip it
+3. Open Chrome and go to `chrome://extensions`
+4. Enable **Developer mode** (top-right toggle)
+5. Click **Load unpacked** and select the `extension/` folder inside the unzipped directory
+6. Click the extension icon — Tab Out will open
+
+**Clone the repo**
 
 1. Clone the repo
 
@@ -75,14 +84,10 @@ The agent will walk you through it.
 git clone https://github.com/jacky-ch93/tab-out.git
 ```
 
-2. Load the Chrome extension
-
-   1. Open Chrome and go to `chrome://extensions`
-   2. Enable **Developer mode** (top-right toggle)
-   3. Click **Load unpacked**
-   4. Select the `extension/` folder inside the cloned repo
-
-3. Click the extension icon — Tab Out will open.
+2. Open Chrome and go to `chrome://extensions`
+3. Enable **Developer mode** (top-right toggle)
+4. Click **Load unpacked** and select the `extension/` folder inside the cloned repo
+5. Click the extension icon — Tab Out will open
 
 ---
 

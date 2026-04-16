@@ -67,7 +67,16 @@ https://github.com/jacky-ch93/tab-out
 
 Agent 会引导你完成。
 
-**手动安装**
+**下载 Release 安装**
+
+1. 前往 [Releases 页面](https://github.com/jacky-ch93/tab-out/releases)，下载最新版本的 `Source code (zip)`
+2. 解压缩
+3. 打开 Chrome，进入 `chrome://extensions`
+4. 开启右上角的**开发者模式**
+5. 点击**加载已解压的扩展程序**，选择解压后的 `extension/` 文件夹
+6. 点击扩展图标，Tab Out 页面将会打开
+
+**克隆仓库安装**
 
 1. 克隆仓库
 
@@ -75,14 +84,10 @@ Agent 会引导你完成。
 git clone https://github.com/jacky-ch93/tab-out.git
 ```
 
-2. 加载 Chrome 扩展
-
-   1. 打开 Chrome，进入 `chrome://extensions`
-   2. 开启右上角的**开发者模式**
-   3. 点击**加载已解压的扩展程序**
-   4. 选择仓库中的 `extension/` 文件夹
-
-3. 点击扩展图标，Tab Out 页面将会打开。
+2. 打开 Chrome，进入 `chrome://extensions`
+3. 开启右上角的**开发者模式**
+4. 点击**加载已解压的扩展程序**，选择仓库中的 `extension/` 文件夹
+5. 点击扩展图标，Tab Out 页面将会打开
 
 ---
 
