@@ -62,6 +62,20 @@ async function updateBadge() {
 
 // ─── Event listeners ──────────────────────────────────────────────────────────
 
+// Open or focus the Tab Out tab when the toolbar icon is clicked.
+// This is the primary access method in browsers that don't support newtab
+// overrides (e.g. Dia), and a convenient shortcut in Chrome.
+chrome.action.onClicked.addListener(async () => {
+  const tabOutUrl = `chrome-extension://${chrome.runtime.id}/index.html`;
+  const existing = await chrome.tabs.query({ url: tabOutUrl });
+  if (existing.length > 0) {
+    await chrome.tabs.update(existing[0].id, { active: true });
+    await chrome.windows.update(existing[0].windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url: tabOutUrl });
+  }
+});
+
 // Update badge when the extension is first installed
 chrome.runtime.onInstalled.addListener(() => {
   updateBadge();
