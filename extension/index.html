@@ -47,6 +47,13 @@
   </div>
 
   <!-- ================================================================
+       QUICK ACCESS — user-curated shortcuts. Two render modes (card /
+       bar) toggled by the user, persisted in chrome.storage.local.
+       Rendered by renderQuickAccess() in app.js. Hidden when empty.
+       ================================================================ -->
+  <div id="quickAccessContainer" style="display:none"></div>
+
+  <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
        Left: open tabs (domain/mission cards)
        Right: saved for later checklist
