@@ -75,7 +75,7 @@ Agent 会引导你完成。
 2. 解压缩
 3. 打开 Chrome，进入 `chrome://extensions`
 4. 开启右上角的**开发者模式**
-5. 点击**加载已解压的扩展程序**，选择解压后的 `extension/` 文件夹
+5. 点击**加载未打包的扩展程序**，选择解压后的 `extension/` 文件夹
 6. 点击扩展图标，Tab Out 页面将会打开
 
 **方式三：克隆仓库安装**
@@ -88,7 +88,7 @@ git clone https://github.com/jacky-ch93/tab-out.git
 
 2. 打开 Chrome，进入 `chrome://extensions`
 3. 开启右上角的**开发者模式**
-4. 点击**加载已解压的扩展程序**，选择仓库中的 `extension/` 文件夹
+4. 点击**加载未打包的扩展程序**，选择仓库中的 `extension/` 文件夹
 5. 点击扩展图标，Tab Out 页面将会打开
 
 ---
