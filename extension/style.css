@@ -81,7 +81,86 @@ header {
   text-transform: uppercase;
 }
 
-/* ---- Tab cleanup banner ---- */
+/* ---- Search bar ---- */
+.search-bar-wrapper {
+  margin-bottom: 20px;
+  animation: fadeUp 0.4s ease 0.15s both;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 10px 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-bar:focus-within {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.08);
+}
+
+.search-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.tab-search-input {
+  flex: 1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.tab-search-input::placeholder {
+  color: var(--muted);
+}
+
+.search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--warm-gray);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.search-clear svg {
+  width: 11px;
+  height: 11px;
+}
+
+.search-clear:hover {
+  background: var(--accent-amber);
+  color: white;
+}
+
+/* No-results state for search */
+.search-empty-state {
+  column-span: all;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  animation: fadeUp 0.3s ease both;
+}
+
+
 .tab-cleanup-banner {
   background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));
   border: 1px solid rgba(200, 113, 58, 0.18);

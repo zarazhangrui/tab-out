@@ -514,9 +514,95 @@ function getDateDisplay() {
 }
 
 
-/* ----------------------------------------------------------------
-   DOMAIN & TITLE CLEANUP HELPERS
-   ---------------------------------------------------------------- */
+/**
+ * fuzzyMatch(query, target)
+ *
+ * Returns true if every character in `query` appears in `target` in order
+ * (case-insensitive). Classic fuzzy-find behaviour.
+ * e.g. fuzzyMatch("ghb", "github.com") → true
+ */
+function fuzzyMatch(query, target) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  let qi = 0;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+/**
+ * filterTabsBySearch(query)
+ *
+ * Filters the visible domain cards and tab chips in real-time.
+ * When query is non-empty:
+ *   - Expands all overflow containers so hidden chips are also searchable
+ *   - Hides chips that don't match title or URL
+ *   - Hides entire cards where no chips match (unless the domain name itself matches)
+ * When query is empty:
+ *   - Re-renders the full dashboard to restore original state
+ */
+async function filterTabsBySearch(query) {
+  if (!query) {
+    // Clear: re-render to restore original overflow state
+    await renderStaticDashboard();
+    return;
+  }
+
+  const cards = document.querySelectorAll('#openTabsMissions .mission-card');
+  let anyVisible = false;
+
+  cards.forEach(card => {
+    // Expand overflow so we can search inside it
+    const overflowContainer = card.querySelector('.page-chips-overflow');
+    const overflowBtn       = card.querySelector('.page-chip-overflow');
+    if (overflowContainer) overflowContainer.style.display = 'contents';
+    if (overflowBtn)       overflowBtn.style.display = 'none';
+
+    // Filter individual chips
+    const chips = card.querySelectorAll('.page-chip[data-action="focus-tab"]');
+    let chipsVisible = 0;
+    chips.forEach(chip => {
+      const title = chip.querySelector('.chip-text')?.textContent || '';
+      const url   = chip.dataset.tabUrl || '';
+      const match = fuzzyMatch(query, title) || fuzzyMatch(query, url);
+      chip.style.display = match ? '' : 'none';
+      if (match) chipsVisible++;
+    });
+
+    // Also match against the domain/group name so e.g. "github" shows all GitHub tabs
+    const domainName = card.querySelector('.mission-name')?.textContent || '';
+    const domainMatch = fuzzyMatch(query, domainName);
+
+    if (chipsVisible > 0 || domainMatch) {
+      card.style.display = '';
+      if (domainMatch) {
+        // Domain matched — show all chips for this card
+        chips.forEach(chip => chip.style.display = '');
+      }
+      anyVisible = true;
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  // Show "no results" if everything is hidden
+  const missionsEl = document.getElementById('openTabsMissions');
+  const existing = missionsEl?.querySelector('.search-empty-state');
+  if (!anyVisible) {
+    if (!existing && missionsEl) {
+      missionsEl.insertAdjacentHTML('beforeend', `
+        <div class="search-empty-state">
+          <div class="empty-title" style="font-size:16px">No tabs match "<em>${query}</em>"</div>
+        </div>`);
+    }
+  } else if (existing) {
+    existing.remove();
+  }
+}
+
+
 
 // Map of known hostnames → friendly display names.
 const FRIENDLY_DOMAINS = {
@@ -1153,8 +1239,14 @@ async function renderStaticDashboard() {
     openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
+
+    // Show the search bar when there are tabs to search
+    const searchWrapper = document.getElementById('searchBarWrapper');
+    if (searchWrapper) searchWrapper.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
+    const searchWrapper = document.getElementById('searchBarWrapper');
+    if (searchWrapper) searchWrapper.style.display = 'none';
   }
 
   // --- Footer stats ---
@@ -1473,6 +1565,30 @@ document.addEventListener('input', async (e) => {
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
+});
+
+
+// ---- Tab search — filter cards as user types ----
+document.addEventListener('input', async (e) => {
+  if (e.target.id !== 'tabSearch') return;
+
+  const query = e.target.value.trim();
+  const clearBtn = document.getElementById('searchClear');
+  if (clearBtn) clearBtn.style.display = query ? 'flex' : 'none';
+
+  await filterTabsBySearch(query);
+
+  // After re-render from clearing, restore focus to the input
+  if (!query) e.target.focus();
+});
+
+document.getElementById('searchClear')?.addEventListener('click', async () => {
+  const input = document.getElementById('tabSearch');
+  if (!input) return;
+  input.value = '';
+  document.getElementById('searchClear').style.display = 'none';
+  await filterTabsBySearch('');
+  input.focus();
 });
 
 
