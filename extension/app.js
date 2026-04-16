@@ -26,6 +26,9 @@
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
+// Chrome tab groups — populated by fetchTabGroups()
+let tabGroupsList = [];
+
 /**
  * fetchOpenTabs()
  *
@@ -45,6 +48,7 @@ async function fetchOpenTabs() {
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
+      groupId:  t.groupId,  // -1 = ungrouped, >= 0 = Chrome tab group id
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
@@ -107,6 +111,74 @@ async function closeTabsExact(urls) {
   const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
+}
+
+/**
+ * closeTabsByIds(ids)
+ *
+ * Closes tabs by their numeric tab ids. Used for closing all tabs
+ * in a Chrome tab group (which are identified by tab id, not URL).
+ */
+async function closeTabsByIds(ids) {
+  if (!ids || ids.length === 0) return;
+  await chrome.tabs.remove(ids);
+  await fetchOpenTabs();
+}
+
+/**
+ * loadViewMode()
+ *
+ * Reads the user's preferred view mode from chrome.storage.local.
+ * Returns 'group' if Chrome tab groups exist, otherwise 'domain'.
+ */
+async function loadViewMode() {
+  const { viewMode } = await chrome.storage.local.get('viewMode');
+  return viewMode || 'group';
+}
+
+/**
+ * saveViewMode(mode)
+ *
+ * Persists the user's preferred view mode to chrome.storage.local.
+ */
+async function saveViewMode(mode) {
+  try { await chrome.storage.local.set({ viewMode: mode }); } catch { /* ignore */ }
+}
+
+/**
+ * fetchTabGroups()
+ *
+ * Reads all Chrome tab groups via the tabGroups API.
+ * Populates the module-level tabGroupsList array.
+ */
+async function fetchTabGroups() {
+  try {
+    const groups = await chrome.tabGroups.query({});
+    tabGroupsList = groups;
+  } catch {
+    // tabGroups API unavailable (permission denied or not supported)
+    tabGroupsList = [];
+  }
+}
+
+/**
+ * detectDuplicateTabs(tabs)
+ *
+ * Analyzes a tab array for duplicate URLs.
+ * Returns { urlCounts, uniqueTabs, hasDupes, totalExtras, dupeUrls }.
+ */
+function detectDuplicateTabs(tabs) {
+  const urlCounts = {};
+  for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  const dupeUrls = Object.entries(urlCounts).filter(([, c]) => c > 1);
+  const hasDupes = dupeUrls.length > 0;
+  const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
+  const seen = new Set();
+  const uniqueTabs = [];
+  for (const tab of tabs) {
+    if (!seen.has(tab.url)) { seen.add(tab.url); uniqueTabs.push(tab); }
+  }
+  return { urlCounts, uniqueTabs, hasDupes, totalExtras, dupeUrls };
 }
 
 /**
@@ -1008,31 +1080,27 @@ function renderArchiveItem(item) {
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
+/* Chrome Tab Group color → CSS hex mapping */
+const CHROME_GROUP_COLORS = {
+  grey:   '#5f6368',
+  blue:   '#1a73e8',
+  red:    '#d93025',
+  yellow: '#f9ab00',
+  green:  '#1e8e3e',
+  pink:   '#e91e63',
+  purple: '#9c27b0',
+  cyan:   '#00bcd4',
+};
+
 /**
- * renderStaticDashboard()
+ * renderDomainView(realTabs)
  *
- * The main render function:
- * 1. Paints greeting + date
- * 2. Fetches open tabs via chrome.tabs.query()
- * 3. Groups tabs by domain (with landing pages pulled out to their own group)
- * 4. Renders domain cards
- * 5. Updates footer stats
- * 6. Renders the "Saved for Later" checklist
+ * Groups realTabs by domain and renders domain cards.
+ * Extracted from renderStaticDashboard() so the domain view can be
+ * called as a standalone branch alongside the group view.
  */
-async function renderStaticDashboard() {
-  // --- Header ---
-  const greetingEl = document.getElementById('greeting');
-  const dateEl     = document.getElementById('dateDisplay');
-  if (greetingEl) greetingEl.textContent = getGreeting();
-  if (dateEl)     dateEl.textContent     = getDateDisplay();
-
-  // --- Fetch tabs ---
-  await fetchOpenTabs();
-  const realTabs = getRealTabs();
-
-  // --- Group tabs by domain ---
+async function renderDomainView(realTabs) {
   // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
-  // so they can be closed together without affecting content tabs on the same domain.
   const LANDING_PAGE_PATTERNS = [
     { hostname: 'mail.google.com', test: (p, h) =>
         !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
@@ -1040,7 +1108,6 @@ async function renderStaticDashboard() {
     { hostname: 'www.linkedin.com',    pathExact: ['/'] },
     { hostname: 'github.com',          pathExact: ['/'] },
     { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
     ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
   ];
 
@@ -1048,7 +1115,6 @@ async function renderStaticDashboard() {
     try {
       const parsed = new URL(url);
       return LANDING_PAGE_PATTERNS.some(p => {
-        // Support both exact hostname and suffix matching (for wildcard subdomains)
         const hostnameMatch = p.hostname
           ? parsed.hostname === p.hostname
           : p.hostnameEndsWith
@@ -1067,10 +1133,8 @@ async function renderStaticDashboard() {
   const groupMap    = {};
   const landingTabs = [];
 
-  // Custom group rules from config.local.js (if any)
   const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
 
-  // Check if a URL matches a custom group rule; returns the rule or null
   function matchCustomGroup(url) {
     try {
       const parsed = new URL(url);
@@ -1082,7 +1146,7 @@ async function renderStaticDashboard() {
             : false;
         if (!hostMatch) return false;
         if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
-        return true; // hostname matched, no path filter
+        return true;
       }) || null;
     } catch { return null; }
   }
@@ -1093,8 +1157,6 @@ async function renderStaticDashboard() {
         landingTabs.push(tab);
         continue;
       }
-
-      // Check custom group rules first (e.g. merge subdomains, split by path)
       const customRule = matchCustomGroup(tab.url);
       if (customRule) {
         const key = customRule.groupKey;
@@ -1102,7 +1164,6 @@ async function renderStaticDashboard() {
         groupMap[key].tabs.push(tab);
         continue;
       }
-
       let hostname;
       if (tab.url && tab.url.startsWith('file://')) {
         hostname = 'local-files';
@@ -1110,20 +1171,15 @@ async function renderStaticDashboard() {
         hostname = new URL(tab.url).hostname;
       }
       if (!hostname) continue;
-
       if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
       groupMap[hostname].tabs.push(tab);
-    } catch {
-      // Skip malformed URLs
-    }
+    } catch { /* skip malformed URLs */ }
   }
 
   if (landingTabs.length > 0) {
     groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
   }
 
-  // Sort: landing pages first, then domains from landing page sites, then by tab count
-  // Collect exact hostnames and suffix patterns for priority sorting
   const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
   const landingSuffixes = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
   function isLandingDomain(domain) {
@@ -1134,15 +1190,13 @@ async function renderStaticDashboard() {
     const aIsLanding = a.domain === '__landing-pages__';
     const bIsLanding = b.domain === '__landing-pages__';
     if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
-
     const aIsPriority = isLandingDomain(a.domain);
     const bIsPriority = isLandingDomain(b.domain);
     if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
-
     return b.tabs.length - a.tabs.length;
   });
 
-  // --- Render domain cards ---
+  // Render
   const openTabsSection      = document.getElementById('openTabsSection');
   const openTabsMissionsEl   = document.getElementById('openTabsMissions');
   const openTabsSectionCount = document.getElementById('openTabsSectionCount');
@@ -1150,11 +1204,250 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
+  }
+}
+
+/**
+ * renderGroupView()
+ *
+ * Renders the Chrome tab group view:
+ * 1. Chrome groups as cards (with color accent bars)
+ * 2. Ungrouped tabs as a lightweight "Not grouped" chip cluster
+ */
+async function renderGroupView(viewMode) {
+  const openTabsSection      = document.getElementById('openTabsSection');
+  const openTabsMissionsEl = document.getElementById('openTabsMissions');
+  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+  if (!openTabsSection) return;
+
+  const realTabs = getRealTabs();
+
+  // Partition tabs: grouped (groupId >= 0) vs ungrouped (groupId === -1)
+  const groupedTabs   = realTabs.filter(t => t.groupId >= 0);
+  const ungroupedTabs = realTabs.filter(t => t.groupId === -1);
+
+  // Build group data: map<groupId, { groupInfo, tabs[] }>
+  const groupData = new Map();
+  for (const group of tabGroupsList) {
+    groupData.set(group.id, { groupInfo: group, tabs: [] });
+  }
+  for (const tab of groupedTabs) {
+    if (groupData.has(tab.groupId)) {
+      groupData.get(tab.groupId).tabs.push(tab);
+    }
+  }
+
+  // Sort groups by minimum tab.index (Chrome's visual order)
+  const sortedGroups = Array.from(groupData.values())
+    .filter(g => g.tabs.length > 0)
+    .sort((a, b) => {
+      const aMin = Math.min(...a.tabs.map(t => t.index));
+      const bMin = Math.min(...b.tabs.map(t => t.index));
+      return aMin - bMin;
+    });
+
+  const groupCount = sortedGroups.length;
+  const ungroupedCount = ungroupedTabs.length;
+
+  // Render section header with toggle + count
+  if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
+  const closeAllId = 'close-all-open-tabs-group';
+  openTabsSectionCount.innerHTML = `
+    <span class="view-toggle">
+      <button class="toggle-pill ${viewMode === 'group' ? 'active' : ''}" data-action="switch-view" data-view="group">Groups</button>
+      <button class="toggle-pill" data-action="switch-view" data-view="domain">Domains</button>
+    </span>
+    &nbsp;&nbsp;${groupCount} group${groupCount !== 1 ? 's' : ''}${ungroupedCount > 0 ? ` · ${ungroupedCount} ungrouped` : ''}
+    &nbsp;&nbsp;<button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+
+  // Render group cards + ungrouped section
+  let html = '';
+
+  for (const { groupInfo, tabs } of sortedGroups) {
+    html += renderTabGroupCard(groupInfo, tabs);
+  }
+
+  if (ungroupedTabs.length > 0) {
+    html += renderUngroupedSection(ungroupedTabs);
+  }
+
+  if (sortedGroups.length > 0 || ungroupedTabs.length > 0) {
+    openTabsMissionsEl.innerHTML = html;
+    openTabsSection.style.display = 'block';
+  } else {
+    openTabsMissionsEl.innerHTML = '';
+    openTabsSection.style.display = 'none';
+  }
+}
+
+/**
+ * renderTabGroupCard(groupInfo, tabs)
+ *
+ * Renders a Chrome tab group as a card, similar to renderDomainCard().
+ * Uses the group color for the status bar. Same chip structure as domain cards.
+ */
+function renderTabGroupCard(groupInfo, tabs) {
+  const color  = CHROME_GROUP_COLORS[groupInfo.color] || '#5f6368';
+  const name   = groupInfo.title || '(unnamed)';
+  const tabCount = tabs.length;
+
+  const { urlCounts, uniqueTabs, hasDupes, totalExtras, dupeUrls } = detectDuplicateTabs(tabs);
+
+  const tabBadge = `<span class="open-tabs-badge">
+    ${ICONS.tabs}
+    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+  </span>`;
+
+  const dupeBadge = hasDupes
+    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
+        ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+      </span>`
+    : '';
+
+  const visibleTabs  = uniqueTabs.slice(0, 8);
+  const extraCount  = uniqueTabs.length - visibleTabs.length;
+
+  const pageChips = visibleTabs.map(tab => {
+    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    const count    = urlCounts[tab.url];
+    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
+    const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
+    const safeTitle = label.replace(/"/g, '&quot;');
+    let domain = '';
+    try { domain = new URL(tab.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <span class="chip-text">${label}</span>${dupeTag}
+      <div class="chip-actions">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
+
+  const tabIds = tabs.map(t => t.id);
+  let actionsHtml = `
+    <button class="action-btn close-tabs" data-action="close-group-tabs" data-group-id="${groupInfo.id}">
+      ${ICONS.close}
+      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+    </button>
+    <button class="action-btn" data-action="ungroup-tabs" data-group-id="${groupInfo.id}" style="color:var(--accent-blue);">
+      Ungroup
+    </button>`;
+
+  if (hasDupes) {
+    const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
+    actionsHtml += `
+      <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
+        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+      </button>`;
+  }
+
+  const stableId = 'group-' + String(groupInfo.id);
+
+  return `
+    <div class="mission-card group-card" data-group-id="${stableId}">
+      <div class="status-bar" style="background:${color}"></div>
+      <div class="mission-content">
+        <div class="mission-top">
+          <span class="mission-name">${name}</span>
+          ${tabBadge}
+          ${dupeBadge}
+        </div>
+        <div class="mission-pages">${pageChips}</div>
+        <div class="actions">${actionsHtml}</div>
+      </div>
+      <div class="mission-meta">
+        <div class="mission-page-count">${tabCount}</div>
+        <div class="mission-page-label">tabs</div>
+      </div>
+    </div>`;
+}
+
+/**
+ * renderUngroupedSection(ungroupedTabs)
+ *
+ * Lightweight chip cluster for ungrouped tabs in group view.
+ * NOT a full domain card — just a labeled chip section.
+ */
+function renderUngroupedSection(ungroupedTabs) {
+  const { urlCounts, uniqueTabs } = detectDuplicateTabs(ungroupedTabs);
+
+  const chips = uniqueTabs.map(tab => {
+    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    const count    = urlCounts[tab.url];
+    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
+    const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
+    const safeTitle = label.replace(/"/g, '&quot;');
+    let domain = '';
+    try { domain = new URL(tab.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <span class="chip-text">${label}</span>${dupeTag}
+      <div class="chip-actions">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="ungrouped-section">
+      <div class="ungrouped-label">Not grouped</div>
+      <div class="ungrouped-chips">${chips}</div>
+    </div>`;
+}
+
+/**
+ * renderStaticDashboard()
+ *
+ * The main render function:
+ * 1. Paints greeting + date
+ * 2. Fetches open tabs and tab groups via chrome APIs
+ * 3. Branches to group view or domain view based on viewMode
+ * 4. Updates footer stats
+ * 5. Renders the "Saved for Later" checklist
+ * 6. Sets up 30-second auto-refresh
+ */
+async function renderStaticDashboard() {
+  // --- Header ---
+  const greetingEl = document.getElementById('greeting');
+  const dateEl     = document.getElementById('dateDisplay');
+  if (greetingEl) greetingEl.textContent = getGreeting();
+  if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Fetch tabs + tab groups in parallel ---
+  await Promise.all([fetchOpenTabs(), fetchTabGroups()]);
+  const realTabs = getRealTabs();
+
+  // --- Determine view mode ---
+  // If no Chrome groups exist, force domain view and hide the toggle.
+  const storedView    = await loadViewMode();
+  const effectiveView  = (tabGroupsList.length === 0) ? 'domain' : storedView;
+
+  // --- Branch on view mode ---
+  if (effectiveView === 'group') {
+    await renderGroupView(effectiveView);
+  } else {
+    await renderDomainView(realTabs);
   }
 
   // --- Footer stats ---
@@ -1166,6 +1459,20 @@ async function renderStaticDashboard() {
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+
+  // --- 30-second auto-refresh (clears stale group state) ---
+  if (window._tabOutRefreshTimer) clearInterval(window._tabOutRefreshTimer);
+  window._tabOutRefreshTimer = setInterval(async () => {
+    await Promise.all([fetchOpenTabs(), fetchTabGroups()]);
+    const stored = await loadViewMode();
+    const view   = (tabGroupsList.length === 0) ? 'domain' : stored;
+    if (view === 'group') {
+      await renderGroupView(view);
+    } else {
+      await renderDomainView(getRealTabs());
+    }
+    if (statTabs) statTabs.textContent = openTabs.length;
+  }, 30000);
 }
 
 async function renderDashboard() {
@@ -1412,6 +1719,46 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Switch view mode (Groups <-> Domains) ----
+  if (action === 'switch-view') {
+    const newView = actionEl.dataset.view;
+    await saveViewMode(newView);
+    await renderDashboard();
+    return;
+  }
+
+  // ---- Close all tabs in a Chrome tab group ----
+  if (action === 'close-group-tabs') {
+    const groupId = Number(actionEl.dataset.groupId);
+    const groupTabs = openTabs.filter(t => t.groupId === groupId);
+    const tabIds = groupTabs.map(t => t.id);
+    await closeTabsByIds(tabIds);
+    playCloseSound();
+    const card = document.querySelector(`[data-group-id="group-${groupId}"]`);
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      animateCardOut(card);
+    }
+    const statTabs = document.getElementById('statTabs');
+    if (statTabs) statTabs.textContent = openTabs.length;
+    showToast(`Closed ${tabIds.length} tab${tabIds.length !== 1 ? 's' : ''} from group`);
+    return;
+  }
+
+  // ---- Ungroup a Chrome tab group (move tabs out) ----
+  if (action === 'ungroup-tabs') {
+    const groupId = Number(actionEl.dataset.groupId);
+    const groupTabs = openTabs.filter(t => t.groupId === groupId);
+    for (const tab of groupTabs) {
+      try { await chrome.tabs.ungroup(tab.id); } catch { /* already closed or ungrouped */ }
+    }
+    await fetchOpenTabs();
+    await renderDashboard();
+    showToast(`Ungrouped ${groupTabs.length} tab${groupTabs.length !== 1 ? 's' : ''}`);
+    return;
+  }
+
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
@@ -1475,6 +1822,22 @@ document.addEventListener('input', async (e) => {
   }
 });
 
+
+/* ----------------------------------------------------------------
+   KEYBOARD SHORTCUTS
+   ---------------------------------------------------------------- */
+
+// Ctrl/Cmd + Shift + G — toggle between group and domain view
+document.addEventListener('keydown', async (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'G') {
+    e.preventDefault();
+    const stored = await loadViewMode();
+    const current = (tabGroupsList.length === 0) ? 'domain' : stored;
+    const next = current === 'group' ? 'domain' : 'group';
+    await saveViewMode(next);
+    await renderDashboard();
+  }
+});
 
 /* ----------------------------------------------------------------
    INITIALIZE

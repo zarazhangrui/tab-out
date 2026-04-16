@@ -1156,3 +1156,57 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+/* ---- View toggle pills ---- */
+.view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid rgba(154, 145, 138, 0.15);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.toggle-pill {
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.toggle-pill.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.toggle-pill:hover:not(.active) {
+  color: var(--ink);
+}
+
+/* ---- Ungrouped section ---- */
+.ungrouped-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(154, 145, 138, 0.1);
+}
+
+.ungrouped-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.ungrouped-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
