@@ -912,12 +912,13 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
    ---------------------------------------------------------------- */
 
 /**
- * renderDomainCard(group, groupIndex)
+ * renderDomainCard(group, globalUrlCounts)
  *
  * Builds the HTML for one domain group card.
  * group = { domain: string, tabs: [{ url, title, id, windowId, active }] }
+ * globalUrlCounts = URL count map across ALL windows (for cross-window dupe detection)
  */
-function renderDomainCard(group) {
+function renderDomainCard(group, globalUrlCounts = null) {
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
   const isLanding = group.domain === '__landing-pages__';
@@ -926,9 +927,15 @@ function renderDomainCard(group) {
   const windowSuffix = group.windowId ? '-w' + group.windowId : '';
   const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-') + windowSuffix;
 
-  // Count duplicates (exact URL match)
+  // Count duplicates using global counts (cross-window) when available,
+  // falling back to local counts within this group.
   const urlCounts = {};
-  for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  if (globalUrlCounts) {
+    // Use global counts but only for URLs present in this group
+    for (const tab of tabs) urlCounts[tab.url] = globalUrlCounts[tab.url] || 1;
+  } else {
+    for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  }
   const dupeUrls    = Object.entries(urlCounts).filter(([, c]) => c > 1);
   const hasDupes    = dupeUrls.length > 0;
   const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
@@ -1317,6 +1324,12 @@ async function renderStaticDashboard() {
     );
     const multiWindow = windowIds.length > 1;
 
+    // Compute global URL counts across ALL windows for cross-window dupe detection
+    const globalUrlCounts = {};
+    for (const tab of realTabs) {
+      if (tab.url) globalUrlCounts[tab.url] = (globalUrlCounts[tab.url] || 0) + 1;
+    }
+
     // Build HTML — add a window section header before each window's cards
     let cardsHtml = '';
     windowIds.forEach((wid, idx) => {
@@ -1335,7 +1348,7 @@ async function renderStaticDashboard() {
         cardsHtml += `<div class="window-section-header" style="column-span:all">${label}${switchBtn}</div>`;
       }
       const groups = splitGroups.filter(g => g.windowId === wid);
-      cardsHtml += groups.map(g => renderDomainCard(g)).join('');
+      cardsHtml += groups.map(g => renderDomainCard(g, globalUrlCounts)).join('');
     });
 
     openTabsMissionsEl.innerHTML = cardsHtml;
