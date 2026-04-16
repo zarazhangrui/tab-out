@@ -1121,6 +1121,94 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
 }
 
+/* ---- Open Tabs Search (inline in section-header) ---- */
+
+/* Pill wrapper — always visible, houses icon + input + hint */
+.open-tabs-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 20px;
+  background: transparent;
+  cursor: text;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.open-tabs-search-wrap:focus-within {
+  background: var(--card-bg);
+  border-color: var(--accent-slate);
+  box-shadow: 0 0 0 3px rgba(90, 107, 122, 0.08);
+}
+
+/* Magnifying glass icon — always shown */
+.search-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.2s;
+}
+.open-tabs-search-wrap:focus-within .search-icon {
+  color: var(--accent-slate);
+}
+
+/* The text input — grows on focus */
+.open-tabs-search {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  width: 80px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  transition: width 0.2s ease;
+}
+
+.open-tabs-search:focus,
+.open-tabs-search:not(:placeholder-shown) {
+  width: 160px;
+}
+
+.open-tabs-search::placeholder {
+  color: var(--muted);
+}
+
+/* "/" hint badge — always visible, fades when active */
+.open-tabs-search-hint {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--warm-gray);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.open-tabs-search-wrap:focus-within .open-tabs-search-hint,
+.open-tabs-search:not(:placeholder-shown) ~ .open-tabs-search-hint {
+  opacity: 0;
+}
+
+/* When actively filtering: expand overflow chip containers */
+.missions.is-searching .page-chips-overflow {
+  display: contents !important;
+}
+.missions.is-searching .page-chip-overflow {
+  display: none !important;
+}
+
+/* Hide non-matching chips and empty cards */
+.page-chip.search-hidden {
+  display: none !important;
+}
+.mission-card.search-hidden {
+  display: none !important;
+}
+
 /* Archive items are simpler — just title + domain + date */
 .archive-item {
   display: flex;
