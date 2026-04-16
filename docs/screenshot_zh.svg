@@ -1,0 +1,150 @@
+<svg width="1200" height="660" viewBox="0 0 1200 660" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <filter id="s" x="-2%" y="-5%" width="106%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="#00000012"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="660" fill="#f0ebe0"/>
+
+  <!-- ── HEADER ── -->
+  <text x="48" y="58" font-size="28" font-weight="300" fill="#1c1a17" font-family="Georgia, 'Times New Roman', serif">下午好</text>
+  <text x="48" y="79" font-size="12.5" fill="#b0a898">2026年4月16日 星期三</text>
+
+  <!-- ── SEARCH BAR ── -->
+  <rect x="48" y="97" width="310" height="34" rx="17" fill="white" stroke="#ddd5c5" stroke-width="1" filter="url(#s)"/>
+  <circle cx="69" cy="114" r="5.5" fill="none" stroke="#ccc" stroke-width="1.5"/>
+  <line x1="73" y1="118" x2="76" y2="121" stroke="#ccc" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="86" y="119" font-size="12.5" fill="#ccc">搜索标签页…</text>
+
+  <!-- ── SECTION HEADER: OPEN TABS ── -->
+  <text x="48" y="158" font-size="10.5" font-weight="700" fill="#999" letter-spacing="1.5">当前标签页</text>
+  <line x1="120" y1="152" x2="910" y2="152" stroke="#ddd5c5" stroke-width="1"/>
+  <text x="918" y="158" font-size="10.5" fill="#bbb">6 个域名 · 关闭全部 12 个</text>
+
+  <!-- ══════════════════════════════════════════════
+       WINDOW SECTION HEADER 1 — 当前窗口
+       ══════════════════════════════════════════════ -->
+  <text x="48" y="183" font-size="13" font-weight="600" fill="#4a4540">当前窗口</text>
+  <rect x="1074" y="168" width="90" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="1083" y="184" font-size="10.5" fill="#b35a5a">×  关闭窗口</text>
+
+  <!-- ══════════════════════════════════════════════
+       ROW 1 — y=196, card h=168
+       col1 x=48  col2 x=422  col3 x=796
+       ══════════════════════════════════════════════ -->
+
+  <!-- ── CARD 1: GitHub (active / green) ── -->
+  <rect x="48" y="196" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="48" y="196" width="354" height="4" rx="2" fill="#5a7a62"/>
+  <text x="66" y="224" font-size="14" font-weight="600" fill="#1c1a17">GitHub</text>
+  <rect x="116" y="210" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="126" y="223" font-size="10" fill="#777">▣  3 个标签页</text>
+  <text x="198" y="223" font-size="10" fill="#5a7a62">2 分钟前</text>
+  <rect x="66" y="236" width="136" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="80" y="252" font-size="11" fill="#3a3530">jacky-ch93/tab-out</text>
+  <rect x="210" y="236" width="90" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="224" y="252" font-size="11" fill="#3a3530">Pull requests</text>
+  <rect x="66" y="268" width="90" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="80" y="284" font-size="11" fill="#3a3530">Explore repos</text>
+  <rect x="66" y="332" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="80" y="348" font-size="10.5" fill="#888">×  关闭全部 3 个</text>
+
+  <!-- ── CARD 2: 主页 (cooling / amber) ── -->
+  <rect x="422" y="196" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="422" y="196" width="354" height="4" rx="2" fill="#c8713a"/>
+  <text x="440" y="224" font-size="14" font-weight="600" fill="#1c1a17">主页</text>
+  <rect x="474" y="210" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="484" y="223" font-size="10" fill="#777">▣  3 个标签页</text>
+  <text x="556" y="223" font-size="10" fill="#c8713a">1 小时前</text>
+  <rect x="440" y="236" width="60" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="454" y="252" font-size="11" fill="#3a3530">Gmail</text>
+  <rect x="508" y="236" width="52" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="522" y="252" font-size="11" fill="#3a3530">X.com</text>
+  <rect x="568" y="236" width="76" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="582" y="252" font-size="11" fill="#3a3530">YouTube</text>
+  <rect x="440" y="332" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="454" y="348" font-size="10.5" fill="#888">×  关闭全部 3 个</text>
+
+  <!-- ── CARD 3: ChatGPT (dupes / amber) ── -->
+  <rect x="796" y="196" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="796" y="196" width="354" height="4" rx="2" fill="#c8713a"/>
+  <text x="814" y="224" font-size="14" font-weight="600" fill="#1c1a17">ChatGPT</text>
+  <rect x="878" y="210" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="888" y="223" font-size="10" fill="#777">▣  3 个标签页</text>
+  <rect x="958" y="210" width="72" height="19" rx="9.5" fill="rgba(200,113,58,0.12)"/>
+  <text x="966" y="223" font-size="10" fill="#c8713a">2 个重复</text>
+  <rect x="814" y="236" width="84" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="828" y="252" font-size="11" fill="#3a3530">New chat</text>
+  <rect x="906" y="236" width="84" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1" opacity="0.7"/>
+  <text x="920" y="252" font-size="11" fill="#3a3530">New chat</text>
+  <rect x="990" y="238" width="30" height="18" rx="9" fill="rgba(200,113,58,0.15)"/>
+  <text x="994" y="251" font-size="9.5" fill="#c8713a">(2x)</text>
+  <rect x="814" y="268" width="138" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="828" y="284" font-size="11" fill="#3a3530">Summarize this paper</text>
+  <rect x="814" y="332" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="828" y="348" font-size="10.5" fill="#888">×  关闭全部 3 个</text>
+  <rect x="938" y="332" width="108" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="950" y="348" font-size="10.5" fill="#c8713a">关闭 2 个重复</text>
+
+  <!-- ══════════════════════════════════════════════
+       WINDOW SECTION HEADER 2 — 窗口 2
+       ══════════════════════════════════════════════ -->
+  <text x="48" y="390" font-size="13" font-weight="600" fill="#4a4540">窗口 2</text>
+  <rect x="944" y="375" width="72" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="958" y="391" font-size="10.5" fill="#c8713a">↗  跳转</text>
+  <rect x="1024" y="375" width="90" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="1033" y="391" font-size="10.5" fill="#b35a5a">×  关闭窗口</text>
+
+  <!-- ══════════════════════════════════════════════
+       ROW 2 — y=403, card h=168
+       ══════════════════════════════════════════════ -->
+
+  <!-- ── CARD 4: Notion (active / green) ── -->
+  <rect x="48" y="403" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="48" y="403" width="354" height="4" rx="2" fill="#5a7a62"/>
+  <text x="66" y="431" font-size="14" font-weight="600" fill="#1c1a17">Notion</text>
+  <rect x="110" y="417" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="120" y="430" font-size="10" fill="#777">▣  2 个标签页</text>
+  <text x="192" y="430" font-size="10" fill="#5a7a62">8 分钟前</text>
+  <rect x="66" y="443" width="102" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="80" y="459" font-size="11" fill="#3a3530">Tab Out roadmap</text>
+  <rect x="176" y="443" width="112" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="190" y="459" font-size="11" fill="#3a3530">Weekly planning</text>
+  <rect x="66" y="539" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="80" y="555" font-size="10.5" fill="#888">×  关闭全部 2 个</text>
+
+  <!-- ── CARD 5: Stack Overflow (abandoned / red) ── -->
+  <rect x="422" y="403" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="422" y="403" width="354" height="4" rx="2" fill="#b35a5a"/>
+  <text x="440" y="431" font-size="14" font-weight="600" fill="#1c1a17">Stack Overflow</text>
+  <rect x="576" y="417" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="586" y="430" font-size="10" fill="#777">▣  1 个标签页</text>
+  <text x="658" y="430" font-size="10" fill="#b35a5a">5 小时前</text>
+  <rect x="440" y="443" width="192" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="454" y="459" font-size="11" fill="#3a3530">javascript - async/await...</text>
+  <rect x="440" y="539" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="454" y="555" font-size="10.5" fill="#888">×  关闭全部 1 个</text>
+
+  <!-- ── CARD 6: YouTube (cooling / amber) ── -->
+  <rect x="796" y="403" width="354" height="168" rx="8" fill="white" filter="url(#s)"/>
+  <rect x="796" y="403" width="354" height="4" rx="2" fill="#c8713a"/>
+  <text x="814" y="431" font-size="14" font-weight="600" fill="#1c1a17">YouTube</text>
+  <rect x="872" y="417" width="72" height="19" rx="9.5" fill="#f0ebe0"/>
+  <text x="882" y="430" font-size="10" fill="#777">▣  2 个标签页</text>
+  <text x="954" y="430" font-size="10" fill="#c8713a">2 小时前</text>
+  <rect x="814" y="443" width="162" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="828" y="459" font-size="11" fill="#3a3530">Fireship — New JS features</text>
+  <rect x="814" y="475" width="144" height="24" rx="12" fill="#f5f0e8" stroke="#e5ddd0" stroke-width="1"/>
+  <text x="828" y="491" font-size="11" fill="#3a3530">Tech with Tim — React</text>
+  <rect x="814" y="539" width="116" height="24" rx="4" fill="#f5f0e8" stroke="#e0d8cc" stroke-width="1"/>
+  <text x="828" y="555" font-size="10.5" fill="#888">×  关闭全部 2 个</text>
+
+  <!-- ── FOOTER ── -->
+  <line x1="0" y1="594" x2="1200" y2="594" stroke="#ddd5c5" stroke-width="1"/>
+  <rect x="0" y="594" width="1200" height="66" fill="#ebe6da"/>
+  <text x="48" y="629" font-size="22" font-weight="300" fill="#1c1a17" font-family="Georgia, serif">12</text>
+  <text x="48" y="648" font-size="10" fill="#aaa" letter-spacing="0.8">标签页数</text>
+  <text x="600" y="632" font-size="11" fill="#bbb" text-anchor="middle">Tab Out · 由 jacky-h.c 开发 · 基于 Zara 的原版</text>
+</svg>

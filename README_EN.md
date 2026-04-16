@@ -10,6 +10,27 @@ No server. No account. No external API calls. Just a Chrome extension.
 
 ---
 
+![Tab Out interface preview](docs/screenshot.svg)
+
+---
+
+## Why Tab Out
+
+Browsers are designed to make opening tabs effortless — search results open in a new tab, links right-click to "open in new tab", Cmd+T is always right there. But nothing ever nudges you to close the ones you no longer need.
+
+So the pile quietly grows:
+
+- **Your browser gets slower** — every tab consumes memory and CPU; dozens running in the background means fans spinning, battery draining, everything sluggish
+- **You can't find the tab you actually want** — thirty tiny favicons in a row, so you either squint and scan or just search again
+- **You've opened the same page multiple times** — you open ChatGPT and find three already there, but have no idea which one you were using
+- **"Read it later" never comes** — those "I'll get to it" tabs just sit there, never read, never closed, piling up endlessly
+- **Multiple windows with no overview** — work in one window, social media in another, no single view of everything
+- **Background anxiety** — you know there's a pile of unfinished stuff open; it quietly drains your attention
+
+Tab Out flips the script: **makes closing tabs easy, clear, and even a little satisfying**. Open it and see everything at a glance — spot which tabs haven't been touched in days, which are duplicates, which you can just clear out — then close them with a swoosh and confetti.
+
+---
+
 ## Features
 
 **Core**
