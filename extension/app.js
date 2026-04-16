@@ -1339,13 +1339,13 @@ async function renderStaticDashboard() {
           ? `<button class="window-switch-btn" data-action="focus-window" data-window-id="${wid}" title="Switch to this window">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
               Switch here
-            </button>
-            <button class="window-switch-btn window-close-btn" data-action="close-window-tabs" data-window-id="${wid}" title="Close all tabs in this window">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-              Close window
             </button>`
           : '';
-        cardsHtml += `<div class="window-section-header" style="column-span:all">${label}${switchBtn}</div>`;
+        const closeBtn = `<button class="window-switch-btn window-close-btn" data-action="close-window-tabs" data-window-id="${wid}" title="Close all tabs in this window">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+              Close window
+            </button>`;
+        cardsHtml += `<div class="window-section-header" style="column-span:all">${label}${switchBtn}${closeBtn}</div>`;
       }
       const groups = splitGroups.filter(g => g.windowId === wid);
       cardsHtml += groups.map(g => renderDomainCard(g, globalUrlCounts)).join('');
