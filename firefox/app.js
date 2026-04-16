@@ -23,6 +23,14 @@
    access to chrome.tabs and chrome.storage. No middleman needed.
    ---------------------------------------------------------------- */
 
+// Cross-browser API wrapper: Firefox uses browser.* (native Promises), Chrome uses chrome.*
+const browserAPI = {
+  tabs:    (typeof browser !== 'undefined' && browser.tabs)    ? browser.tabs    : chrome.tabs,
+  windows: (typeof browser !== 'undefined' && browser.windows) ? browser.windows : chrome.windows,
+  storage: (typeof browser !== 'undefined' && browser.storage) ? browser.storage : chrome.storage,
+  runtime: (typeof browser !== 'undefined' && browser.runtime) ? browser.runtime : chrome.runtime,
+};
+
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
@@ -34,11 +42,13 @@ let openTabs = [];
  */
 async function fetchOpenTabs() {
   try {
-    const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
-    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+    const extensionId = browserAPI.runtime.id;
+    // Extension URL varies by browser: chrome-extension:// or moz-extension://
+    const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
+    const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
+    const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
 
-    const tabs = await chrome.tabs.query({});
+    const tabs = await browserAPI.tabs.query({});
     openTabs = tabs.map(t => ({
       id:       t.id,
       url:      t.url,
@@ -46,7 +56,10 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
+      isTabOut: t.url === newtabUrl ||
+                t.url === 'chrome://newtab/' ||
+                t.url === 'about:newtab' ||
+                t.url === 'about:home',
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -78,7 +91,7 @@ async function closeTabsByUrls(urls) {
     }
   }
 
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await browserAPI.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
       const tabUrl = tab.url || '';
@@ -90,7 +103,7 @@ async function closeTabsByUrls(urls) {
     })
     .map(tab => tab.id);
 
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -103,9 +116,9 @@ async function closeTabsByUrls(urls) {
 async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await browserAPI.tabs.query({});
   const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -117,8 +130,8 @@ async function closeTabsExact(urls) {
  */
 async function focusTab(url) {
   if (!url) return;
-  const allTabs = await chrome.tabs.query({});
-  const currentWindow = await chrome.windows.getCurrent();
+  const allTabs = await browserAPI.tabs.query({});
+  const currentWindow = await browserAPI.windows.getCurrent();
 
   // Try exact URL match first
   let matches = allTabs.filter(t => t.url === url);
@@ -138,8 +151,8 @@ async function focusTab(url) {
 
   // Prefer a match in a different window so it actually switches windows
   const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
-  await chrome.tabs.update(match.id, { active: true });
-  await chrome.windows.update(match.windowId, { focused: true });
+  await browserAPI.tabs.update(match.id, { active: true });
+  await browserAPI.windows.update(match.windowId, { focused: true });
 }
 
 /**
@@ -150,7 +163,7 @@ async function focusTab(url) {
  * keepOne=false → close all copies.
  */
 async function closeDuplicateTabs(urls, keepOne = true) {
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await browserAPI.tabs.query({});
   const toClose = [];
 
   for (const url of urls) {
@@ -165,7 +178,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
     }
   }
 
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -175,13 +188,18 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  * Closes all duplicate Tab Out new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
-  const extensionId = chrome.runtime.id;
-  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+  const extensionId = browserAPI.runtime.id;
+  const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
+  const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
+  const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
 
-  const allTabs = await chrome.tabs.query({});
-  const currentWindow = await chrome.windows.getCurrent();
+  const allTabs = await browserAPI.tabs.query({});
+  const currentWindow = await browserAPI.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
+    t.url === newtabUrl ||
+    t.url === 'chrome://newtab/' ||
+    t.url === 'about:newtab' ||
+    t.url === 'about:home'
   );
 
   if (tabOutTabs.length <= 1) return;
@@ -193,7 +211,7 @@ async function closeTabOutDupes() {
     tabOutTabs.find(t => t.active) ||
     tabOutTabs[0];
   const toClose = tabOutTabs.filter(t => t.id !== keep.id).map(t => t.id);
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -226,7 +244,7 @@ async function closeTabOutDupes() {
  * @param {{ url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
   deferred.push({
     id:        Date.now().toString(),
     url:       tab.url,
@@ -235,7 +253,7 @@ async function saveTabForLater(tab) {
     completed: false,
     dismissed: false,
   });
-  await chrome.storage.local.set({ deferred });
+  await browserAPI.storage.local.set({ deferred });
 }
 
 /**
@@ -246,7 +264,7 @@ async function saveTabForLater(tab) {
  * Splits into active (not completed) and archived (completed).
  */
 async function getSavedTabs() {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
   const visible = deferred.filter(t => !t.dismissed);
   return {
     active:   visible.filter(t => !t.completed),
@@ -260,12 +278,12 @@ async function getSavedTabs() {
  * Marks a saved tab as completed (checked off). It moves to the archive.
  */
 async function checkOffSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
   const tab = deferred.find(t => t.id === id);
   if (tab) {
     tab.completed = true;
     tab.completedAt = new Date().toISOString();
-    await chrome.storage.local.set({ deferred });
+    await browserAPI.storage.local.set({ deferred });
   }
 }
 
@@ -275,11 +293,11 @@ async function checkOffSavedTab(id) {
  * Marks a saved tab as dismissed (removed from all lists).
  */
 async function dismissSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
   const tab = deferred.find(t => t.id === id);
   if (tab) {
     tab.dismissed = true;
-    await chrome.storage.local.set({ deferred });
+    await browserAPI.storage.local.set({ deferred });
   }
 }
 
@@ -727,7 +745,9 @@ function getRealTabs() {
       !url.startsWith('chrome-extension://') &&
       !url.startsWith('about:') &&
       !url.startsWith('edge://') &&
-      !url.startsWith('brave://')
+      !url.startsWith('brave://') &&
+      !url.startsWith('moz-extension://') &&
+      !url.startsWith('resource://')
     );
   });
 }
@@ -1228,9 +1248,9 @@ document.addEventListener('click', async (e) => {
     if (!tabUrl) return;
 
     // Close the tab in Chrome directly
-    const allTabs = await chrome.tabs.query({});
+    const allTabs = await browserAPI.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (match) await browserAPI.tabs.remove(match.id);
     await fetchOpenTabs();
 
     playCloseSound();
@@ -1281,9 +1301,9 @@ document.addEventListener('click', async (e) => {
     }
 
     // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
+    const allTabs = await browserAPI.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (match) await browserAPI.tabs.remove(match.id);
     await fetchOpenTabs();
 
     // Animate chip out
@@ -1415,7 +1435,18 @@ document.addEventListener('click', async (e) => {
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
+      .filter(t => {
+        if (!t.url) return false;
+        return (
+          !t.url.startsWith('chrome://') &&
+          !t.url.startsWith('chrome-extension://') &&
+          !t.url.startsWith('edge://') &&
+          !t.url.startsWith('brave://') &&
+          !t.url.startsWith('about:') &&
+          !t.url.startsWith('moz-extension://') &&
+          !t.url.startsWith('resource://')
+        );
+      })
       .map(t => t.url);
     await closeTabsByUrls(allUrls);
     playCloseSound();
