@@ -114,9 +114,10 @@ async function closeTabsExact(urls) {
  *
  * Switches Chrome to the tab with the given URL (exact match first,
  * then hostname fallback). Also brings the window to the front.
+ * Returns true if a matching tab was focused, false if none was found.
  */
 async function focusTab(url) {
-  if (!url) return;
+  if (!url) return false;
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
 
@@ -134,12 +135,13 @@ async function focusTab(url) {
     } catch {}
   }
 
-  if (matches.length === 0) return;
+  if (matches.length === 0) return false;
 
   // Prefer a match in a different window so it actually switches windows
   const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
   await chrome.tabs.update(match.id, { active: true });
   await chrome.windows.update(match.windowId, { focused: true });
+  return true;
 }
 
 /**
@@ -281,6 +283,100 @@ async function dismissSavedTab(id) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
   }
+}
+
+
+/* ----------------------------------------------------------------
+   QUICK ACCESS — chrome.storage.local
+
+   A row of favicon shortcuts rendered in the header's right side.
+   Stored under the "quickAccess" key. Seeded with a small default
+   set ONLY when the key has never been written — after the user
+   has edited the list even once (including clearing it), we respect
+   their choice and don't re-seed.
+
+   Shape:
+   [
+     { id: "1712345678901", url: "https://mail.google.com/mail/u/0/#inbox", label: "Gmail" },
+     ...
+   ]
+   ---------------------------------------------------------------- */
+
+const QUICK_ACCESS_DEFAULTS = [
+  { url: 'https://mail.google.com/mail/u/0/#inbox', label: 'Gmail' },
+  { url: 'https://x.com/home',                     label: 'X' },
+  { url: 'https://github.com/',                    label: 'GitHub' },
+  { url: 'https://claude.ai/',                     label: 'Claude' },
+  { url: 'https://chatgpt.com/',                   label: 'ChatGPT' },
+];
+
+/**
+ * getQuickAccess()
+ *
+ * Returns the current list of shortcuts. If the key has never been
+ * set (first run), seeds it with the defaults and returns those.
+ * An explicit empty array is respected — defaults never come back.
+ */
+async function getQuickAccess() {
+  const stored = await chrome.storage.local.get('quickAccess');
+  if (stored.quickAccess === undefined) {
+    const seeded = QUICK_ACCESS_DEFAULTS.map((s, i) => ({
+      id: (Date.now() + i).toString(),
+      url: s.url,
+      label: s.label,
+    }));
+    await chrome.storage.local.set({ quickAccess: seeded });
+    return seeded;
+  }
+  return stored.quickAccess;
+}
+
+/**
+ * addQuickAccess({ url, label? })
+ *
+ * Validates the URL, derives a label via friendlyDomain() if missing,
+ * and appends it to the list.
+ */
+async function addQuickAccess({ url, label }) {
+  if (!url) return;
+  let parsed;
+  try { parsed = new URL(url); } catch { return; }
+
+  const finalLabel = (label && label.trim()) || friendlyDomain(parsed.hostname) || parsed.hostname;
+  const { quickAccess = [] } = await chrome.storage.local.get('quickAccess');
+  quickAccess.push({
+    id: Date.now().toString(),
+    url: parsed.href,
+    label: finalLabel,
+  });
+  await chrome.storage.local.set({ quickAccess });
+}
+
+/**
+ * removeQuickAccess(id)
+ */
+async function removeQuickAccess(id) {
+  const { quickAccess = [] } = await chrome.storage.local.get('quickAccess');
+  const next = quickAccess.filter(s => s.id !== id);
+  await chrome.storage.local.set({ quickAccess: next });
+}
+
+/**
+ * getQuickAccessMode() / toggleQuickAccessMode()
+ *
+ * Render mode for the Quick Access block — either the full mission-card
+ * ("card") or a compact horizontal bar of favicons ("bar"). Default: card.
+ */
+async function getQuickAccessMode() {
+  const { quickAccessMode = 'card' } = await chrome.storage.local.get('quickAccessMode');
+  return quickAccessMode === 'bar' ? 'bar' : 'card';
+}
+
+async function toggleQuickAccessMode() {
+  const current = await getQuickAccessMode();
+  const next = current === 'card' ? 'bar' : 'card';
+  await chrome.storage.local.set({ quickAccessMode: next });
+  return next;
 }
 
 
@@ -1005,6 +1101,170 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
+   QUICK ACCESS — Renderer
+   ---------------------------------------------------------------- */
+
+/**
+ * Favicon helper — returns { primary, fallback } URLs for a shortcut.
+ * Primary is the site's own /favicon.ico; fallback is Google's service.
+ */
+function quickAccessFaviconUrls(url) {
+  let hostname = '', origin = '';
+  try {
+    const u = new URL(url);
+    hostname = u.hostname;
+    origin   = u.origin;
+  } catch {}
+  return {
+    primary:  origin   ? `${origin}/favicon.ico` : '',
+    fallback: hostname ? `https://www.google.com/s2/favicons?domain=${hostname}&sz=64` : '',
+  };
+}
+
+/**
+ * Shared SVG strings for the mode-toggle button. Rendered based on the
+ * *target* state (i.e. in card mode show the "go to bar" icon, etc.).
+ */
+const QUICK_ACCESS_MODE_ICONS = {
+  // rows/bar icon — shown in CARD mode (click to collapse to bar)
+  toBar:  `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>`,
+  // grid/card icon — shown in BAR mode (click to expand to card)
+  toCard: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25A2.25 2.25 0 0 1 8.25 10.5H6A2.25 2.25 0 0 1 3.75 8.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25A2.25 2.25 0 0 1 13.5 8.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>`,
+};
+
+
+/**
+ * renderQuickAccess()
+ *
+ * Dispatcher: reads the persisted mode and delegates to the card or
+ * bar renderer. Also wires favicon fallbacks shared across modes
+ * (site /favicon.ico → Google s2/favicons → hide).
+ */
+async function renderQuickAccess() {
+  const host = document.getElementById('quickAccessContainer');
+  if (!host) return;
+
+  const shortcuts = await getQuickAccess();
+  const mode      = await getQuickAccessMode();
+
+  if (mode === 'bar') {
+    host.innerHTML = renderQuickAccessBarHTML(shortcuts);
+  } else {
+    host.innerHTML = renderQuickAccessCardHTML(shortcuts);
+  }
+  host.style.display = 'block';
+
+  // Wire up favicon fallbacks via JS (MV3 CSP disallows inline onerror).
+  // First load failure → try Google's s2/favicons URL. If that also fails,
+  // hide the <img> so the text label (card mode) still shows cleanly.
+  host.querySelectorAll('.qa-favicon').forEach(img => {
+    let triedFallback = false;
+    img.addEventListener('error', () => {
+      const fallback = img.dataset.fallbackSrc;
+      if (!triedFallback && fallback && fallback !== img.src) {
+        triedFallback = true;
+        img.src = fallback;
+        return;
+      }
+      img.style.display = 'none';
+    });
+  });
+}
+
+/**
+ * Card mode — mission-card with labeled chips, matches the other
+ * domain cards on the page. This is the default view.
+ */
+function renderQuickAccessCardHTML(shortcuts) {
+  const count = shortcuts.length;
+
+  const chips = shortcuts.map(s => {
+    const { primary, fallback } = quickAccessFaviconUrls(s.url);
+    const safeUrl      = (s.url || '').replace(/"/g, '&quot;');
+    const safeLabel    = (s.label || '').replace(/"/g, '&quot;');
+    const safeFallback = fallback.replace(/"/g, '&quot;');
+    return `<div class="page-chip clickable" data-action="open-shortcut" data-shortcut-url="${safeUrl}" title="${safeLabel}">
+      ${primary ? `<img class="chip-favicon qa-favicon" src="${primary}" data-fallback-src="${safeFallback}" alt="">` : ''}
+      <span class="chip-text">${safeLabel}</span>
+      <div class="chip-actions">
+        <button class="chip-action chip-close" data-action="remove-shortcut" data-shortcut-id="${s.id}" title="Remove shortcut">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const countBadge = `<span class="open-tabs-badge">
+    ${ICONS.tabs}
+    ${count} shortcut${count !== 1 ? 's' : ''}
+  </span>`;
+
+  const modeToggle = `<button class="qa-mode-toggle" data-action="toggle-quick-access-mode" title="Switch to compact view">
+    ${QUICK_ACCESS_MODE_ICONS.toBar}
+  </button>`;
+
+  return `
+    <div class="missions qa-card-wrap">
+      <div class="mission-card domain-card has-neutral-bar" id="quickAccessCard">
+        <div class="status-bar"></div>
+        <div class="mission-content">
+          <div class="mission-top">
+            <span class="mission-name">Quick access</span>
+            ${countBadge}
+            ${modeToggle}
+          </div>
+          <div class="mission-pages">${chips}</div>
+          <div class="actions" id="quickAccessActions">
+            <button class="action-btn" data-action="start-add-shortcut">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Add shortcut
+            </button>
+          </div>
+        </div>
+        <div class="mission-meta">
+          <div class="mission-page-count">${count}</div>
+          <div class="mission-page-label">shortcut${count !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Bar mode — compact horizontal row of favicon-only buttons.
+ * Hover reveals an × to remove. Trailing "+" opens the add input;
+ * a mode-toggle button swaps back to card view.
+ */
+function renderQuickAccessBarHTML(shortcuts) {
+  const buttons = shortcuts.map(s => {
+    const { primary, fallback } = quickAccessFaviconUrls(s.url);
+    const safeUrl      = (s.url || '').replace(/"/g, '&quot;');
+    const safeLabel    = (s.label || '').replace(/"/g, '&quot;');
+    const safeFallback = fallback.replace(/"/g, '&quot;');
+    const initial      = (safeLabel.charAt(0) || '?').toUpperCase();
+    return `<button class="qa-bar-btn" data-action="open-shortcut" data-shortcut-url="${safeUrl}" title="${safeLabel}">
+      ${primary ? `<img class="qa-favicon" src="${primary}" data-fallback-src="${safeFallback}" alt="">` : ''}
+      <span class="qa-bar-initial" ${primary ? 'hidden' : ''}>${initial}</span>
+      <span class="qa-bar-remove" data-action="remove-shortcut" data-shortcut-id="${s.id}" title="Remove shortcut">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </span>
+    </button>`;
+  }).join('');
+
+  return `
+    <div class="qa-bar">
+      ${buttons}
+      <button class="qa-bar-add" data-action="start-add-shortcut" title="Add shortcut">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+      </button>
+      <div class="qa-bar-spacer"></div>
+      <button class="qa-mode-toggle" data-action="toggle-quick-access-mode" title="Switch to card view">
+        ${QUICK_ACCESS_MODE_ICONS.toCard}
+      </button>
+    </div>`;
+}
+
+
+/* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
@@ -1163,6 +1423,9 @@ async function renderStaticDashboard() {
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
+
+  // --- Render quick-access shortcuts (top-right of header) ---
+  await renderQuickAccess();
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
@@ -1412,6 +1675,86 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Open a quick-access shortcut ----
+  // Focus an already-open matching tab if we have one; otherwise navigate
+  // the current new-tab page to the shortcut's URL (avoids spawning yet
+  // another tab that'd just duplicate the current one).
+  if (action === 'open-shortcut') {
+    const url = actionEl.dataset.shortcutUrl;
+    if (!url) return;
+
+    const focused = await focusTab(url);
+    if (!focused) {
+      try {
+        const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (currentTab) await chrome.tabs.update(currentTab.id, { url });
+        else window.location.href = url;
+      } catch {
+        window.location.href = url;
+      }
+    }
+    return;
+  }
+
+  // ---- Remove a quick-access shortcut ----
+  if (action === 'remove-shortcut') {
+    e.stopPropagation(); // don't also trigger open-shortcut on the parent
+    const id = actionEl.dataset.shortcutId;
+    if (!id) return;
+
+    await removeQuickAccess(id);
+
+    // Works for both modes: .page-chip (card) and .qa-bar-btn (bar)
+    const holder = actionEl.closest('.page-chip, .qa-bar-btn');
+    if (holder) {
+      holder.style.transition = 'opacity 0.15s, transform 0.15s';
+      holder.style.opacity    = '0';
+      holder.style.transform  = 'scale(0.85)';
+      setTimeout(() => renderQuickAccess(), 160);
+    } else {
+      await renderQuickAccess();
+    }
+    return;
+  }
+
+  // ---- Toggle card ↔ bar mode for Quick Access ----
+  if (action === 'toggle-quick-access-mode') {
+    await toggleQuickAccessMode();
+    await renderQuickAccess();
+    return;
+  }
+
+  // ---- Start the "add shortcut" inline input ----
+  // In card mode: replaces the card's .actions area with a URL input.
+  // In bar mode:  replaces the "+" button with an inline input.
+  // Enter saves, Escape or blur cancels (see keydown/blur listeners below).
+  if (action === 'start-add-shortcut') {
+    const host = document.getElementById('quickAccessContainer');
+    if (!host) return;
+
+    // Already editing? Refocus.
+    const existing = host.querySelector('.quick-access-input');
+    if (existing) { existing.focus(); return; }
+
+    const actionsArea = document.getElementById('quickAccessActions');
+    if (actionsArea) {
+      // Card mode
+      actionsArea.innerHTML = `<input type="url" class="quick-access-input" placeholder="https://…" autocomplete="off" spellcheck="false">`;
+    } else {
+      // Bar mode — replace the "+" button in place
+      const input = document.createElement('input');
+      input.type = 'url';
+      input.className = 'quick-access-input quick-access-input-bar';
+      input.placeholder = 'https://…';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      actionEl.replaceWith(input);
+    }
+    const input = host.querySelector('.quick-access-input');
+    if (input) input.focus();
+    return;
+  }
+
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
@@ -1444,6 +1787,41 @@ document.addEventListener('click', (e) => {
     body.style.display = body.style.display === 'none' ? 'block' : 'none';
   }
 });
+
+// ---- Quick-access add input — Enter to save, Escape/blur to cancel ----
+document.addEventListener('keydown', async (e) => {
+  if (!e.target.classList || !e.target.classList.contains('quick-access-input')) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const raw = e.target.value.trim();
+    if (!raw) { await renderQuickAccess(); return; }
+
+    // Be forgiving: bare "example.com" becomes "https://example.com"
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    try { new URL(url); } catch {
+      showToast('Invalid URL');
+      return;
+    }
+
+    await addQuickAccess({ url });
+    await renderQuickAccess();
+    showToast('Shortcut added');
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    renderQuickAccess();
+  }
+});
+
+document.addEventListener('blur', (e) => {
+  if (!e.target.classList || !e.target.classList.contains('quick-access-input')) return;
+  // If the user clicks away without typing anything, just restore the "+" button.
+  // If they typed something, give the keydown handler a chance to run first.
+  setTimeout(() => {
+    const stillThere = document.querySelector('.quick-access-input');
+    if (stillThere && stillThere === e.target) renderQuickAccess();
+  }, 150);
+}, true);
 
 // ---- Archive search — filter archived items as user types ----
 document.addEventListener('input', async (e) => {
