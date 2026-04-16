@@ -2,34 +2,26 @@
    Tab Out — Dashboard App (Pure Extension Edition)
 
    This file is the brain of the dashboard. Now that the dashboard
-   IS the extension page (not inside an iframe), it can call
-   chrome.tabs and chrome.storage directly — no postMessage bridge needed.
+   IS the Firefox extension page (not inside an iframe), it can call
+   browser.tabs and browser.storage directly — no postMessage bridge needed.
 
    What this file does:
-   1. Reads open browser tabs directly via chrome.tabs.query()
+   1. Reads open browser tabs directly via browser.tabs.query()
    2. Groups tabs by domain with a landing pages category
    3. Renders domain cards, banners, and stats
    4. Handles all user actions (close tabs, save for later, focus tab)
-   5. Stores "Saved for Later" tabs in chrome.storage.local (no server)
+   5. Stores "Saved for Later" tabs in browser.storage.local (no server)
    ================================================================ */
 
 'use strict';
 
 
 /* ----------------------------------------------------------------
-   CHROME TABS — Direct API Access
+   FIREFOX TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
-   access to chrome.tabs and chrome.storage. No middleman needed.
+   access to browser.tabs and browser.storage. No middleman needed.
    ---------------------------------------------------------------- */
-
-// Cross-browser API wrapper: Firefox uses browser.* (native Promises), Chrome uses chrome.*
-const browserAPI = {
-  tabs:    (typeof browser !== 'undefined' && browser.tabs)    ? browser.tabs    : chrome.tabs,
-  windows: (typeof browser !== 'undefined' && browser.windows) ? browser.windows : chrome.windows,
-  storage: (typeof browser !== 'undefined' && browser.storage) ? browser.storage : chrome.storage,
-  runtime: (typeof browser !== 'undefined' && browser.runtime) ? browser.runtime : chrome.runtime,
-};
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
@@ -37,18 +29,16 @@ let openTabs = [];
 /**
  * fetchOpenTabs()
  *
- * Reads all currently open browser tabs directly from Chrome.
+ * Reads all currently open browser tabs directly from Firefox.
  * Sets the extensionId flag so we can identify Tab Out's own pages.
  */
 async function fetchOpenTabs() {
   try {
-    const extensionId = browserAPI.runtime.id;
-    // Extension URL varies by browser: chrome-extension:// or moz-extension://
-    const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
-    const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
-    const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
+    const extensionId = browser.runtime.id;
+    // The new URL for this page is now index.html (not newtab.html)
+    const newtabUrl = `moz-extension://${extensionId}/index.html`;
 
-    const tabs = await browserAPI.tabs.query({});
+    const tabs = await browser.tabs.query({});
     openTabs = tabs.map(t => ({
       id:       t.id,
       url:      t.url,
@@ -57,12 +47,11 @@ async function fetchOpenTabs() {
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl ||
-                t.url === 'chrome://newtab/' ||
                 t.url === 'about:newtab' ||
                 t.url === 'about:home',
     }));
   } catch {
-    // chrome.tabs API unavailable (shouldn't happen in an extension page)
+    // browser.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
   }
 }
@@ -91,7 +80,7 @@ async function closeTabsByUrls(urls) {
     }
   }
 
-  const allTabs = await browserAPI.tabs.query({});
+  const allTabs = await browser.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
       const tabUrl = tab.url || '';
@@ -103,7 +92,7 @@ async function closeTabsByUrls(urls) {
     })
     .map(tab => tab.id);
 
-  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
+  if (toClose.length > 0) await browser.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -116,22 +105,22 @@ async function closeTabsByUrls(urls) {
 async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
-  const allTabs = await browserAPI.tabs.query({});
+  const allTabs = await browser.tabs.query({});
   const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
-  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
+  if (toClose.length > 0) await browser.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
 /**
  * focusTab(url)
  *
- * Switches Chrome to the tab with the given URL (exact match first,
+ * Switches Firefox to the tab with the given URL (exact match first,
  * then hostname fallback). Also brings the window to the front.
  */
 async function focusTab(url) {
   if (!url) return;
-  const allTabs = await browserAPI.tabs.query({});
-  const currentWindow = await browserAPI.windows.getCurrent();
+  const allTabs = await browser.tabs.query({});
+  const currentWindow = await browser.windows.getCurrent();
 
   // Try exact URL match first
   let matches = allTabs.filter(t => t.url === url);
@@ -151,8 +140,8 @@ async function focusTab(url) {
 
   // Prefer a match in a different window so it actually switches windows
   const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
-  await browserAPI.tabs.update(match.id, { active: true });
-  await browserAPI.windows.update(match.windowId, { focused: true });
+  await browser.tabs.update(match.id, { active: true });
+  await browser.windows.update(match.windowId, { focused: true });
 }
 
 /**
@@ -163,7 +152,7 @@ async function focusTab(url) {
  * keepOne=false → close all copies.
  */
 async function closeDuplicateTabs(urls, keepOne = true) {
-  const allTabs = await browserAPI.tabs.query({});
+  const allTabs = await browser.tabs.query({});
   const toClose = [];
 
   for (const url of urls) {
@@ -178,7 +167,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
     }
   }
 
-  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
+  if (toClose.length > 0) await browser.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
@@ -188,16 +177,13 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  * Closes all duplicate Tab Out new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
-  const extensionId = browserAPI.runtime.id;
-  const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
-  const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
-  const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
+  const extensionId = browser.runtime.id;
+  const newtabUrl = `moz-extension://${extensionId}/index.html`;
 
-  const allTabs = await browserAPI.tabs.query({});
-  const currentWindow = await browserAPI.windows.getCurrent();
+  const allTabs = await browser.tabs.query({});
+  const currentWindow = await browser.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
     t.url === newtabUrl ||
-    t.url === 'chrome://newtab/' ||
     t.url === 'about:newtab' ||
     t.url === 'about:home'
   );
@@ -211,13 +197,13 @@ async function closeTabOutDupes() {
     tabOutTabs.find(t => t.active) ||
     tabOutTabs[0];
   const toClose = tabOutTabs.filter(t => t.id !== keep.id).map(t => t.id);
-  if (toClose.length > 0) await browserAPI.tabs.remove(toClose);
+  if (toClose.length > 0) await browser.tabs.remove(toClose);
   await fetchOpenTabs();
 }
 
 
 /* ----------------------------------------------------------------
-   SAVED FOR LATER — chrome.storage.local
+   SAVED FOR LATER — browser.storage.local
 
    Replaces the old server-side SQLite + REST API with Chrome's
    built-in key-value storage. Data persists across browser sessions
@@ -240,11 +226,11 @@ async function closeTabOutDupes() {
 /**
  * saveTabForLater(tab)
  *
- * Saves a single tab to the "Saved for Later" list in chrome.storage.local.
+ * Saves a single tab to the "Saved for Later" list in browser.storage.local.
  * @param {{ url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
+  const { deferred = [] } = await browser.storage.local.get('deferred');
   deferred.push({
     id:        Date.now().toString(),
     url:       tab.url,
@@ -253,18 +239,18 @@ async function saveTabForLater(tab) {
     completed: false,
     dismissed: false,
   });
-  await browserAPI.storage.local.set({ deferred });
+  await browser.storage.local.set({ deferred });
 }
 
 /**
  * getSavedTabs()
  *
- * Returns all saved tabs from chrome.storage.local.
+ * Returns all saved tabs from browser.storage.local.
  * Filters out dismissed items (those are gone for good).
  * Splits into active (not completed) and archived (completed).
  */
 async function getSavedTabs() {
-  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
+  const { deferred = [] } = await browser.storage.local.get('deferred');
   const visible = deferred.filter(t => !t.dismissed);
   return {
     active:   visible.filter(t => !t.completed),
@@ -278,12 +264,12 @@ async function getSavedTabs() {
  * Marks a saved tab as completed (checked off). It moves to the archive.
  */
 async function checkOffSavedTab(id) {
-  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
+  const { deferred = [] } = await browser.storage.local.get('deferred');
   const tab = deferred.find(t => t.id === id);
   if (tab) {
     tab.completed = true;
     tab.completedAt = new Date().toISOString();
-    await browserAPI.storage.local.set({ deferred });
+    await browser.storage.local.set({ deferred });
   }
 }
 
@@ -293,11 +279,11 @@ async function checkOffSavedTab(id) {
  * Marks a saved tab as dismissed (removed from all lists).
  */
 async function dismissSavedTab(id) {
-  const { deferred = [] } = await browserAPI.storage.local.get('deferred');
+  const { deferred = [] } = await browser.storage.local.get('deferred');
   const tab = deferred.find(t => t.id === id);
   if (tab) {
     tab.dismissed = true;
-    await browserAPI.storage.local.set({ deferred });
+    await browser.storage.local.set({ deferred });
   }
 }
 
@@ -742,11 +728,8 @@ function getRealTabs() {
     const url = t.url || '';
     return (
       !url.startsWith('chrome://') &&
-      !url.startsWith('chrome-extension://') &&
-      !url.startsWith('about:') &&
-      !url.startsWith('edge://') &&
-      !url.startsWith('brave://') &&
       !url.startsWith('moz-extension://') &&
+      !url.startsWith('about:') &&
       !url.startsWith('resource://')
     );
   });
@@ -924,7 +907,7 @@ function renderDomainCard(group) {
 /**
  * renderDeferredColumn()
  *
- * Reads saved tabs from chrome.storage.local and renders the right-side
+ * Reads saved tabs from browser.storage.local and renders the right-side
  * "Saved for Later" checklist column. Shows active items as a checklist
  * and completed items in a collapsible archive.
  */
@@ -1033,7 +1016,7 @@ function renderArchiveItem(item) {
  *
  * The main render function:
  * 1. Paints greeting + date
- * 2. Fetches open tabs via chrome.tabs.query()
+ * 2. Fetches open tabs via browser.tabs.query()
  * 3. Groups tabs by domain (with landing pages pulled out to their own group)
  * 4. Renders domain cards
  * 5. Updates footer stats
@@ -1247,10 +1230,10 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
-    const allTabs = await browserAPI.tabs.query({});
+    // Close the tab in Firefox directly
+    const allTabs = await browser.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await browserAPI.tabs.remove(match.id);
+    if (match) await browser.tabs.remove(match.id);
     await fetchOpenTabs();
 
     playCloseSound();
@@ -1291,7 +1274,7 @@ document.addEventListener('click', async (e) => {
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
     if (!tabUrl) return;
 
-    // Save to chrome.storage.local
+    // Save to browser.storage.local
     try {
       await saveTabForLater({ url: tabUrl, title: tabTitle });
     } catch (err) {
@@ -1300,10 +1283,10 @@ document.addEventListener('click', async (e) => {
       return;
     }
 
-    // Close the tab in Chrome
-    const allTabs = await browserAPI.tabs.query({});
+    // Close the tab in Firefox
+    const allTabs = await browser.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await browserAPI.tabs.remove(match.id);
+    if (match) await browser.tabs.remove(match.id);
     await fetchOpenTabs();
 
     // Animate chip out
@@ -1439,9 +1422,6 @@ document.addEventListener('click', async (e) => {
         if (!t.url) return false;
         return (
           !t.url.startsWith('chrome://') &&
-          !t.url.startsWith('chrome-extension://') &&
-          !t.url.startsWith('edge://') &&
-          !t.url.startsWith('brave://') &&
           !t.url.startsWith('about:') &&
           !t.url.startsWith('moz-extension://') &&
           !t.url.startsWith('resource://')

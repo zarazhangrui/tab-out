@@ -35,10 +35,8 @@ let openTabs = [];
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
-    // Extension URL varies by browser: chrome-extension:// or moz-extension://
-    const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
-    const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
-    const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
+    // The new URL for this page is now index.html (not newtab.html)
+    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
@@ -48,10 +46,7 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl ||
-                t.url === 'chrome://newtab/' ||
-                t.url === 'about:newtab' ||
-                t.url === 'about:home',
+      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -181,17 +176,12 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  */
 async function closeTabOutDupes() {
   const extensionId = chrome.runtime.id;
-  const isFirefox = typeof browser !== 'undefined' && browser.runtime && browser.runtime.id;
-  const extProtocol = isFirefox ? 'moz-extension' : 'chrome-extension';
-  const newtabUrl = `${extProtocol}://${extensionId}/index.html`;
+  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl ||
-    t.url === 'chrome://newtab/' ||
-    t.url === 'about:newtab' ||
-    t.url === 'about:home'
+    t.url === newtabUrl || t.url === 'chrome://newtab/'
   );
 
   if (tabOutTabs.length <= 1) return;
@@ -737,9 +727,7 @@ function getRealTabs() {
       !url.startsWith('chrome-extension://') &&
       !url.startsWith('about:') &&
       !url.startsWith('edge://') &&
-      !url.startsWith('brave://') &&
-      !url.startsWith('moz-extension://') &&
-      !url.startsWith('resource://')
+      !url.startsWith('brave://')
     );
   });
 }
@@ -1427,18 +1415,7 @@ document.addEventListener('click', async (e) => {
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
-      .filter(t => {
-        if (!t.url) return false;
-        return (
-          !t.url.startsWith('chrome://') &&
-          !t.url.startsWith('chrome-extension://') &&
-          !t.url.startsWith('edge://') &&
-          !t.url.startsWith('brave://') &&
-          !t.url.startsWith('about:') &&
-          !t.url.startsWith('moz-extension://') &&
-          !t.url.startsWith('resource://')
-        );
-      })
+      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
       .map(t => t.url);
     await closeTabsByUrls(allUrls);
     playCloseSound();
