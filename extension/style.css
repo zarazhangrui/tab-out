@@ -1121,7 +1121,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
 }
 
-/* Archive items are simpler — just title + domain + date */
+/* ---- Archive items are simpler — just title + domain + date ---- */
 .archive-item {
   display: flex;
   align-items: center;
@@ -1155,4 +1155,90 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+/* ---- Bookmarks section ---- */
+.bookmarks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(154, 145, 138, 0.1);
+  animation: fadeUp 0.3s ease both;
+}
+
+.bookmark-item:last-child {
+  border-bottom: none;
+}
+
+.bookmark-link {
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  transition: color 0.15s;
+}
+
+.bookmark-link:hover {
+  color: var(--accent-amber);
+}
+
+.bookmark-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Bookmark Folders */
+.bookmark-folder {
+  display: flex;
+  flex-direction: column;
+}
+
+.bookmark-folder-toggle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  width: 100%;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.bookmark-folder-toggle:hover {
+  color: var(--accent-amber);
+}
+
+.folder-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s;
+  color: var(--muted);
+}
+
+.bookmark-folder.open > .bookmark-folder-toggle .folder-chevron {
+  transform: rotate(180deg);
+}
+
+.bookmark-folder-children {
+  border-left: 1px solid rgba(154, 145, 138, 0.1);
+  margin-left: 6px;
 }
