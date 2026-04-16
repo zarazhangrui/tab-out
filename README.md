@@ -2,9 +2,16 @@
 
 **Keep tabs on your tabs.**
 
-Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
+Tab Out is a browser extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
 
-No server. No account. No external API calls. Just a Chrome extension.
+No server. No account. No external API calls. Just a browser extension.
+
+---
+
+## Browser Support
+
+- **Chrome** — Manifest V3 (`chrome/` directory)
+- **Firefox** — Manifest V2 (`firefox/` directory)
 
 ---
 
@@ -31,11 +38,13 @@ The agent will walk you through it. Takes about 1 minute.
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
 - **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
+- **Pure browser extension** no server, no Node.js, no npm, no setup beyond loading the extension
 
 ---
 
 ## Manual Setup
+
+### Chrome
 
 **1. Clone the repo**
 
@@ -48,7 +57,28 @@ git clone https://github.com/zarazhangrui/tab-out.git
 1. Open Chrome and go to `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
+4. Navigate to the `chrome/` folder inside the cloned repo and select it
+
+**3. Open a new tab**
+
+You'll see Tab Out.
+
+---
+
+### Firefox
+
+**1. Clone the repo**
+
+```bash
+git clone https://github.com/zarazhangrui/tab-out.git
+```
+
+**2. Load the Firefox extension**
+
+1. Open Firefox and go to `about:debugging`
+2. Click **This Firefox**
+3. Click **Load Temporary Add-on...**
+4. Navigate to the `firefox/` folder inside the cloned repo and select `manifest.json`
 
 **3. Open a new tab**
 
@@ -67,7 +97,7 @@ You open a new tab
   -> Save tabs for later before closing them
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+Everything runs inside the browser extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local` / `browser.storage.local`.
 
 ---
 
@@ -75,8 +105,9 @@ Everything runs inside the Chrome extension. No external server, no API calls, n
 
 | What | How |
 |------|-----|
-| Extension | Chrome Manifest V3 |
-| Storage | chrome.storage.local |
+| Chrome Extension | Manifest V3, service worker background |
+| Firefox Extension | Manifest V2, event page background |
+| Storage | `chrome.storage.local` / `browser.storage.local` |
 | Sound | Web Audio API (synthesized, no files) |
 | Animations | CSS transitions + JS confetti particles |
 

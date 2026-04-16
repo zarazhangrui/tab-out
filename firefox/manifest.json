@@ -1,0 +1,29 @@
+{
+  "manifest_version": 2,
+  "name": "Tab Out",
+  "version": "1.0.0",
+  "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain and lets you close them with style.",
+  "permissions": ["tabs", "activeTab", "storage"],
+  "chrome_url_overrides": { "newtab": "index.html" },
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "browser_action": {
+    "default_title": "Tab Out",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "tab-out@zarazhangrui.github.io"
+    }
+  }
+}
