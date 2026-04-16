@@ -1412,6 +1412,16 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Refresh dashboard ----
+  if (action === 'refresh') {
+    const btn = document.getElementById('refreshBtn');
+    if (btn) btn.classList.add('spinning');
+    await renderDashboard();
+    if (btn) btn.classList.remove('spinning');
+    showToast('Refreshed');
+    return;
+  }
+
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
