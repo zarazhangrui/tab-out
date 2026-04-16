@@ -255,6 +255,19 @@ async function getSavedTabs() {
 }
 
 /**
+ * getBookmarks()
+ *
+ * Fetches the full bookmarks tree from Chrome.
+ */
+async function getBookmarks() {
+  try {
+    return await chrome.bookmarks.getTree();
+  } catch {
+    return [];
+  }
+}
+
+/**
  * checkOffSavedTab(id)
  *
  * Marks a saved tab as completed (checked off). It moves to the archive.
@@ -765,11 +778,9 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(tab.url)}&size=32`;
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -846,11 +857,9 @@ function renderDomainCard(group) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(tab.url)}&size=32`;
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -922,14 +931,6 @@ async function renderDeferredColumn() {
   try {
     const { active, archived } = await getSavedTabs();
 
-    // Hide the entire column if there's nothing to show
-    if (active.length === 0 && archived.length === 0) {
-      column.style.display = 'none';
-      return;
-    }
-
-    column.style.display = 'block';
-
     // Render active checklist items
     if (active.length > 0) {
       countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
@@ -953,7 +954,97 @@ async function renderDeferredColumn() {
 
   } catch (err) {
     console.warn('[tab-out] Could not load saved tabs:', err);
-    column.style.display = 'none';
+  }
+}
+
+/**
+ * renderBookmarks()
+ *
+ * Reads bookmarks via chrome.bookmarks and renders them into the
+ * Bookmarks section in the right column. Supports nested folders.
+ */
+async function renderBookmarks() {
+  const column  = document.getElementById('deferredColumn');
+  const section = document.getElementById('bookmarksSection');
+  const list    = document.getElementById('bookmarksList');
+  const countEl = document.getElementById('bookmarksCount');
+
+  if (!section || !list) return;
+
+  try {
+    const tree = await getBookmarks();
+    
+    // Check if we have ANY bookmarks (excluding the root nodes)
+    const hasBookmarks = tree.some(node => node.children && node.children.length > 0);
+    
+    if (!hasBookmarks) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = 'block';
+    if (column) column.style.display = 'block'; // Ensure column is visible
+
+    // We usually want to start from the "Bookmarks bar" or "Other bookmarks"
+    // which are children of the root node (id: "0")
+    const rootChildren = tree[0]?.children || [];
+    
+    let bookmarkCount = 0;
+    function countNodes(nodes) {
+      for (const n of nodes) {
+        if (n.url) bookmarkCount++;
+        if (n.children) countNodes(n.children);
+      }
+    }
+    countNodes(rootChildren);
+    countEl.textContent = `${bookmarkCount} item${bookmarkCount !== 1 ? 's' : ''}`;
+
+    function renderNode(node) {
+      if (node.url) {
+        // Bookmark item
+        const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(node.url)}&size=32`;
+
+        return `
+          <div class="bookmark-item">
+            <a href="${node.url}" class="bookmark-link" title="${(node.title || '').replace(/"/g, '&quot;')}">
+              <img src="${faviconUrl}" class="bookmark-favicon" alt="" onerror="this.src='https://www.google.com/s2/favicons?domain=example.com&sz=16'">
+              <span>${node.title || node.url}</span>
+            </a>
+          </div>`;
+      } else if (node.children) {
+        // Folder
+        if (node.children.length === 0 && node.id !== '0') return '';
+
+        const childHtml = node.children.map(c => renderNode(c)).join('');
+        
+        // Skip root (0) and the main categories (Bookmarks bar: 1, Other: 2, Mobile: 3)
+        // to show their contents directly at the top level.
+        if (node.id === '0' || node.id === '1' || node.id === '2' || node.id === '3') {
+          return childHtml;
+        }
+
+        const folderIcon = `<svg class="folder-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;color:var(--muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.625-12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-3.75 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25h16.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75Z" /></svg>`;
+        
+        return `
+          <div class="bookmark-folder">
+            <button class="bookmark-folder-toggle" data-action="toggle-bookmark-folder">
+              <svg class="folder-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+              ${folderIcon}
+              <span class="folder-name">${node.title}</span>
+            </button>
+            <div class="bookmark-folder-children" style="display: none;">
+              ${childHtml}
+            </div>
+          </div>`;
+      }
+      return '';
+    }
+
+    list.innerHTML = renderNode(tree[0]);
+    
+  } catch (err) {
+    console.warn('[tab-out] Could not load bookmarks:', err);
+    section.style.display = 'none';
   }
 }
 
@@ -964,10 +1055,10 @@ async function renderDeferredColumn() {
  * domain, time ago, dismiss button.
  */
 function renderDeferredItem(item) {
+  const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32`;
+  const ago = timeAgo(item.savedAt);
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
-  const ago = timeAgo(item.savedAt);
 
   return `
     <div class="deferred-item" data-deferred-id="${item.id}">
@@ -1166,6 +1257,9 @@ async function renderStaticDashboard() {
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+
+  // --- Render Bookmarks section ---
+  await renderBookmarks();
 }
 
 async function renderDashboard() {
@@ -1336,6 +1430,19 @@ document.addEventListener('click', async (e) => {
         item.remove();
         renderDeferredColumn();
       }, 300);
+    }
+    return;
+  }
+
+  // ---- Toggle bookmark folder ----
+  if (action === 'toggle-bookmark-folder') {
+    const folder = actionEl.closest('.bookmark-folder');
+    if (folder) {
+      folder.classList.toggle('open');
+      const children = folder.querySelector('.bookmark-folder-children');
+      if (children) {
+        children.style.display = children.style.display === 'none' ? 'block' : 'none';
+      }
     }
     return;
   }
