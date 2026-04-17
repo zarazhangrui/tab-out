@@ -707,6 +707,52 @@ const ICONS = {
    IN-MEMORY STORE FOR OPEN-TAB GROUPS
    ---------------------------------------------------------------- */
 let domainGroups = [];
+let showWindowLabels = false;
+let windowNameMap = {};
+
+
+/* ----------------------------------------------------------------
+   WINDOW MANAGEMENT
+   ---------------------------------------------------------------- */
+
+/**
+ * buildWindowNameMap()
+ *
+ * Assigns sequential names (Window 1, Window 2, ...) to each unique
+ * windowId so we can label tabs with their window of origin.
+ */
+function buildWindowNameMap() {
+  const windowIds = [...new Set(openTabs.map(t => t.windowId))];
+  windowNameMap = {};
+  windowIds.forEach((id, i) => {
+    windowNameMap[id] = `Window ${i + 1}`;
+  });
+}
+
+/**
+ * getWindowCount()
+ *
+ * Returns the number of distinct Chrome windows that have open tabs.
+ */
+function getWindowCount() {
+  return new Set(openTabs.map(t => t.windowId)).size;
+}
+
+/**
+ * mergeAllWindows()
+ *
+ * Moves all tabs from every other window into the current window.
+ * After merging, re-fetches the tab list.
+ */
+async function mergeAllWindows() {
+  const currentWindow = await chrome.windows.getCurrent();
+  const allTabs = await chrome.tabs.query({});
+  const tabsToMove = allTabs.filter(t => t.windowId !== currentWindow.id);
+  for (const tab of tabsToMove) {
+    await chrome.tabs.move(tab.id, { windowId: currentWindow.id, index: -1 });
+  }
+  await fetchOpenTabs();
+}
 
 
 /* ----------------------------------------------------------------
@@ -849,9 +895,11 @@ function renderDomainCard(group) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const winLabel = showWindowLabels && windowNameMap[tab.windowId]
+      ? `<span class="chip-window-badge">${windowNameMap[tab.windowId]}</span>` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${label}</span>${dupeTag}${winLabel}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -1028,6 +1076,7 @@ async function renderStaticDashboard() {
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
+  buildWindowNameMap();
   const realTabs = getRealTabs();
 
   // --- Group tabs by domain ---
@@ -1150,7 +1199,16 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const winCount = getWindowCount();
+    const mergeBtn = winCount > 1
+      ? ` <button class="action-btn save-tabs" data-action="merge-windows" style="font-size:11px;padding:3px 10px;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:12px;height:12px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
+          Merge ${winCount} windows</button>` : '';
+    const showWinToggle = winCount > 1
+      ? ` <button class="action-btn${showWindowLabels ? ' primary' : ''}" data-action="toggle-window-labels" style="font-size:11px;padding:3px 10px;">
+          ${ICONS.tabs}
+          ${showWindowLabels ? 'Hide' : 'Show'} windows</button>` : '';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${winCount > 1 ? ` &middot; ${winCount} windows` : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>${mergeBtn}${showWinToggle}`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1160,6 +1218,8 @@ async function renderStaticDashboard() {
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
   if (statTabs) statTabs.textContent = openTabs.length;
+  const statWindows = document.getElementById('statWindows');
+  if (statWindows) statWindows.textContent = getWindowCount();
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1409,6 +1469,22 @@ document.addEventListener('click', async (e) => {
     }
 
     showToast('Closed duplicates, kept one copy each');
+    return;
+  }
+
+  // ---- Merge all windows into current ----
+  if (action === 'merge-windows') {
+    await mergeAllWindows();
+    playCloseSound();
+    showToast('All windows merged into one');
+    await renderDashboard();
+    return;
+  }
+
+  // ---- Toggle window labels on tabs ----
+  if (action === 'toggle-window-labels') {
+    showWindowLabels = !showWindowLabels;
+    await renderDashboard();
     return;
   }
 
