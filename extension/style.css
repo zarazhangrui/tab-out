@@ -1207,6 +1207,6 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .ungrouped-chips {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 0;
 }
