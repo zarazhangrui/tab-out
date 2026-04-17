@@ -1706,6 +1706,152 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+/* ----------------------------------------------------------------
+   CHIP HOVER PREVIEW CARD
+   Shows a floating card with favicon, full title, URL and domain
+   when the user hovers over a .page-chip.clickable for 300 ms.
+   Uses event delegation on document (mouseenter doesn't bubble,
+   so we use mouseover + closest()).
+   ---------------------------------------------------------------- */
+
+(function initChipPreview() {
+  const card     = document.getElementById('chipPreview');
+  const favicon  = document.getElementById('chipPreviewFavicon');
+  const titleEl  = document.getElementById('chipPreviewTitle');
+  const hostEl   = document.getElementById('chipPreviewHost');
+  const timeEl   = document.getElementById('chipPreviewTime');
+  const countEl  = document.getElementById('chipPreviewCount');
+
+  if (!card) return;
+
+  let showTimer   = null;
+  let currentChip = null;
+
+  // ---- Helpers ----
+
+  function getHostname(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); }
+    catch { return ''; }
+  }
+
+  function getFaviconUrl(url, chipEl) {
+    const saveBtn = chipEl.querySelector('[data-tab-favicon]');
+    if (saveBtn && saveBtn.dataset.tabFavicon) return saveBtn.dataset.tabFavicon;
+
+    const tab = openTabs.find(t => t.url === url);
+    if (tab && tab.favIconUrl && /^https?:\/\//.test(tab.favIconUrl)) return tab.favIconUrl;
+
+    const hostname = getHostname(url);
+    return hostname ? `https://www.google.com/s2/favicons?domain=${hostname}&sz=32` : '';
+  }
+
+  // Count all open tabs (across all windows) sharing the same hostname
+  function countSameDomainTabs(url) {
+    const hostname = getHostname(url);
+    if (!hostname) return 0;
+    return openTabs.filter(t => {
+      try { return new URL(t.url).hostname === hostname; }
+      catch { return false; }
+    }).length;
+  }
+
+  // ---- Positioning ----
+
+  function positionCard(chipEl) {
+    const GAP      = 8;
+    const vw       = window.innerWidth;
+    const vh       = window.innerHeight;
+    const chipRect = chipEl.getBoundingClientRect();
+    const cardW    = card.offsetWidth;
+    const cardH    = card.offsetHeight;
+
+    let left;
+    if (chipRect.right + GAP + cardW <= vw - GAP) {
+      left = chipRect.right + GAP;
+    } else {
+      left = Math.max(GAP, chipRect.left - GAP - cardW);
+    }
+
+    let top = chipRect.top;
+    if (top + cardH > vh - GAP) top = vh - cardH - GAP;
+    top = Math.max(GAP, top);
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top  = `${Math.round(top)}px`;
+  }
+
+  // ---- Show / hide ----
+
+  function showPreview(chipEl) {
+    const url   = chipEl.dataset.tabUrl || '';
+    const title = chipEl.title || chipEl.querySelector('.chip-text')?.textContent?.trim() || url;
+
+    // Header: domain
+    hostEl.textContent = getHostname(url);
+
+    // Title: full, no truncation
+    titleEl.textContent = title;
+
+    // Favicon
+    const faviconUrl = getFaviconUrl(url, chipEl);
+    if (faviconUrl) {
+      favicon.src = faviconUrl;
+      favicon.classList.remove('hidden');
+      favicon.onerror = () => favicon.classList.add('hidden');
+    } else {
+      favicon.src = '';
+      favicon.classList.add('hidden');
+    }
+
+    // Last accessed time — look up the live tab
+    const tab = openTabs.find(t => t.url === url);
+    timeEl.textContent = tab?.lastAccessed ? timeAgo(tab.lastAccessed) : '';
+
+    // Same-domain tab count
+    const domainCount = countSameDomainTabs(url);
+    countEl.textContent = domainCount > 1 ? `该域名共 ${domainCount} 个 tab` : '';
+
+    // Hide meta row entirely if nothing to show
+    const metaEl = document.getElementById('chipPreviewMeta');
+    if (metaEl) metaEl.style.display =
+      (timeEl.textContent || countEl.textContent) ? '' : 'none';
+
+    card.classList.remove('visible');
+    requestAnimationFrame(() => {
+      positionCard(chipEl);
+      card.classList.add('visible');
+    });
+  }
+
+  function hidePreview() {
+    clearTimeout(showTimer);
+    showTimer   = null;
+    currentChip = null;
+    card.classList.remove('visible');
+  }
+
+  // ---- Event delegation ----
+
+  document.addEventListener('mouseover', (e) => {
+    const chip = e.target.closest('.page-chip.clickable');
+    if (!chip) return;
+    if (chip === currentChip) return;
+
+    clearTimeout(showTimer);
+    currentChip = chip;
+    showTimer = setTimeout(() => showPreview(chip), 300);
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const chip = e.target.closest('.page-chip.clickable');
+    if (!chip) return;
+    if (chip.contains(e.relatedTarget)) return;
+    hidePreview();
+  });
+
+  window.addEventListener('scroll', hidePreview, { passive: true });
+})();
+
 // ---- Archive toggle — expand/collapse the archive section ----
 document.addEventListener('click', (e) => {
   const toggle = e.target.closest('#archiveToggle');

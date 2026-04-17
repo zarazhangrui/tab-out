@@ -142,6 +142,22 @@
   <span id="toastText"></span>
 </div>
 
+<!-- ================================================================
+     CHIP HOVER PREVIEW CARD — singleton, positioned by JS
+     Hidden by default; shown on chip mouseenter via initChipPreview()
+     ================================================================ -->
+<div class="chip-preview" id="chipPreview" aria-hidden="true">
+  <div class="chip-preview-header">
+    <img class="chip-preview-favicon" id="chipPreviewFavicon" src="" alt="">
+    <span class="chip-preview-host" id="chipPreviewHost"></span>
+  </div>
+  <div class="chip-preview-title" id="chipPreviewTitle"></div>
+  <div class="chip-preview-meta" id="chipPreviewMeta">
+    <span class="chip-preview-time"  id="chipPreviewTime"></span>
+    <span class="chip-preview-count" id="chipPreviewCount"></span>
+  </div>
+</div>
+
 <!-- i18n — must load before app.js and config.local.js -->
 <script src="i18n.js"></script>
 

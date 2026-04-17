@@ -20,6 +20,9 @@
   --shadow: rgba(26, 22, 19, 0.06);
   --accent-sage-dark: #4a6952;
   --dup-badge-bg: rgba(200, 113, 58, 0.08);
+  --preview-bg:     #ffffff;
+  --preview-border: rgba(26, 22, 19, 0.10);
+  --preview-shadow: 0 4px 20px rgba(26, 22, 19, 0.12), 0 1px 4px rgba(26, 22, 19, 0.06);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -746,6 +749,109 @@ header {
   color: var(--status-active);
 }
 
+/* ================================================================
+   CHIP HOVER PREVIEW CARD
+   Floats beside a .page-chip on hover; positioned by initChipPreview()
+   ================================================================ */
+
+.chip-preview {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;        /* never intercept mouse events */
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  background: var(--preview-bg);
+  border: 1px solid var(--preview-border);
+  border-radius: 8px;
+  box-shadow: var(--preview-shadow);
+  padding: 12px 14px;
+  max-width: 280px;
+  min-width: 160px;
+
+  /* Hidden state */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+
+  /* Fade-out: wait for opacity transition before hiding visibility */
+  transition:
+    opacity    0.15s ease,
+    transform  0.15s ease,
+    visibility 0s    linear 0.15s;
+}
+
+.chip-preview.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  /* Fade-in: show visibility immediately */
+  transition:
+    opacity    0.15s ease,
+    transform  0.15s ease,
+    visibility 0s    linear 0s;
+}
+
+/* Header row: favicon + domain */
+.chip-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip-preview-favicon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+.chip-preview-favicon[src=""],
+.chip-preview-favicon.hidden {
+  display: none;
+}
+
+.chip-preview-host {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Full title — no clamping */
+.chip-preview-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+/* Meta row: last accessed · tab count */
+.chip-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip-preview-time,
+.chip-preview-count {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.chip-preview-count {
+  color: var(--accent-sage);
+}
+
 /* ---- Footer ---- */
 footer {
   margin-top: 48px;
@@ -1335,5 +1441,8 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
     /* Derived values */
     --dup-badge-bg: rgba(200, 113, 58, 0.12);
     --accent-sage-dark: #3d5a44;
+    --preview-bg:     #3a3a3a;
+    --preview-border: rgba(255, 255, 255, 0.10);
+    --preview-shadow: 0 4px 20px rgba(0, 0, 0, 0.40), 0 1px 4px rgba(0, 0, 0, 0.25);
   }
 }

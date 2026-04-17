@@ -52,6 +52,7 @@ Tab Out flips the script: **makes closing tabs easy, clear, and even a little sa
 - **Staleness indicators** — colored bar per group: green (active) / amber (cooling) / red (abandoned), with last-accessed time
 - **i18n support** — UI follows browser language automatically; supports Simplified Chinese, Traditional Chinese, Japanese, Korean, English
 - **Dark mode** — automatically follows the system color scheme, no manual toggle needed
+- **Hover preview** — hovering a tab shows a floating card with the full title, last accessed time, and tab count for that domain
 - **Personal config** — `config.local.js` (gitignored) lets you define custom landing page rules and tab grouping
 
 ---
