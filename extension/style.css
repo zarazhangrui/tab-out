@@ -467,6 +467,44 @@ header {
   padding: 6px 4px;
 }
 
+/* ---- Protected tab chips: pinned & standalone-window ---- */
+
+/* Shared protected icon style */
+.chip-protected-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  opacity: 0.55;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
+/* Pinned tab — warm amber tint */
+.page-chip.chip-pinned {
+  background: rgba(200, 113, 58, 0.05);
+  border-bottom-color: rgba(200, 113, 58, 0.15);
+}
+.page-chip.chip-pinned:hover {
+  background: rgba(200, 113, 58, 0.09);
+}
+.chip-pin-icon {
+  color: var(--accent-amber);
+}
+
+/* Standalone-window tab — cool slate-blue tint */
+.page-chip.chip-alone-window {
+  background: rgba(90, 107, 122, 0.05);
+  border-bottom-color: rgba(90, 107, 122, 0.15);
+}
+.page-chip.chip-alone-window:hover {
+  background: rgba(90, 107, 122, 0.09);
+}
+.chip-window-icon {
+  color: var(--accent-slate);
+}
+
 /* mission-meta hidden — see above */
 
 .mission-time {

@@ -42,13 +42,20 @@ async function fetchOpenTabs() {
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
+
+    // Count tabs per window to detect "alone in window" (popup/standalone windows)
+    const tabsPerWindow = {};
+    for (const t of tabs) tabsPerWindow[t.windowId] = (tabsPerWindow[t.windowId] || 0) + 1;
+
     openTabs = tabs.map(t => ({
-      id:       t.id,
-      url:      t.url,
-      title:    t.title,
-      windowId: t.windowId,
-      active:   t.active,
-      groupId:  t.groupId,  // -1 = ungrouped, >= 0 = Chrome tab group id
+      id:              t.id,
+      url:             t.url,
+      title:           t.title,
+      windowId:        t.windowId,
+      active:          t.active,
+      groupId:         t.groupId,  // -1 = ungrouped, >= 0 = Chrome tab group id
+      pinned:          t.pinned,
+      isAloneInWindow: tabsPerWindow[t.windowId] === 1,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
@@ -56,6 +63,17 @@ async function fetchOpenTabs() {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
   }
+}
+
+/**
+ * isProtectedTab(tab)
+ *
+ * Returns true for tabs that should never be bulk-closed:
+ * - Pinned tabs (Chrome protects these from accidental close)
+ * - Tabs that are the sole tab in their window (closing would close the window)
+ */
+function isProtectedTab(tab) {
+  return tab.pinned || tab.isAloneInWindow;
 }
 
 /**
@@ -82,9 +100,15 @@ async function closeTabsByUrls(urls) {
     }
   }
 
+  // Count tabs per window so we can skip lone-window tabs
   const allTabs = await chrome.tabs.query({});
+  const tabsPerWindow = {};
+  for (const t of allTabs) tabsPerWindow[t.windowId] = (tabsPerWindow[t.windowId] || 0) + 1;
+
   const toClose = allTabs
     .filter(tab => {
+      if (tab.pinned) return false;
+      if (tabsPerWindow[tab.windowId] === 1) return false;
       const tabUrl = tab.url || '';
       if (tabUrl.startsWith('file://') && exactUrls.has(tabUrl)) return true;
       try {
@@ -108,7 +132,11 @@ async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
   const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
+  const tabsPerWindow = {};
+  for (const t of allTabs) tabsPerWindow[t.windowId] = (tabsPerWindow[t.windowId] || 0) + 1;
+  const toClose = allTabs
+    .filter(t => urlSet.has(t.url) && !t.pinned && tabsPerWindow[t.windowId] !== 1)
+    .map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
 }
@@ -121,7 +149,11 @@ async function closeTabsExact(urls) {
  */
 async function closeTabsByIds(ids) {
   if (!ids || ids.length === 0) return;
-  await chrome.tabs.remove(ids);
+  // Filter out protected tabs (pinned or alone in their window)
+  const safeIds = openTabs
+    .filter(t => ids.includes(t.id) && !isProtectedTab(t))
+    .map(t => t.id);
+  if (safeIds.length > 0) await chrome.tabs.remove(safeIds);
   await fetchOpenTabs();
 }
 
@@ -826,32 +858,66 @@ function checkTabOutDupes() {
 
 
 /* ----------------------------------------------------------------
+   CHIP BUILDER — shared helper for all tab chip rows
+   ---------------------------------------------------------------- */
+
+// Pin icon SVG (small, inline)
+const ICON_PIN = `<svg class="chip-protected-icon chip-pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-label="Pinned tab"><path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/></svg>`;
+
+// Standalone window icon SVG (small, inline)
+const ICON_WINDOW = `<svg class="chip-protected-icon chip-window-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Standalone window"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><line x1="1.5" y1="6" x2="14.5" y2="6"/><circle cx="4" cy="4.5" r="0.6" fill="currentColor" stroke="none"/><circle cx="6.2" cy="4.5" r="0.6" fill="currentColor" stroke="none"/></svg>`;
+
+/**
+ * buildPageChip(tab, label, urlCounts, domainHint)
+ *
+ * Builds one tab chip row HTML. Handles pinned/standalone-window visual treatment.
+ * Protected tabs get a badge icon and no close button.
+ */
+function buildPageChip(tab, label, urlCounts, domainHint = '') {
+  const count     = urlCounts[tab.url] || 1;
+  const dupeTag   = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
+  const isPinned  = tab.pinned;
+  const isAlone   = tab.isAloneInWindow;
+  const protected_ = isPinned || isAlone;
+
+  let chipClass = '';
+  if (count > 1)  chipClass += ' chip-has-dupes';
+  if (isPinned)   chipClass += ' chip-pinned';
+  if (isAlone)    chipClass += ' chip-alone-window';
+
+  const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
+  const safeTitle = label.replace(/"/g, '&quot;');
+  let domain = '';
+  try { domain = new URL(tab.url).hostname; } catch {}
+  const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+
+  const protectedBadge = isPinned ? ICON_PIN : (isAlone ? ICON_WINDOW : '');
+
+  const closeBtn = protected_ ? '' : `
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>`;
+
+  return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <span class="chip-text">${label}</span>${dupeTag}${protectedBadge}
+      <div class="chip-actions">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        </button>${closeBtn}
+      </div>
+    </div>`;
+}
+
+
+/* ----------------------------------------------------------------
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
    ---------------------------------------------------------------- */
 
 function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   const hiddenChips = hiddenTabs.map(tab => {
-    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
-    const count    = urlCounts[tab.url] || 1;
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
+    const label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    return buildPageChip(tab, label, urlCounts);
   }).join('');
 
   return `
@@ -913,33 +979,15 @@ function renderDomainCard(group) {
       const parsed = new URL(tab.url);
       if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
     } catch {}
-    const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
+    return buildPageChip(tab, label, urlCounts, group.domain);
   }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
 
-  let actionsHtml = `
+  const closableCount = tabs.filter(t => !isProtectedTab(t)).length;
+  let actionsHtml = closableCount > 0 ? `
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
-    </button>`;
+      Close ${closableCount} tab${closableCount !== 1 ? 's' : ''}
+    </button>` : '';
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
@@ -1219,7 +1267,8 @@ async function renderDomainView(realTabs) {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${buildViewToggle('domain')}${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const closableCount = realTabs.filter(t => !isProtectedTab(t)).length;
+    openTabsSectionCount.innerHTML = `${buildViewToggle('domain')}${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${closableCount > 0 ? ` &nbsp;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${closableCount} tabs</button>` : ''}`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1272,7 +1321,8 @@ async function renderGroupView() {
 
   // Render section header with toggle + count
   if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-  openTabsSectionCount.innerHTML = `${buildViewToggle('group')}${groupCount} group${groupCount !== 1 ? 's' : ''}${ungroupedCount > 0 ? ` · ${ungroupedCount} ungrouped` : ''} &nbsp;&nbsp;<button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+  const closableCount = realTabs.filter(t => !isProtectedTab(t)).length;
+  openTabsSectionCount.innerHTML = `${buildViewToggle('group')}${groupCount} group${groupCount !== 1 ? 's' : ''}${ungroupedCount > 0 ? ` · ${ungroupedCount} ungrouped` : ''}${closableCount > 0 ? ` &nbsp;&nbsp;<button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${closableCount} tabs</button>` : ''}`;
 
   // Render group cards + ungrouped section
   let html = '';
@@ -1322,35 +1372,16 @@ function renderTabGroupCard(groupInfo, tabs) {
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
   const pageChips = visibleTabs.map(tab => {
-    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
-    const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
+    const label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    return buildPageChip(tab, label, urlCounts);
   }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
 
-  const tabIds = tabs.map(t => t.id);
-  let actionsHtml = `
+  const closableCount = tabs.filter(t => !isProtectedTab(t)).length;
+  let actionsHtml = (closableCount > 0 ? `
     <button class="action-btn close-tabs" data-action="close-group-tabs" data-group-id="${groupInfo.id}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
-    </button>
+      Close ${closableCount} tab${closableCount !== 1 ? 's' : ''}
+    </button>` : '') + `
     <button class="action-btn" data-action="ungroup-tabs" data-group-id="${groupInfo.id}" style="color:var(--accent-blue);">
       Ungroup
     </button>`;
@@ -1394,27 +1425,8 @@ function renderUngroupedSection(ungroupedTabs) {
   const { urlCounts, uniqueTabs } = detectDuplicateTabs(ungroupedTabs);
 
   const chips = uniqueTabs.map(tab => {
-    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
-    const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
+    const label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    return buildPageChip(tab, label, urlCounts);
   }).join('');
 
   return `
@@ -1542,10 +1554,12 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
+    // Close the tab in Chrome directly (skip protected tabs)
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    const tabsPerWindow = {};
+    for (const t of allTabs) tabsPerWindow[t.windowId] = (tabsPerWindow[t.windowId] || 0) + 1;
+    const match = allTabs.find(t => t.url === tabUrl);
+    if (match && !match.pinned && tabsPerWindow[match.windowId] !== 1) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
     playCloseSound();
@@ -1767,12 +1781,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ---- Close ALL open tabs ----
+  // ---- Close ALL open tabs (skips pinned + lone-window tabs) ----
   if (action === 'close-all-open-tabs') {
-    const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
+    const closableUrls = openTabs
+      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:') && !isProtectedTab(t))
       .map(t => t.url);
-    await closeTabsByUrls(allUrls);
+    await closeTabsByUrls(closableUrls);
     playCloseSound();
 
     document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
@@ -1783,7 +1797,10 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    const protectedCount = openTabs.filter(t => isProtectedTab(t)).length;
+    showToast(protectedCount > 0
+      ? `Tabs closed. ${protectedCount} pinned/window tab${protectedCount !== 1 ? 's' : ''} kept.`
+      : 'All tabs closed. Fresh start.');
     return;
   }
 });
