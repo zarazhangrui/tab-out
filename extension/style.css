@@ -20,6 +20,27 @@
   --shadow: rgba(26, 22, 19, 0.06);
 }
 
+/* ---- Dark theme — default, toggled via data-theme attribute ---- */
+[data-theme="dark"] {
+  --ink: #e8e2da;
+  --paper: #1a1a1f;
+  --warm-gray: #2e2e35;
+  --muted: #8a8a95;
+  --accent-amber: #e09050;
+  --accent-sage: #6fa87a;
+  --accent-slate: #7a8fa0;
+  --accent-rose: #d06a6a;
+  --status-active: #5aaa66;
+  --status-cooling: #d0a040;
+  --status-abandoned: #d06a6a;
+  --card-bg: #242429;
+  --shadow: rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] body::before {
+  opacity: 0.015;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -1155,4 +1176,31 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+/* ---- Theme toggle button ---- */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--warm-gray);
+  border-radius: 20px;
+  padding: 6px 14px;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.theme-toggle svg {
+  width: 14px;
+  height: 14px;
 }

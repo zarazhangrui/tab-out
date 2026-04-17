@@ -17,6 +17,48 @@
 
 
 /* ----------------------------------------------------------------
+   THEME — dark mode by default, persisted in chrome.storage.local
+   ---------------------------------------------------------------- */
+
+const THEME_ICONS = {
+  light: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />`,
+  dark: `<path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />`,
+};
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const icon = document.getElementById('themeIcon');
+  const label = document.getElementById('themeLabel');
+  if (icon) icon.innerHTML = THEME_ICONS[theme === 'dark' ? 'light' : 'dark'];
+  if (label) label.textContent = theme === 'dark' ? 'Light' : 'Dark';
+}
+
+async function loadTheme() {
+  try {
+    const { theme } = await chrome.storage.local.get('theme');
+    applyTheme(theme || 'dark');
+  } catch {
+    applyTheme('dark');
+  }
+}
+
+async function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { await chrome.storage.local.set({ theme: next }); } catch {}
+}
+
+// Apply theme immediately (before DOM renders) to prevent flash
+loadTheme();
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.addEventListener('click', toggleTheme);
+});
+
+
+/* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
