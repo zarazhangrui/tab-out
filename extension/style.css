@@ -1156,3 +1156,230 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+/* ---- Privacy mode toggle ---- */
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+.privacy-toggle {
+  background: none;
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.privacy-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: rgba(26, 22, 19, 0.03);
+}
+
+/* Icon visibility: show lock-open by default, lock-closed when active */
+.privacy-icon-on  { display: none; }
+.privacy-icon-off { display: block; }
+
+body.privacy-mode .privacy-icon-on  { display: block; }
+body.privacy-mode .privacy-icon-off { display: none; }
+body.privacy-mode .privacy-toggle {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber);
+}
+
+/* ---- Privacy mode: hide dashboard content ---- */
+body.privacy-mode .tab-cleanup-banner,
+body.privacy-mode .dashboard-columns,
+body.privacy-mode footer {
+  display: none !important;
+}
+
+body.privacy-mode .container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  max-width: 960px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+body.privacy-mode header {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+body.privacy-mode .header-left {
+  display: none;
+}
+
+body.privacy-mode .privacy-screen {
+  display: flex;
+}
+
+/* ---- Privacy screen ---- */
+.privacy-screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  user-select: none;
+  position: relative;
+}
+
+.privacy-time {
+  font-family: 'Newsreader', serif;
+  font-weight: 300;
+  font-size: 96px;
+  letter-spacing: -3px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.privacy-date {
+  font-family: 'Newsreader', serif;
+  font-size: 28px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--ink);
+  opacity: 0.45;
+  letter-spacing: 0.5px;
+  margin-top: 16px;
+}
+
+.privacy-motto {
+  font-family: 'Newsreader', serif;
+  font-size: 18px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--muted);
+  margin-top: 24px;
+  max-width: 480px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.privacy-motto:empty { display: none; }
+
+/* ---- Privacy search box ---- */
+.privacy-search {
+  margin-top: 32px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.privacy-search-input {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  padding: 12px 20px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 24px;
+  background: var(--card-bg);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.privacy-search-input::placeholder {
+  color: var(--muted);
+}
+
+.privacy-search-input:focus {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.1);
+}
+
+/* ---- Privacy hint ---- */
+.privacy-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 40px;
+  opacity: 0.5;
+}
+
+.privacy-hint kbd {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  background: var(--warm-gray);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+/* ---- Privacy settings gear + panel ---- */
+.privacy-settings-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+  padding: 4px;
+  z-index: 11;
+}
+
+.privacy-settings-btn:hover { opacity: 1; }
+
+.privacy-settings {
+  position: fixed;
+  bottom: 52px;
+  right: 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 20px var(--shadow);
+  width: 220px;
+  z-index: 10;
+}
+
+.privacy-settings-title {
+  font-family: 'Newsreader', serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+
+.privacy-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.privacy-setting-row input[type="checkbox"] {
+  accent-color: var(--accent-amber);
+}
+
+.privacy-setting-sub {
+  padding: 4px 0 4px 24px;
+}
+
+.privacy-setting-input {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
+}
+
+.privacy-setting-input:focus {
+  border-color: var(--accent-amber);
+}

@@ -1477,6 +1477,186 @@ document.addEventListener('input', async (e) => {
 
 
 /* ----------------------------------------------------------------
+   PRIVACY MODE — hide dashboard content during screen sharing
+
+   Toggle with:
+   - The lock icon button in the header
+   - The Esc key
+   State is persisted in chrome.storage.local so it survives new tabs.
+   ---------------------------------------------------------------- */
+
+// ---- Privacy mode storage ----
+
+const PRIVACY_DEFAULTS = { clock: true, date: true, motto: true, search: true, mottoText: '' };
+
+async function getPrivacyMode() {
+  try {
+    const result = await chrome.storage.local.get('privacyMode');
+    return result.privacyMode === true;
+  } catch {
+    return false;
+  }
+}
+
+async function getPrivacySettings() {
+  try {
+    const result = await chrome.storage.local.get('privacySettings');
+    return { ...PRIVACY_DEFAULTS, ...result.privacySettings };
+  } catch {
+    return { ...PRIVACY_DEFAULTS };
+  }
+}
+
+async function savePrivacySettings(settings) {
+  try { await chrome.storage.local.set({ privacySettings: settings }); } catch {}
+}
+
+async function setPrivacyMode(enabled) {
+  try { await chrome.storage.local.set({ privacyMode: enabled }); } catch {}
+  document.body.classList.toggle('privacy-mode', enabled);
+  if (enabled) { applyPrivacyWidgets(); startPrivacyClock(); } else stopPrivacyClock();
+}
+
+// ---- Apply widget visibility from settings ----
+
+async function applyPrivacyWidgets() {
+  const s = await getPrivacySettings();
+  const timeEl   = document.getElementById('privacyTime');
+  const dateEl   = document.getElementById('privacyDate');
+  const mottoEl  = document.getElementById('privacyMotto');
+  const searchEl = document.getElementById('privacySearch');
+
+  if (timeEl)   timeEl.style.display   = s.clock  ? '' : 'none';
+  if (dateEl)   dateEl.style.display   = s.date   ? '' : 'none';
+  if (searchEl) searchEl.style.display = s.search ? '' : 'none';
+  if (mottoEl) {
+    mottoEl.style.display = s.motto && s.mottoText ? '' : 'none';
+    mottoEl.textContent   = s.mottoText || '';
+  }
+
+  // Sync settings panel checkboxes
+  const ids = { psClock: 'clock', psDate: 'date', psMotto: 'motto', psSearch: 'search' };
+  for (const [elId, key] of Object.entries(ids)) {
+    const cb = document.getElementById(elId);
+    if (cb) cb.checked = s[key];
+  }
+  const mottoInput = document.getElementById('psMottoInput');
+  if (mottoInput) mottoInput.value = s.mottoText || '';
+  const mottoEdit = document.getElementById('psMottoEdit');
+  if (mottoEdit) mottoEdit.style.display = s.motto ? '' : 'none';
+}
+
+// ---- Live clock ----
+let privacyClockInterval = null;
+
+function updatePrivacyClock() {
+  const now = new Date();
+  const timeEl = document.getElementById('privacyTime');
+  const dateEl = document.getElementById('privacyDate');
+  if (timeEl) {
+    timeEl.textContent = now.toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+  }
+  if (dateEl) {
+    dateEl.textContent = now.toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric'
+    });
+  }
+}
+
+function startPrivacyClock() {
+  updatePrivacyClock();
+  if (!privacyClockInterval) {
+    privacyClockInterval = setInterval(updatePrivacyClock, 1000);
+  }
+}
+
+function stopPrivacyClock() {
+  if (privacyClockInterval) {
+    clearInterval(privacyClockInterval);
+    privacyClockInterval = null;
+  }
+}
+
+// ---- Toggle privacy mode ----
+
+async function togglePrivacyMode() {
+  const current = document.body.classList.contains('privacy-mode');
+  await setPrivacyMode(!current);
+}
+
+document.getElementById('privacyToggle')?.addEventListener('click', togglePrivacyMode);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    // Don't toggle if user is typing in search or motto input
+    const active = document.activeElement;
+    if (active && (active.id === 'privacySearchInput' || active.id === 'psMottoInput')) {
+      active.blur();
+      return;
+    }
+    e.preventDefault();
+    togglePrivacyMode();
+  }
+});
+
+// ---- Settings panel ----
+
+document.getElementById('privacySettingsBtn')?.addEventListener('click', () => {
+  const panel = document.getElementById('privacySettings');
+  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+});
+
+// Close settings when clicking outside
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('privacySettings');
+  const btn   = document.getElementById('privacySettingsBtn');
+  if (panel && panel.style.display !== 'none' && !panel.contains(e.target) && !btn.contains(e.target)) {
+    panel.style.display = 'none';
+  }
+});
+
+// Settings checkbox changes
+for (const id of ['psClock', 'psDate', 'psMotto', 'psSearch']) {
+  document.getElementById(id)?.addEventListener('change', async () => {
+    const s = await getPrivacySettings();
+    s.clock  = document.getElementById('psClock')?.checked ?? true;
+    s.date   = document.getElementById('psDate')?.checked ?? true;
+    s.motto  = document.getElementById('psMotto')?.checked ?? true;
+    s.search = document.getElementById('psSearch')?.checked ?? true;
+    await savePrivacySettings(s);
+    applyPrivacyWidgets();
+  });
+}
+
+// Motto text input (save on blur or Enter)
+const mottoInput = document.getElementById('psMottoInput');
+if (mottoInput) {
+  const saveMotto = async () => {
+    const s = await getPrivacySettings();
+    s.mottoText = mottoInput.value.trim();
+    await savePrivacySettings(s);
+    applyPrivacyWidgets();
+  };
+  mottoInput.addEventListener('blur', saveMotto);
+  mottoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); mottoInput.blur(); } });
+}
+
+// ---- Init ----
+
+async function initPrivacyMode() {
+  const enabled = await getPrivacyMode();
+  if (enabled) {
+    document.body.classList.add('privacy-mode');
+    await applyPrivacyWidgets();
+    startPrivacyClock();
+  }
+}
+
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+// Init privacy mode first to avoid content flash, then render
+initPrivacyMode().then(() => renderDashboard());
