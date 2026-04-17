@@ -467,6 +467,60 @@ header {
   padding: 6px 4px;
 }
 
+/* ---- Protected tab chips: pinned & standalone-window ---- */
+
+/* Favicon wrapper — gives us a positioning context for the badge overlay */
+.chip-favicon-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* No-img variant (when favicon fails to load but badge exists) */
+.chip-favicon-wrap--no-img {
+  /* still takes up 16×16 so layout is consistent */
+}
+
+/* Badge icon — pinned at bottom-right corner of the favicon */
+.chip-protected-icon {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  /* white outline so it reads on any favicon */
+  filter: drop-shadow(0 0 1px rgba(255,255,255,0.9)) drop-shadow(0 0 1.5px rgba(255,255,255,0.7));
+}
+
+/* Pinned tab — warm amber tint on row */
+.page-chip.chip-pinned {
+  background: rgba(200, 113, 58, 0.05);
+  border-bottom-color: rgba(200, 113, 58, 0.15);
+}
+.page-chip.chip-pinned:hover {
+  background: rgba(200, 113, 58, 0.09);
+}
+.chip-pin-icon {
+  color: var(--accent-amber);
+}
+
+/* Standalone-window tab — cool slate-blue tint on row */
+.page-chip.chip-alone-window {
+  background: rgba(90, 107, 122, 0.05);
+  border-bottom-color: rgba(90, 107, 122, 0.15);
+}
+.page-chip.chip-alone-window:hover {
+  background: rgba(90, 107, 122, 0.09);
+}
+.chip-window-icon {
+  color: var(--accent-slate);
+}
+
 /* mission-meta hidden — see above */
 
 .mission-time {
@@ -1155,4 +1209,58 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+/* ---- View toggle pills ---- */
+.view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid rgba(154, 145, 138, 0.15);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.toggle-pill {
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.toggle-pill.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.toggle-pill:hover:not(.active) {
+  color: var(--ink);
+}
+
+/* ---- Ungrouped section ---- */
+.ungrouped-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(154, 145, 138, 0.1);
+}
+
+.ungrouped-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.ungrouped-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
