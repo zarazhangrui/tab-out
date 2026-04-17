@@ -15,6 +15,46 @@
 
 'use strict';
 
+/* ----------------------------------------------------------------
+   THEME — dark mode by default, persisted in chrome.storage.local
+   ---------------------------------------------------------------- */
+
+const THEME_ICONS = {
+  light: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />`,
+  dark: `<path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />`,
+};
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const icon = document.getElementById('themeIcon');
+  const label = document.getElementById('themeLabel');
+  if (icon) icon.innerHTML = THEME_ICONS[theme === 'dark' ? 'light' : 'dark'];
+  if (label) label.textContent = theme === 'dark' ? 'Light' : 'Dark';
+}
+
+async function loadTheme() {
+  try {
+    const { theme } = await chrome.storage.local.get('theme');
+    applyTheme(theme || 'dark');
+  } catch {
+    applyTheme('dark');
+  }
+}
+
+async function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { await chrome.storage.local.set({ theme: next }); } catch {}
+}
+
+loadTheme();
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.addEventListener('click', toggleTheme);
+});
+
 
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
@@ -707,7 +747,35 @@ const ICONS = {
    IN-MEMORY STORE FOR OPEN-TAB GROUPS
    ---------------------------------------------------------------- */
 let domainGroups = [];
+let showWindowLabels = false;
+let windowNameMap = {};
 
+
+/* ----------------------------------------------------------------
+   WINDOW MANAGEMENT
+   ---------------------------------------------------------------- */
+
+function buildWindowNameMap() {
+  const windowIds = [...new Set(openTabs.map(t => t.windowId))];
+  windowNameMap = {};
+  windowIds.forEach((id, i) => {
+    windowNameMap[id] = `Window ${i + 1}`;
+  });
+}
+
+function getWindowCount() {
+  return new Set(openTabs.map(t => t.windowId)).size;
+}
+
+async function mergeAllWindows() {
+  const currentWindow = await chrome.windows.getCurrent();
+  const allTabs = await chrome.tabs.query({});
+  const tabsToMove = allTabs.filter(t => t.windowId !== currentWindow.id);
+  for (const tab of tabsToMove) {
+    await chrome.tabs.move(tab.id, { windowId: currentWindow.id, index: -1 });
+  }
+  await fetchOpenTabs();
+}
 
 /* ----------------------------------------------------------------
    HELPER: filter out browser-internal pages
@@ -849,9 +917,11 @@ function renderDomainCard(group) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const winLabel = showWindowLabels && windowNameMap[tab.windowId]
+      ? `<span class="chip-window-badge">${windowNameMap[tab.windowId]}</span>` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${label}</span>${dupeTag}${winLabel}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -1028,6 +1098,7 @@ async function renderStaticDashboard() {
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
+  buildWindowNameMap();
   const realTabs = getRealTabs();
 
   // --- Group tabs by domain ---
@@ -1150,7 +1221,16 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const winCount = getWindowCount();
+    const mergeBtn = winCount > 1
+      ? ` <button class="action-btn" data-action="merge-windows" style="font-size:11px;padding:3px 10px;border-color:rgba(90,122,98,0.3);color:var(--accent-sage);background:rgba(90,122,98,0.04);">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:12px;height:12px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
+          Merge ${winCount} windows</button>` : '';
+    const showWinToggle = winCount > 1
+      ? ` <button class="action-btn${showWindowLabels ? ' primary' : ''}" data-action="toggle-window-labels" style="font-size:11px;padding:3px 10px;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:12px;height:12px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25V18a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V8.25m-18 0V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v2.25m-18 0h18" /></svg>
+          ${showWindowLabels ? 'Hide' : 'Show'} windows</button>` : '';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${winCount > 1 ? ` &middot; ${winCount} windows` : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>${mergeBtn}${showWinToggle}`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1160,6 +1240,8 @@ async function renderStaticDashboard() {
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
   if (statTabs) statTabs.textContent = openTabs.length;
+  const statWindows = document.getElementById('statWindows');
+  if (statWindows) statWindows.textContent = getWindowCount();
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1409,6 +1491,22 @@ document.addEventListener('click', async (e) => {
     }
 
     showToast('Closed duplicates, kept one copy each');
+    return;
+  }
+
+  // ---- Merge all windows into current ----
+  if (action === 'merge-windows') {
+    await mergeAllWindows();
+    playCloseSound();
+    showToast('All windows merged into one');
+    await renderDashboard();
+    return;
+  }
+
+  // ---- Toggle window labels on tabs ----
+  if (action === 'toggle-window-labels') {
+    showWindowLabels = !showWindowLabels;
+    await renderDashboard();
     return;
   }
 
