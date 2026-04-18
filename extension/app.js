@@ -708,6 +708,7 @@ const ICONS = {
    ---------------------------------------------------------------- */
 let domainGroups = [];
 let showWindowLabels = false;
+let groupByWindow = false;
 let windowNameMap = {};
 
 
@@ -752,6 +753,55 @@ async function mergeAllWindows() {
     await chrome.tabs.move(tab.id, { windowId: currentWindow.id, index: -1 });
   }
   await fetchOpenTabs();
+}
+
+/**
+ * moveTabToWindow(tabUrl, targetWindowId)
+ *
+ * Moves the tab matching tabUrl into targetWindowId. If targetWindowId
+ * is null, opens a new window and moves the tab there.
+ */
+async function moveTabToWindow(tabUrl, targetWindowId) {
+  const allTabs = await chrome.tabs.query({});
+  const match = allTabs.find(t => t.url === tabUrl);
+  if (!match) return;
+
+  if (targetWindowId === null) {
+    // Create a new window with this tab
+    await chrome.windows.create({ tabId: match.id });
+  } else {
+    await chrome.tabs.move(match.id, { windowId: targetWindowId, index: -1 });
+    await chrome.windows.update(targetWindowId, { focused: false });
+  }
+  await fetchOpenTabs();
+}
+
+/**
+ * buildWindowGroups(groups)
+ *
+ * Splits the flat domainGroups list into per-window sections.
+ * Each section: { windowId, name, groups: [domainGroup...] }
+ */
+function buildWindowGroups(groups) {
+  const byWindow = {};
+  for (const g of groups) {
+    const perWin = {};
+    for (const tab of g.tabs) {
+      const wid = tab.windowId;
+      if (!perWin[wid]) perWin[wid] = { ...g, tabs: [] };
+      perWin[wid].tabs.push(tab);
+    }
+    for (const [wid, subGroup] of Object.entries(perWin)) {
+      const numWid = Number(wid);
+      if (!byWindow[numWid]) {
+        byWindow[numWid] = { windowId: numWid, name: windowNameMap[numWid] || `Window ${numWid}`, groups: [] };
+      }
+      byWindow[numWid].groups.push(subGroup);
+    }
+  }
+  return Object.values(byWindow).sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true })
+  );
 }
 
 
@@ -818,6 +868,9 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
+        <button class="chip-action chip-move" data-action="move-tab-menu" data-tab-url="${safeUrl}" title="Move to window">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+        </button>
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
@@ -901,6 +954,9 @@ function renderDomainCard(group) {
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}${winLabel}
       <div class="chip-actions">
+        <button class="chip-action chip-move" data-action="move-tab-menu" data-tab-url="${safeUrl}" title="Move to window">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+        </button>
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
@@ -1208,8 +1264,28 @@ async function renderStaticDashboard() {
       ? ` <button class="action-btn${showWindowLabels ? ' primary' : ''}" data-action="toggle-window-labels" style="font-size:11px;padding:3px 10px;">
           ${ICONS.tabs}
           ${showWindowLabels ? 'Hide' : 'Show'} windows</button>` : '';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${winCount > 1 ? ` &middot; ${winCount} windows` : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>${mergeBtn}${showWinToggle}`;
-    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    const groupByWinToggle = winCount > 1
+      ? ` <button class="action-btn${groupByWindow ? ' primary' : ''}" data-action="toggle-group-by-window" style="font-size:11px;padding:3px 10px;">
+          ${ICONS.tabs}
+          Group by ${groupByWindow ? 'domain' : 'window'}</button>` : '';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${winCount > 1 ? ` &middot; ${winCount} windows` : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>${mergeBtn}${groupByWinToggle}${showWinToggle}`;
+
+    if (groupByWindow && winCount > 1) {
+      const windowSections = buildWindowGroups(domainGroups);
+      openTabsMissionsEl.innerHTML = windowSections.map(w => {
+        const tabCountInWindow = w.groups.reduce((s, g) => s + g.tabs.length, 0);
+        return `
+          <div class="window-section" data-window-id="${w.windowId}">
+            <div class="window-section-header">
+              <span class="window-section-name">${w.name}</span>
+              <span class="window-section-count">${tabCountInWindow} tab${tabCountInWindow !== 1 ? 's' : ''} &middot; ${w.groups.length} domain${w.groups.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="window-section-body">${w.groups.map(g => renderDomainCard(g)).join('')}</div>
+          </div>`;
+      }).join('');
+    } else {
+      openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    }
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
@@ -1230,6 +1306,73 @@ async function renderStaticDashboard() {
 
 async function renderDashboard() {
   await renderStaticDashboard();
+}
+
+
+/* ----------------------------------------------------------------
+   MOVE-TAB POPOVER
+   ---------------------------------------------------------------- */
+
+function closeMoveTabMenu() {
+  const existing = document.getElementById('moveTabMenu');
+  if (existing) existing.remove();
+}
+
+function openMoveTabMenu(anchorEl, tabUrl) {
+  closeMoveTabMenu();
+
+  const tab = openTabs.find(t => t.url === tabUrl);
+  const currentWid = tab ? tab.windowId : null;
+  const windowIds = [...new Set(openTabs.map(t => t.windowId))];
+  const targets = windowIds.filter(wid => wid !== currentWid);
+
+  const safeUrl = tabUrl.replace(/"/g, '&quot;');
+  const items = targets.map(wid =>
+    `<button class="move-menu-item" data-action="move-tab-exec" data-tab-url="${safeUrl}" data-target-window="${wid}">
+      ${windowNameMap[wid] || `Window ${wid}`}
+    </button>`
+  ).join('');
+
+  const menu = document.createElement('div');
+  menu.id = 'moveTabMenu';
+  menu.className = 'move-menu';
+  menu.innerHTML = `
+    <div class="move-menu-header">Move tab to</div>
+    ${items}
+    <button class="move-menu-item move-menu-new" data-action="move-tab-exec" data-tab-url="${safeUrl}" data-target-window="new">
+      + New window
+    </button>`;
+
+  document.body.appendChild(menu);
+
+  // Position below the anchor button
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top = `${window.scrollY + rect.bottom + 4}px`;
+  menu.style.left = `${window.scrollX + rect.left}px`;
+
+  // Clamp to viewport
+  requestAnimationFrame(() => {
+    const mRect = menu.getBoundingClientRect();
+    if (mRect.right > window.innerWidth - 8) {
+      menu.style.left = `${window.scrollX + window.innerWidth - mRect.width - 8}px`;
+    }
+  });
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', onDocClickForMenu, { once: true });
+  }, 0);
+}
+
+function onDocClickForMenu(e) {
+  const menu = document.getElementById('moveTabMenu');
+  if (!menu) return;
+  if (menu.contains(e.target)) {
+    // Click inside — re-arm for next outside click
+    document.addEventListener('click', onDocClickForMenu, { once: true });
+    return;
+  }
+  closeMoveTabMenu();
 }
 
 
@@ -1484,6 +1627,35 @@ document.addEventListener('click', async (e) => {
   // ---- Toggle window labels on tabs ----
   if (action === 'toggle-window-labels') {
     showWindowLabels = !showWindowLabels;
+    await renderDashboard();
+    return;
+  }
+
+  // ---- Toggle group-by-window layout ----
+  if (action === 'toggle-group-by-window') {
+    groupByWindow = !groupByWindow;
+    await renderDashboard();
+    return;
+  }
+
+  // ---- Open move-tab popover ----
+  if (action === 'move-tab-menu') {
+    e.stopPropagation();
+    const tabUrl = actionEl.dataset.tabUrl;
+    if (!tabUrl) return;
+    openMoveTabMenu(actionEl, tabUrl);
+    return;
+  }
+
+  // ---- Execute move-tab from popover ----
+  if (action === 'move-tab-exec') {
+    e.stopPropagation();
+    const tabUrl = actionEl.dataset.tabUrl;
+    const targetRaw = actionEl.dataset.targetWindow;
+    const target = targetRaw === 'new' ? null : Number(targetRaw);
+    closeMoveTabMenu();
+    await moveTabToWindow(tabUrl, target);
+    showToast(target === null ? 'Moved to new window' : 'Tab moved');
     await renderDashboard();
     return;
   }

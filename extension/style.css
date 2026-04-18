@@ -1170,3 +1170,78 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+/* ---- Window section (group-by-window layout) ---- */
+.window-section {
+  margin-bottom: 28px;
+}
+
+.window-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--warm-gray, rgba(0,0,0,0.1));
+}
+
+.window-section-name {
+  font-family: 'Newsreader', serif;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.window-section-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.window-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---- Move-tab popover ---- */
+.move-menu {
+  position: absolute;
+  z-index: 10000;
+  min-width: 180px;
+  background: var(--paper, #fff);
+  border: 1px solid var(--warm-gray, rgba(0,0,0,0.15));
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.move-menu-header {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 6px 8px 4px;
+}
+
+.move-menu-item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.move-menu-item:hover {
+  background: rgba(90, 107, 122, 0.12);
+}
+
+.move-menu-new {
+  border-top: 1px solid var(--warm-gray, rgba(0,0,0,0.1));
+  margin-top: 2px;
+  color: var(--accent-sage, #5a7a62);
+}
