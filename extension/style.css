@@ -40,6 +40,25 @@ body::before {
   z-index: 0;
 }
 
+/* Bing daily background */
+body.has-bing-bg {
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+body.has-bing-bg::before {
+  background-image: none;
+  background-color: rgba(248, 245, 240, 0.68);
+}
+
+.bing-credit {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  display: block;
+}
+
 .container {
   position: relative;
   z-index: 1;

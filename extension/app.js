@@ -1477,6 +1477,47 @@ document.addEventListener('input', async (e) => {
 
 
 /* ----------------------------------------------------------------
+   BING DAILY BACKGROUND
+   ---------------------------------------------------------------- */
+
+async function fetchBingBackground() {
+  const today = new Date().toISOString().slice(0, 10);
+  const stored = await chrome.storage.local.get('bingBackground');
+  const cached = stored.bingBackground;
+
+  if (cached && cached.date === today) return cached;
+
+  try {
+    const res = await fetch('https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN');
+    const data = await res.json();
+    const img = data.images[0];
+    const result = {
+      date: today,
+      url: 'https://www.bing.com' + img.url,
+      copyright: img.copyright || '',
+    };
+    await chrome.storage.local.set({ bingBackground: result });
+    return result;
+  } catch {
+    return cached || null;
+  }
+}
+
+async function applyBingBackground() {
+  const bg = await fetchBingBackground();
+  if (!bg) return;
+
+  document.body.style.backgroundImage = `url('${bg.url}')`;
+  document.body.classList.add('has-bing-bg');
+
+  const creditEl = document.getElementById('bingCredit');
+  if (creditEl && bg.copyright) creditEl.textContent = '© ' + bg.copyright;
+}
+
+applyBingBackground();
+
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
