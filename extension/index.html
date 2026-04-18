@@ -48,16 +48,26 @@
 
   <!-- ================================================================
        QUICK LINKS — collapsible row of frequently-used sites
-       Sites are defined in QUICK_LINKS at the top of app.js
-       Hidden by default; app.js shows it when QUICK_LINKS has items
+       Managed entirely via the UI; stored in chrome.storage.local
        ================================================================ -->
-  <div class="quick-links-section" id="quickLinksSection" style="display:none">
-    <button class="quick-links-toggle" id="quickLinksToggle">
-      <svg class="quick-links-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-      Quick links
-    </button>
-    <div class="quick-links-body" id="quickLinksBody" style="display:none">
+  <div class="quick-links-section" id="quickLinksSection">
+    <div class="quick-links-header">
+      <button class="quick-links-toggle open" id="quickLinksToggle">
+        <svg class="quick-links-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+        Quick links
+      </button>
+      <button class="quick-links-add-btn" id="quickLinksAddBtn" aria-label="Add site">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+      </button>
+    </div>
+    <div class="quick-links-body" id="quickLinksBody">
       <div class="quick-links-grid" id="quickLinksGrid"></div>
+      <div class="quick-links-form" id="quickLinksForm" style="display:none">
+        <input type="text" class="quick-links-input" id="quickLinkName" placeholder="Name">
+        <input type="text" class="quick-links-input" id="quickLinkUrl" placeholder="https://...">
+        <button class="quick-links-save" id="quickLinksSave">Add</button>
+        <button class="quick-links-cancel" id="quickLinksCancel">Cancel</button>
+      </div>
     </div>
   </div>
 

@@ -17,18 +17,6 @@
 
 
 /* ----------------------------------------------------------------
-   QUICK LINKS — Edit this list to add your own frequently-used sites.
-   Each entry: { name: 'Display Name', url: 'https://example.com' }
-   ---------------------------------------------------------------- */
-const QUICK_LINKS = [
-  // { name: 'GitHub',   url: 'https://github.com' },
-  // { name: 'Gmail',    url: 'https://mail.google.com' },
-  // { name: 'YouTube',  url: 'https://youtube.com' },
-  // { name: 'Notion',   url: 'https://notion.so' },
-];
-
-
-/* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
@@ -1017,45 +1005,56 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
-   MAIN DASHBOARD RENDERER
+   QUICK LINKS — stored in chrome.storage.local, managed via UI
    ---------------------------------------------------------------- */
 
-/* ----------------------------------------------------------------
-   QUICK LINKS RENDERER
-   ---------------------------------------------------------------- */
+async function getQuickLinks() {
+  try {
+    const { quickLinks } = await chrome.storage.local.get('quickLinks');
+    return Array.isArray(quickLinks) ? quickLinks : [];
+  } catch { return []; }
+}
 
-function renderQuickLinks() {
-  const section = document.getElementById('quickLinksSection');
-  if (!section) return;
-  if (!QUICK_LINKS.length) return; // nothing to show
+async function saveQuickLinks(links) {
+  await chrome.storage.local.set({ quickLinks: links });
+}
 
+async function renderQuickLinks() {
   const grid   = document.getElementById('quickLinksGrid');
-  const body   = document.getElementById('quickLinksBody');
   const toggle = document.getElementById('quickLinksToggle');
+  const body   = document.getElementById('quickLinksBody');
+  if (!grid) return;
 
-  grid.innerHTML = QUICK_LINKS.map(link => {
+  const links = await getQuickLinks();
+
+  grid.innerHTML = links.map((link, i) => {
     let domain = '';
     try { domain = new URL(link.url).hostname; } catch { domain = link.url; }
     const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
     const safeName = link.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl  = link.url.replace(/"/g, '%22');
-    return `<a class="quick-link-chip" href="${safeUrl}" target="_top">
-      <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
-      ${safeName}
-    </a>`;
+    return `<div class="quick-link-chip">
+      <a class="quick-link-inner" href="${safeUrl}" target="_top">
+        <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+        ${safeName}
+      </a>
+      <button class="quick-link-remove" data-action="remove-quick-link" data-index="${i}" title="Remove">×</button>
+    </div>`;
   }).join('');
 
   const collapsed = localStorage.getItem('quickLinksCollapsed') === 'true';
   if (collapsed) {
-    toggle.classList.remove('open');
-    body.style.display = 'none';
+    toggle && toggle.classList.remove('open');
+    if (body) body.style.display = 'none';
   } else {
-    toggle.classList.add('open');
-    body.style.display = 'block';
+    toggle && toggle.classList.add('open');
+    if (body) body.style.display = 'block';
   }
-
-  section.style.display = 'block';
 }
+
+/* ----------------------------------------------------------------
+   MAIN DASHBOARD RENDERER
+   ---------------------------------------------------------------- */
 
 
 /**
@@ -1077,7 +1076,7 @@ async function renderStaticDashboard() {
   if (dateEl)     dateEl.textContent     = getDateDisplay();
 
   // --- Quick links ---
-  renderQuickLinks();
+  await renderQuickLinks();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1486,11 +1485,10 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// ---- Quick links toggle — expand/collapse quick links ----
+// ---- Quick links toggle ----
 document.addEventListener('click', (e) => {
   const toggle = e.target.closest('#quickLinksToggle');
   if (!toggle) return;
-
   toggle.classList.toggle('open');
   const body = document.getElementById('quickLinksBody');
   if (body) {
@@ -1498,6 +1496,81 @@ document.addEventListener('click', (e) => {
     body.style.display = isOpen ? 'block' : 'none';
     localStorage.setItem('quickLinksCollapsed', isOpen ? 'false' : 'true');
   }
+});
+
+// ---- Quick links: show add form ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksAddBtn')) return;
+  const form = document.getElementById('quickLinksForm');
+  const body = document.getElementById('quickLinksBody');
+  const toggle = document.getElementById('quickLinksToggle');
+  if (!form) return;
+  // Ensure body is expanded
+  if (body) body.style.display = 'block';
+  if (toggle && !toggle.classList.contains('open')) {
+    toggle.classList.add('open');
+    localStorage.setItem('quickLinksCollapsed', 'false');
+  }
+  form.style.display = 'flex';
+  document.getElementById('quickLinkName')?.focus();
+});
+
+// ---- Quick links: cancel add form ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksCancel')) return;
+  const form = document.getElementById('quickLinksForm');
+  if (form) form.style.display = 'none';
+  const nameEl = document.getElementById('quickLinkName');
+  const urlEl  = document.getElementById('quickLinkUrl');
+  if (nameEl) nameEl.value = '';
+  if (urlEl)  urlEl.value  = '';
+});
+
+// ---- Quick links: save new link ----
+async function saveNewQuickLink() {
+  const nameEl = document.getElementById('quickLinkName');
+  const urlEl  = document.getElementById('quickLinkUrl');
+  if (!nameEl || !urlEl) return;
+
+  const name = nameEl.value.trim();
+  let url = urlEl.value.trim();
+  if (!name || !url) return;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+  const links = await getQuickLinks();
+  links.push({ name, url });
+  await saveQuickLinks(links);
+
+  nameEl.value = '';
+  urlEl.value  = '';
+  const form = document.getElementById('quickLinksForm');
+  if (form) form.style.display = 'none';
+  await renderQuickLinks();
+}
+
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('#quickLinksSave')) return;
+  await saveNewQuickLink();
+});
+
+document.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const active = document.activeElement;
+  if (active?.id === 'quickLinkName' || active?.id === 'quickLinkUrl') {
+    await saveNewQuickLink();
+  }
+});
+
+// ---- Quick links: remove a link ----
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="remove-quick-link"]');
+  if (!btn) return;
+  e.preventDefault();
+  const index = parseInt(btn.dataset.index, 10);
+  const links = await getQuickLinks();
+  links.splice(index, 1);
+  await saveQuickLinks(links);
+  await renderQuickLinks();
 });
 
 // ---- Archive toggle — expand/collapse the archive section ----
