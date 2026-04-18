@@ -1051,6 +1051,75 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   text-align: center;
 }
 
+/* ---- Quick Links ---- */
+.quick-links-section {
+  margin-bottom: 32px;
+}
+
+.quick-links-toggle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 10px 0;
+  transition: color 0.15s;
+}
+
+.quick-links-toggle:hover {
+  color: var(--ink);
+}
+
+.quick-links-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s;
+}
+
+.quick-links-toggle.open .quick-links-chevron {
+  transform: rotate(180deg);
+}
+
+.quick-links-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.quick-link-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px 6px 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 20px;
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+}
+
+.quick-link-chip:hover {
+  border-color: rgba(200, 113, 58, 0.35);
+  box-shadow: 0 2px 8px var(--shadow);
+  transform: translateY(-1px);
+}
+
+.quick-link-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
 /* ---- Archive section ---- */
 .deferred-archive {
   margin-top: 16px;

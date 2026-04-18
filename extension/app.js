@@ -17,6 +17,18 @@
 
 
 /* ----------------------------------------------------------------
+   QUICK LINKS — Edit this list to add your own frequently-used sites.
+   Each entry: { name: 'Display Name', url: 'https://example.com' }
+   ---------------------------------------------------------------- */
+const QUICK_LINKS = [
+  // { name: 'GitHub',   url: 'https://github.com' },
+  // { name: 'Gmail',    url: 'https://mail.google.com' },
+  // { name: 'YouTube',  url: 'https://youtube.com' },
+  // { name: 'Notion',   url: 'https://notion.so' },
+];
+
+
+/* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
@@ -1008,6 +1020,44 @@ function renderArchiveItem(item) {
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------
+   QUICK LINKS RENDERER
+   ---------------------------------------------------------------- */
+
+function renderQuickLinks() {
+  const section = document.getElementById('quickLinksSection');
+  if (!section) return;
+  if (!QUICK_LINKS.length) return; // nothing to show
+
+  const grid   = document.getElementById('quickLinksGrid');
+  const body   = document.getElementById('quickLinksBody');
+  const toggle = document.getElementById('quickLinksToggle');
+
+  grid.innerHTML = QUICK_LINKS.map(link => {
+    let domain = '';
+    try { domain = new URL(link.url).hostname; } catch { domain = link.url; }
+    const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const safeName = link.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeUrl  = link.url.replace(/"/g, '%22');
+    return `<a class="quick-link-chip" href="${safeUrl}" target="_top">
+      <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      ${safeName}
+    </a>`;
+  }).join('');
+
+  const collapsed = localStorage.getItem('quickLinksCollapsed') === 'true';
+  if (collapsed) {
+    toggle.classList.remove('open');
+    body.style.display = 'none';
+  } else {
+    toggle.classList.add('open');
+    body.style.display = 'block';
+  }
+
+  section.style.display = 'block';
+}
+
+
 /**
  * renderStaticDashboard()
  *
@@ -1025,6 +1075,9 @@ async function renderStaticDashboard() {
   const dateEl     = document.getElementById('dateDisplay');
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Quick links ---
+  renderQuickLinks();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1430,6 +1483,20 @@ document.addEventListener('click', async (e) => {
 
     showToast('All tabs closed. Fresh start.');
     return;
+  }
+});
+
+// ---- Quick links toggle — expand/collapse quick links ----
+document.addEventListener('click', (e) => {
+  const toggle = e.target.closest('#quickLinksToggle');
+  if (!toggle) return;
+
+  toggle.classList.toggle('open');
+  const body = document.getElementById('quickLinksBody');
+  if (body) {
+    const isOpen = toggle.classList.contains('open');
+    body.style.display = isOpen ? 'block' : 'none';
+    localStorage.setItem('quickLinksCollapsed', isOpen ? 'false' : 'true');
   }
 });
 
