@@ -1156,3 +1156,30 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+.archive-item-dismiss {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.archive-item-dismiss svg {
+  width: 12px;
+  height: 12px;
+}
+
+.archive-item:hover .archive-item-dismiss {
+  opacity: 0.5;
+}
+
+.archive-item-dismiss:hover {
+  opacity: 1 !important;
+  color: var(--accent-rose);
+}
