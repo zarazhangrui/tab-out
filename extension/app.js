@@ -17,6 +17,105 @@
 
 
 /* ----------------------------------------------------------------
+   FAVICON 缓存管理
+
+   使用 chrome.storage.local 缓存 favicon，减少向 Google 发送请求。
+   缓存有效期：7 天
+   ---------------------------------------------------------------- */
+
+const FAVICON_CACHE_KEY = 'faviconCache';
+const FAVICON_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 天
+
+// 内存缓存（当前会话快速访问）
+let faviconMemoryCache = {};
+
+/**
+ * getFaviconUrl(domain)
+ *
+ * 获取 favicon URL，优先使用缓存。
+ * 返回 base64 数据 URL 或 Google API URL。
+ */
+async function getFaviconUrl(domain) {
+  if (!domain) return null;
+
+  // 1. 检查内存缓存
+  if (faviconMemoryCache[domain]) {
+    return faviconMemoryCache[domain];
+  }
+
+  // 2. 检查持久缓存
+  try {
+    const { [FAVICON_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+    const cached = cache[domain];
+
+    if (cached && Date.now() - cached.timestamp < FAVICON_CACHE_TTL) {
+      faviconMemoryCache[domain] = cached.data;
+      return cached.data;
+    }
+  } catch {}
+
+  // 3. 无缓存，返回 Google API URL（首次加载后会通过 cacheFavicon 缓存）
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+}
+
+/**
+ * cacheFavicon(domain, imgElement)
+ *
+ * 将已加载的 favicon 缓存到本地。
+ * 在 img.onload 中调用。
+ */
+async function cacheFavicon(domain, imgElement) {
+  if (!domain || !imgElement) return;
+
+  try {
+    // 将图片转换为 base64
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgElement, 0, 0, 16, 16);
+    const dataUrl = canvas.toDataURL('image/png');
+
+    // 更新内存缓存
+    faviconMemoryCache[domain] = dataUrl;
+
+    // 更新持久缓存
+    const { [FAVICON_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+    cache[domain] = {
+      data: dataUrl,
+      timestamp: Date.now()
+    };
+    await chrome.storage.local.set({ [FAVICON_CACHE_KEY]: cache });
+  } catch {}
+}
+
+/**
+ * cleanExpiredFaviconCache()
+ *
+ * 清理过期的 favicon 缓存。
+ * 在扩展启动时调用一次。
+ */
+async function cleanExpiredFaviconCache() {
+  try {
+    const { [FAVICON_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+    const now = Date.now();
+    let cleaned = false;
+
+    for (const domain of Object.keys(cache)) {
+      if (now - cache[domain].timestamp > FAVICON_CACHE_TTL) {
+        delete cache[domain];
+        cleaned = true;
+      }
+    }
+
+    if (cleaned) {
+      await chrome.storage.local.set({ [FAVICON_CACHE_KEY]: cache });
+    }
+  } catch {}
+}
+
+
+/* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
@@ -757,6 +856,37 @@ function checkTabOutDupes() {
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
    ---------------------------------------------------------------- */
 
+/**
+ * buildFaviconImg(domain)
+ *
+ * 生成 favicon img 标签，支持缓存。
+ * 使用 data-domain 属性来识别域名，在 onload 时缓存。
+ */
+function buildFaviconImg(domain) {
+  if (!domain) return '';
+  return `<img class="chip-favicon"
+    src="https://www.google.com/s2/favicons?domain=${domain}&sz=16"
+    alt=""
+    data-domain="${domain}"
+    onerror="this.style.display='none'"
+    onload="if(this.dataset.domain){const d=this.dataset.domain;const c=canvas=>{const x=canvas.getContext('2d');x.drawImage(this,0,0,16,16);const u=canvas.toDataURL('image/png');chrome.storage.local.get('faviconCache',r=>{const m=r.faviconCache||{};m[d]={data:u,timestamp:Date.now()};chrome.storage.local.set({faviconCache:m})});localStorage.setItem('favicon_mem_'+d,u)};const cv=document.createElement('canvas');cv.width=16;cv.height=16;c(cv)}">`;
+}
+
+/**
+ * getFaviconFromMemory(domain)
+ *
+ * 从内存/本地存储快速获取缓存的 favicon。
+ * 返回 base64 数据 URL 或 null。
+ */
+function getFaviconFromMemory(domain) {
+  if (!domain) return null;
+  try {
+    return localStorage.getItem('favicon_mem_' + domain);
+  } catch {
+    return null;
+  }
+}
+
 function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   const hiddenChips = hiddenTabs.map(tab => {
     const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
@@ -767,9 +897,13 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    // 优先使用缓存的 favicon
+    const cachedFavicon = getFaviconFromMemory(domain);
+    const faviconImg = cachedFavicon
+      ? `<img class="chip-favicon" src="${cachedFavicon}" alt="" onerror="this.style.display='none'">`
+      : buildFaviconImg(domain);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconImg}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -848,9 +982,13 @@ function renderDomainCard(group) {
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    // 优先使用缓存的 favicon
+    const cachedFavicon = getFaviconFromMemory(domain);
+    const faviconImg = cachedFavicon
+      ? `<img class="chip-favicon" src="${cachedFavicon}" alt="" onerror="this.style.display='none'">`
+      : buildFaviconImg(domain);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconImg}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -966,15 +1104,20 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
   const ago = timeAgo(item.savedAt);
+
+  // 优先使用缓存的 favicon
+  const cachedFavicon = getFaviconFromMemory(domain);
+  const faviconImg = cachedFavicon
+    ? `<img src="${cachedFavicon}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">`
+    : `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'" data-domain="${domain}" onload="if(this.dataset.domain){const d=this.dataset.domain;const cv=document.createElement('canvas');cv.width=16;cv.height=16;cv.getContext('2d').drawImage(this,0,0,16,16);localStorage.setItem('favicon_mem_'+d,cv.toDataURL('image/png'))}">`;
 
   return `
     <div class="deferred-item" data-deferred-id="${item.id}">
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+        <a href="${item.url}" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
+          ${faviconImg}${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -995,11 +1138,14 @@ function renderDeferredItem(item) {
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
   return `
-    <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
+    <div class="archive-item" data-deferred-id="${item.id}">
+      <a href="${item.url}" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
         ${item.title || item.url}
       </a>
       <span class="archive-item-date">${ago}</span>
+      <button class="archive-item-dismiss" data-action="dismiss-archive" data-deferred-id="${item.id}" title="Delete">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
     </div>`;
 }
 
@@ -1159,7 +1305,7 @@ async function renderStaticDashboard() {
 
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
+  if (statTabs) statTabs.textContent = realTabs.length;
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1227,16 +1373,88 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
+    // 关闭所有相同 URL 的 tab（包括重复的）
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    const matches = allTabs.filter(t => t.url === tabUrl);
+    const closedCount = matches.length;
+
+    if (matches.length > 0) {
+      await chrome.tabs.remove(matches.map(t => t.id));
+    }
     await fetchOpenTabs();
 
     playCloseSound();
 
-    // Animate the chip row out
+    // 找到包含这个 chip 的域名卡片
+    const card = actionEl.closest('.mission-card');
     const chip = actionEl.closest('.page-chip');
+
+    // 更新域名卡片的计数
+    if (card) {
+      const domainId = card.dataset.domainId;
+      const group = domainGroups.find(g => 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId);
+
+      if (group) {
+        // 从内存中的 group 移除所有相同 URL 的 tab
+        group.tabs = group.tabs.filter(t => t.url !== tabUrl);
+        const newCount = group.tabs.length;
+
+        // 更新 badge 文本
+        const badge = card.querySelector('.open-tabs-badge');
+        if (badge && newCount > 0) {
+          badge.innerHTML = `${ICONS.tabs} ${newCount} tab${newCount !== 1 ? 's' : ''} open`;
+        }
+
+        // 更新 "Close all X tabs" 按钮文本
+        const closeBtn = card.querySelector('[data-action="close-domain-tabs"]');
+        if (closeBtn) {
+          closeBtn.innerHTML = `${ICONS.close} Close all ${newCount} tab${newCount !== 1 ? 's' : ''}`;
+        }
+
+        // 更新右下角计数
+        const pageCount = card.querySelector('.mission-page-count');
+        if (pageCount) {
+          pageCount.textContent = newCount;
+        }
+
+        // 重新计算重复标签
+        const urlCounts = {};
+        for (const tab of group.tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+        const dupeUrls = Object.entries(urlCounts).filter(([, c]) => c > 1);
+        const hasDupes = dupeUrls.length > 0;
+        const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
+
+        // 更新重复标签 badge
+        const dupeBadge = card.querySelector('.open-tabs-badge[style*="accent-amber"]');
+        if (dupeBadge) {
+          if (hasDupes) {
+            dupeBadge.innerHTML = `${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}`;
+          } else {
+            dupeBadge.remove();
+          }
+        } else if (hasDupes) {
+          // 如果之前没有重复 badge，现在有了，需要添加
+          const tabBadge = card.querySelector('.open-tabs-badge');
+          if (tabBadge) {
+            tabBadge.insertAdjacentHTML('afterend', `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}</span>`);
+          }
+        }
+
+        // 更新重复标签按钮
+        const dedupBtn = card.querySelector('[data-action="dedup-keep-one"]');
+        if (dedupBtn) {
+          if (hasDupes) {
+            dedupBtn.innerHTML = `Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}`;
+            const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
+            dedupBtn.dataset.dupeUrls = dupeUrlsEncoded;
+          } else {
+            dedupBtn.remove();
+          }
+        }
+      }
+    }
+
+    // Animate the chip row out
     if (chip) {
       const rect = chip.getBoundingClientRect();
       shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -1258,9 +1476,17 @@ document.addEventListener('click', async (e) => {
 
     // Update footer
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
 
-    showToast('Tab closed');
+    // 更新顶部 "X domains" 计数
+    const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+    if (openTabsSectionCount) {
+      const remainingDomains = domainGroups.filter(g => g.tabs.length > 0).length;
+      const remainingTabs = getRealTabs().length;
+      openTabsSectionCount.innerHTML = `${remainingDomains} domain${remainingDomains !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${remainingTabs} tabs</button>`;
+    }
+
+    showToast(closedCount > 1 ? `Closed ${closedCount} duplicate tabs` : 'Tab closed');
     return;
   }
 
@@ -1280,22 +1506,115 @@ document.addEventListener('click', async (e) => {
       return;
     }
 
-    // Close the tab in Chrome
+    // 关闭所有相同 URL 的 tab（包括重复的）
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    const matches = allTabs.filter(t => t.url === tabUrl);
+    const closedCount = matches.length;
+
+    if (matches.length > 0) {
+      await chrome.tabs.remove(matches.map(t => t.id));
+    }
     await fetchOpenTabs();
 
-    // Animate chip out
+    // 找到包含这个 chip 的域名卡片
+    const card = actionEl.closest('.mission-card');
     const chip = actionEl.closest('.page-chip');
+
+    // 更新域名卡片的计数
+    if (card) {
+      const domainId = card.dataset.domainId;
+      const group = domainGroups.find(g => 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId);
+
+      if (group) {
+        // 从内存中的 group 移除所有相同 URL 的 tab
+        group.tabs = group.tabs.filter(t => t.url !== tabUrl);
+        const newCount = group.tabs.length;
+
+        // 更新 badge 文本
+        const badge = card.querySelector('.open-tabs-badge');
+        if (badge && newCount > 0) {
+          badge.innerHTML = `${ICONS.tabs} ${newCount} tab${newCount !== 1 ? 's' : ''} open`;
+        }
+
+        // 更新 "Close all X tabs" 按钮文本
+        const closeBtn = card.querySelector('[data-action="close-domain-tabs"]');
+        if (closeBtn) {
+          closeBtn.innerHTML = `${ICONS.close} Close all ${newCount} tab${newCount !== 1 ? 's' : ''}`;
+        }
+
+        // 更新右下角计数
+        const pageCount = card.querySelector('.mission-page-count');
+        if (pageCount) {
+          pageCount.textContent = newCount;
+        }
+
+        // 重新计算重复标签
+        const urlCounts = {};
+        for (const tab of group.tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+        const dupeUrls = Object.entries(urlCounts).filter(([, c]) => c > 1);
+        const hasDupes = dupeUrls.length > 0;
+        const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
+
+        // 更新重复标签 badge
+        const dupeBadge = card.querySelector('.open-tabs-badge[style*="accent-amber"]');
+        if (dupeBadge) {
+          if (hasDupes) {
+            dupeBadge.innerHTML = `${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}`;
+          } else {
+            dupeBadge.remove();
+          }
+        } else if (hasDupes) {
+          const tabBadge = card.querySelector('.open-tabs-badge');
+          if (tabBadge) {
+            tabBadge.insertAdjacentHTML('afterend', `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}</span>`);
+          }
+        }
+
+        // 更新重复标签按钮
+        const dedupBtn = card.querySelector('[data-action="dedup-keep-one"]');
+        if (dedupBtn) {
+          if (hasDupes) {
+            dedupBtn.innerHTML = `Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}`;
+            const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
+            dedupBtn.dataset.dupeUrls = dupeUrlsEncoded;
+          } else {
+            dedupBtn.remove();
+          }
+        }
+      }
+    }
+
+    // Animate chip out
     if (chip) {
+      const rect = chip.getBoundingClientRect();
+      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
       chip.style.transition = 'opacity 0.2s, transform 0.2s';
       chip.style.opacity    = '0';
       chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => chip.remove(), 200);
+      setTimeout(() => {
+        chip.remove();
+        // If the card now has no tabs, remove it too
+        document.querySelectorAll('.mission-card').forEach(c => {
+          if (c.querySelectorAll('.page-chip[data-action="focus-tab"]').length === 0) {
+            animateCardOut(c);
+          }
+        });
+      }, 200);
     }
 
-    showToast('Saved for later');
+    // Update footer
+    const statTabs = document.getElementById('statTabs');
+    if (statTabs) statTabs.textContent = getRealTabs().length;
+
+    // 更新顶部 "X domains" 计数
+    const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+    if (openTabsSectionCount) {
+      const remainingDomains = domainGroups.filter(g => g.tabs.length > 0).length;
+      const remainingTabs = getRealTabs().length;
+      openTabsSectionCount.innerHTML = `${remainingDomains} domain${remainingDomains !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${remainingTabs} tabs</button>`;
+    }
+
+    showToast(closedCount > 1 ? `Saved & closed ${closedCount} duplicate tabs` : 'Saved for later');
     await renderDeferredColumn();
     return;
   }
@@ -1340,6 +1659,26 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Delete an archived item ----
+  if (action === 'dismiss-archive') {
+    const id = actionEl.dataset.deferredId;
+    if (!id) return;
+
+    await dismissSavedTab(id);
+
+    const item = actionEl.closest('.archive-item');
+    if (item) {
+      item.style.transition = 'opacity 0.2s, transform 0.2s';
+      item.style.opacity = '0';
+      item.style.transform = 'translateX(10px)';
+      setTimeout(() => {
+        item.remove();
+        renderDeferredColumn();
+      }, 200);
+    }
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1371,8 +1710,18 @@ document.addEventListener('click', async (e) => {
     const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
     showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
+    // Update footer
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
+
+    // 更新顶部 "X domains" 计数
+    const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+    if (openTabsSectionCount) {
+      const remainingDomains = domainGroups.length;
+      const remainingTabs = getRealTabs().length;
+      openTabsSectionCount.innerHTML = `${remainingDomains} domain${remainingDomains !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${remainingTabs} tabs</button>`;
+    }
+
     return;
   }
 
@@ -1479,4 +1828,28 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+
+/**
+ * 初始化 favicon 缓存
+ * 从 chrome.storage.local 加载缓存到 localStorage（快速访问）
+ */
+async function initFaviconCache() {
+  try {
+    const { [FAVICON_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+    const now = Date.now();
+
+    // 将有效缓存加载到 localStorage
+    for (const domain of Object.keys(cache)) {
+      if (now - cache[domain].timestamp < FAVICON_CACHE_TTL) {
+        localStorage.setItem('favicon_mem_' + domain, cache[domain].data);
+      }
+    }
+
+    // 清理过期缓存
+    await cleanExpiredFaviconCache();
+  } catch {}
+}
+
+// 初始化
+initFaviconCache();
 renderDashboard();
