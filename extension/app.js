@@ -2097,9 +2097,10 @@ async function renderShortcuts() {
 }
 
 /* ----------------------------------------------------------------
-   SHORTCUTS DRAG AND DROP — Reorder shortcuts
+   SHORTCUTS DRAG AND DROP — Reorder shortcuts with real-time movement
    ---------------------------------------------------------------- */
-let draggedShortcutId = null;
+let draggedShortcut = null;
+let dragStartIndex = -1;
 
 function setupShortcutDragDrop() {
   const container = document.getElementById('shortcutsIcons');
@@ -2107,57 +2108,68 @@ function setupShortcutDragDrop() {
 
   const icons = container.querySelectorAll('.shortcut-icon');
 
-  icons.forEach(icon => {
-    icon.addEventListener('dragstart', (e) => {
-      draggedShortcutId = icon.dataset.shortcutId;
-      icon.style.opacity = '0.5';
-      e.dataTransfer.effectAllowed = 'move';
-    });
+  icons.forEach((icon, index) => {
+    icon.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // Only left click
 
-    icon.addEventListener('dragend', () => {
-      icon.style.opacity = '1';
-      draggedShortcutId = null;
-    });
+      draggedShortcut = icon;
+      dragStartIndex = index;
+      icon.classList.add('dragging');
 
-    icon.addEventListener('dragover', (e) => {
+      // Prevent text selection during drag
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
     });
+  });
 
-    icon.addEventListener('dragenter', (e) => {
-      e.preventDefault();
-      if (icon.dataset.shortcutId !== draggedShortcutId) {
-        icon.style.transform = 'scale(1.05)';
-        icon.style.boxShadow = '0 4px 12px var(--shadow)';
+  // Global mouse events for drag
+  document.addEventListener('mousemove', (e) => {
+    if (!draggedShortcut) return;
+
+    const container = document.getElementById('shortcutsIcons');
+    const icons = Array.from(container.querySelectorAll('.shortcut-icon'));
+
+    // Find which icon we're hovering over
+    let hoverIndex = -1;
+    for (let i = 0; i < icons.length; i++) {
+      const iconRect = icons[i].getBoundingClientRect();
+      if (e.clientX >= iconRect.left && e.clientX <= iconRect.right &&
+          e.clientY >= iconRect.top && e.clientY <= iconRect.bottom) {
+        hoverIndex = i;
+        break;
       }
-    });
+    }
 
-    icon.addEventListener('dragleave', () => {
-      icon.style.transform = '';
-      icon.style.boxShadow = '';
-    });
+    if (hoverIndex !== -1 && hoverIndex !== dragStartIndex) {
+      // Reorder visually
+      const movedIcon = icons.splice(dragStartIndex, 1)[0];
+      icons.splice(hoverIndex, 0, movedIcon);
 
-    icon.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      icon.style.transform = '';
-      icon.style.boxShadow = '';
+      // Update DOM order
+      icons.forEach(icon => container.appendChild(icon));
 
-      if (!draggedShortcutId || icon.dataset.shortcutId === draggedShortcutId) return;
+      dragStartIndex = hoverIndex;
+    }
+  });
 
-      // Reorder shortcuts
-      const shortcuts = await getShortcuts();
-      const fromIdx = shortcuts.findIndex(s => s.id === draggedShortcutId);
-      const toIdx = shortcuts.findIndex(s => s.id === icon.dataset.shortcutId);
+  document.addEventListener('mouseup', async () => {
+    if (!draggedShortcut) return;
 
-      if (fromIdx === -1 || toIdx === -1) return;
+    draggedShortcut.classList.remove('dragging');
+    draggedShortcut = null;
 
-      // Remove from old position and insert at new position
-      const [moved] = shortcuts.splice(fromIdx, 1);
-      shortcuts.splice(toIdx, 0, moved);
+    // Save the new order
+    const container = document.getElementById('shortcutsIcons');
+    const icons = Array.from(container.querySelectorAll('.shortcut-icon'));
+    const newOrder = icons.map(icon => icon.dataset.shortcutId);
 
-      await saveShortcuts(shortcuts);
-      renderShortcuts();
-    });
+    const shortcuts = await getShortcuts();
+    const reordered = [];
+    for (const id of newOrder) {
+      const shortcut = shortcuts.find(s => s.id === id);
+      if (shortcut) reordered.push(shortcut);
+    }
+
+    await saveShortcuts(reordered);
   });
 }
 
