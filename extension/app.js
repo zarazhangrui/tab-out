@@ -1006,18 +1006,42 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
-   QUICK LINKS — stored in chrome.storage.local, managed via UI
+   QUICK LINKS — stored in chrome.storage.sync (syncs across devices)
    ---------------------------------------------------------------- */
 
 async function getQuickLinks() {
   try {
-    const { quickLinks } = await chrome.storage.local.get('quickLinks');
+    const { quickLinks } = await chrome.storage.sync.get('quickLinks');
     return Array.isArray(quickLinks) ? quickLinks : [];
   } catch { return []; }
 }
 
 async function saveQuickLinks(links) {
-  await chrome.storage.local.set({ quickLinks: links });
+  await chrome.storage.sync.set({ quickLinks: links });
+}
+
+async function copyQuickLinks() {
+  const links = await getQuickLinks();
+  await navigator.clipboard.writeText(JSON.stringify(links));
+  showToast('Copied! Paste it on another device to import.');
+}
+
+async function pasteQuickLinks() {
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    const imported = JSON.parse(text);
+    if (!Array.isArray(imported)) throw new Error();
+    const valid = imported.filter(l => l.name && l.url);
+    if (!valid.length) { showToast('Nothing to import'); return; }
+    const existing = await getQuickLinks();
+    const existingUrls = new Set(existing.map(l => l.url));
+    const added = valid.filter(l => !existingUrls.has(l.url));
+    await saveQuickLinks([...existing, ...added]);
+    await renderQuickLinks();
+    showToast(`Imported ${added.length} link${added.length !== 1 ? 's' : ''}`);
+  } catch {
+    showToast('Nothing valid on clipboard');
+  }
 }
 
 async function renderQuickLinks() {
@@ -1495,6 +1519,12 @@ document.addEventListener('click', async (e) => {
     showToast('All tabs closed. Fresh start.');
     return;
   }
+});
+
+// ---- Quick links: copy / paste ----
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#quickLinksCopyBtn'))  copyQuickLinks();
+  if (e.target.closest('#quickLinksPasteBtn')) pasteQuickLinks();
 });
 
 // ---- Quick links toggle ----
