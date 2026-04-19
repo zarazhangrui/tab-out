@@ -1924,11 +1924,40 @@ document.getElementById('searchClear')?.addEventListener('click', async () => {
    ---------------------------------------------------------------- */
 
 /**
+ * migrateShortcutsFromLocal()
+ *
+ * One-time migration: move shortcuts from chrome.storage.local to chrome.storage.sync.
+ * This ensures users don't lose their shortcuts when switching to sync storage.
+ */
+async function migrateShortcutsFromLocal() {
+  // Check if already migrated
+  const { shortcutsMigrated } = await chrome.storage.sync.get('shortcutsMigrated');
+  if (shortcutsMigrated) return;
+
+  // Check if there's old data in local storage
+  const { shortcuts: localShortcuts = [] } = await chrome.storage.local.get('shortcuts');
+
+  if (localShortcuts.length > 0) {
+    // Migrate to sync
+    await chrome.storage.sync.set({ shortcuts: localShortcuts });
+    // Clear local storage
+    await chrome.storage.local.remove('shortcuts');
+    console.log('[tab-out] Migrated', localShortcuts.length, 'shortcuts from local to sync');
+  }
+
+  // Mark as migrated
+  await chrome.storage.sync.set({ shortcutsMigrated: true });
+}
+
+/**
  * getShortcuts()
  *
  * Returns all saved shortcuts from chrome.storage.sync.
  */
 async function getShortcuts() {
+  // Run migration on first load
+  await migrateShortcutsFromLocal();
+
   const { shortcuts = [] } = await chrome.storage.sync.get('shortcuts');
 
   // Return default shortcuts if none exist
