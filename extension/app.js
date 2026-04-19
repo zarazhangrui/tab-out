@@ -2102,9 +2102,34 @@ document.addEventListener('click', async (e) => {
   if (!icon) return;
 
   const url = icon.dataset.shortcutUrl;
-  if (url) {
-    await chrome.tabs.create({ url });
-  }
+  const shortcutId = icon.dataset.shortcutId;
+  if (!url) return;
+
+  // Open the URL
+  const tab = await chrome.tabs.create({ url });
+
+  // Listen for the tab to load, then get the favicon and update the shortcut
+  chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+    if (tabId === tab.id && changeInfo.status === 'complete') {
+      chrome.tabs.onUpdated.removeListener(listener);
+
+      // Get the favicon from the tab
+      chrome.tabs.get(tabId, async (updatedTab) => {
+        if (!updatedTab || !updatedTab.favIconUrl) return;
+        if (!updatedTab.favIconUrl || !updatedTab.favIconUrl.startsWith('https://')) return;
+
+        // Update the shortcut with the new favicon
+        const shortcuts = await getShortcuts();
+        const idx = shortcuts.findIndex(s => s.id === shortcutId);
+        if (idx !== -1 && shortcuts[idx].faviconUrl !== updatedTab.favIconUrl) {
+          shortcuts[idx].faviconUrl = updatedTab.favIconUrl;
+          await saveShortcuts(shortcuts);
+          // Re-render shortcuts to show the new icon
+          renderShortcuts();
+        }
+      });
+    }
+  });
 });
 
 // Right-click on shortcut icon: open edit panel
