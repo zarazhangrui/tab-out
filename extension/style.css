@@ -1161,16 +1161,14 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   font-size: 14px;
   line-height: 1;
-  padding: 0 8px 0 0;
-  opacity: 0;
+  padding: 0 8px 0 2px;
+  opacity: 0.45;
   transition: opacity 0.15s, color 0.15s;
-}
-
-.quick-link-chip:hover .quick-link-remove {
-  opacity: 1;
+  flex-shrink: 0;
 }
 
 .quick-link-remove:hover {
+  opacity: 1;
   color: var(--accent-rose);
 }
 
