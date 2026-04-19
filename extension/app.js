@@ -1920,16 +1920,16 @@ document.getElementById('searchClear')?.addEventListener('click', async () => {
 
 
 /* ----------------------------------------------------------------
-   QUICK SHORTCUTS — chrome.storage.local
+   QUICK SHORTCUTS — chrome.storage.sync (synced across devices)
    ---------------------------------------------------------------- */
 
 /**
  * getShortcuts()
  *
- * Returns all saved shortcuts from chrome.storage.local.
+ * Returns all saved shortcuts from chrome.storage.sync.
  */
 async function getShortcuts() {
-  const { shortcuts = [] } = await chrome.storage.local.get('shortcuts');
+  const { shortcuts = [] } = await chrome.storage.sync.get('shortcuts');
 
   // Return default shortcuts if none exist
   if (shortcuts.length === 0) {
@@ -1946,10 +1946,10 @@ async function getShortcuts() {
 /**
  * saveShortcuts(shortcuts)
  *
- * Saves the shortcuts array to chrome.storage.local.
+ * Saves the shortcuts array to chrome.storage.sync.
  */
 async function saveShortcuts(shortcuts) {
-  await chrome.storage.local.set({ shortcuts });
+  await chrome.storage.sync.set({ shortcuts });
 }
 
 /**
