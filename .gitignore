@@ -4,5 +4,8 @@ node_modules/
 .DS_Store
 docs/superpowers/
 
+# Claude Code settings and memory — never push to GitHub
+.claude/
+
 # Personal config (landing page patterns, etc.) — never push to GitHub
 extension/config.local.js
