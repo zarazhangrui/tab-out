@@ -995,11 +995,12 @@ function renderDeferredItem(item) {
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
   return `
-    <div class="archive-item">
+    <div class="archive-item" data-item-id="${item.id}">
       <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
         ${item.title || item.url}
       </a>
       <span class="archive-item-date">${ago}</span>
+      <button class="archive-item-delete" data-action="dismiss-archive" data-deferred-id="${item.id}" title="Delete">×</button>
     </div>`;
 }
 
@@ -1389,6 +1390,17 @@ document.addEventListener('click', async (e) => {
         renderDeferredColumn();
       }, 300);
     }
+    return;
+  }
+
+  // ---- Delete an archive item ----
+  if (action === 'dismiss-archive') {
+    const id = actionEl.dataset.deferredId;
+    if (!id) return;
+    await dismissSavedTab(id);
+    const row = actionEl.closest('.archive-item');
+    if (row) row.remove();
+    renderDeferredColumn();
     return;
   }
 

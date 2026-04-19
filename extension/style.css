@@ -1397,3 +1397,24 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+.archive-item-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.archive-item:hover .archive-item-delete {
+  opacity: 1;
+}
+
+.archive-item-delete:hover {
+  color: var(--accent-rose);
+}
