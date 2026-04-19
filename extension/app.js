@@ -769,7 +769,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -850,7 +850,7 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -974,7 +974,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1036,7 +1036,7 @@ async function renderQuickLinks() {
     const safeUrl  = link.url.replace(/"/g, '%22');
     return `<div class="quick-link-chip">
       <a class="quick-link-inner" href="${safeUrl}" target="_top">
-        <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+        <img class="quick-link-favicon" src="${faviconUrl}" alt="">
         ${safeName}
       </a>
       <button class="quick-link-remove" data-action="remove-quick-link" data-index="${i}" title="Remove">×</button>
@@ -1561,7 +1561,7 @@ function renderTabPickerList(filter) {
     const safeUrl   = t.url.replace(/"/g, '%22');
     const safeDomain = domain.replace(/&/g,'&amp;');
     return `<div class="tab-picker-item" data-action="add-from-tab" data-url="${safeUrl}" data-name="${safeTitle}">
-      <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <img class="quick-link-favicon" src="${faviconUrl}" alt="">
       <span class="tab-picker-title">${safeTitle}</span>
       <span class="tab-picker-domain">${safeDomain}</span>
     </div>`;
@@ -1692,6 +1692,17 @@ document.addEventListener('input', async (e) => {
     console.warn('[tab-out] Archive search failed:', err);
   }
 });
+
+
+/* ----------------------------------------------------------------
+   FAVICON ERROR HANDLER — hide broken favicon images without onerror attrs
+   (inline onerror attributes violate the extension's CSP)
+   ---------------------------------------------------------------- */
+document.addEventListener('error', (e) => {
+  if (e.target.tagName === 'IMG' && e.target.closest('.quick-link-chip, .tab-picker-item, .mission-card, .deferred-item')) {
+    e.target.style.display = 'none';
+  }
+}, true);
 
 
 /* ----------------------------------------------------------------
