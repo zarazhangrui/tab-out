@@ -56,8 +56,11 @@
         <svg class="quick-links-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
         Quick links
       </button>
-      <button class="quick-links-add-btn" id="quickLinksAddBtn" aria-label="Add site">
+      <button class="quick-links-add-btn" id="quickLinksAddBtn" aria-label="Add site manually">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+      </button>
+      <button class="quick-links-add-btn" id="quickLinksPickBtn" aria-label="Add from open tabs">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5h18M3 12h18M3 16.5h18" /><rect x="3" y="4.5" width="18" height="15" rx="2" stroke-width="1.5" fill="none"/></svg>
       </button>
     </div>
     <div class="quick-links-body" id="quickLinksBody">
@@ -67,6 +70,11 @@
         <input type="text" class="quick-links-input" id="quickLinkUrl" placeholder="https://...">
         <button class="quick-links-save" id="quickLinksSave">Add</button>
         <button class="quick-links-cancel" id="quickLinksCancel">Cancel</button>
+      </div>
+      <div class="tab-picker-panel" id="quickLinksTabPicker" style="display:none">
+        <input type="text" class="quick-links-input tab-picker-search" id="tabPickerSearch" placeholder="Filter open tabs...">
+        <div class="tab-picker-list" id="tabPickerList"></div>
+        <button class="quick-links-cancel" id="tabPickerCancel">Cancel</button>
       </div>
     </div>
   </div>

@@ -1498,19 +1498,23 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ---- Quick links: show add form ----
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#quickLinksAddBtn')) return;
-  const form = document.getElementById('quickLinksForm');
+function ensureBodyOpen() {
   const body = document.getElementById('quickLinksBody');
   const toggle = document.getElementById('quickLinksToggle');
-  if (!form) return;
-  // Ensure body is expanded
   if (body) body.style.display = 'block';
   if (toggle && !toggle.classList.contains('open')) {
     toggle.classList.add('open');
     localStorage.setItem('quickLinksCollapsed', 'false');
   }
+}
+
+// ---- Quick links: show manual add form ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksAddBtn')) return;
+  const form = document.getElementById('quickLinksForm');
+  if (!form) return;
+  ensureBodyOpen();
+  document.getElementById('quickLinksTabPicker').style.display = 'none';
   form.style.display = 'flex';
   document.getElementById('quickLinkName')?.focus();
 });
@@ -1524,6 +1528,68 @@ document.addEventListener('click', (e) => {
   const urlEl  = document.getElementById('quickLinkUrl');
   if (nameEl) nameEl.value = '';
   if (urlEl)  urlEl.value  = '';
+});
+
+// ---- Quick links: open tab picker ----
+function renderTabPickerList(filter) {
+  const list = document.getElementById('tabPickerList');
+  if (!list) return;
+  const q = (filter || '').toLowerCase();
+  const tabs = openTabs.filter(t =>
+    t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:') && !t.isTabOut
+  ).filter(t =>
+    !q || (t.title || '').toLowerCase().includes(q) || t.url.toLowerCase().includes(q)
+  );
+
+  list.innerHTML = tabs.map(t => {
+    let domain = '';
+    try { domain = new URL(t.url).hostname; } catch {}
+    const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const safeTitle = (t.title || t.url).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeUrl   = t.url.replace(/"/g, '%22');
+    const safeDomain = domain.replace(/&/g,'&amp;');
+    return `<div class="tab-picker-item" data-action="add-from-tab" data-url="${safeUrl}" data-name="${safeTitle}">
+      <img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <span class="tab-picker-title">${safeTitle}</span>
+      <span class="tab-picker-domain">${safeDomain}</span>
+    </div>`;
+  }).join('') || '<div class="tab-picker-empty">No open tabs</div>';
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksPickBtn')) return;
+  ensureBodyOpen();
+  document.getElementById('quickLinksForm').style.display = 'none';
+  const picker = document.getElementById('quickLinksTabPicker');
+  picker.style.display = 'flex';
+  const search = document.getElementById('tabPickerSearch');
+  if (search) { search.value = ''; search.focus(); }
+  renderTabPickerList('');
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#tabPickerCancel')) return;
+  document.getElementById('quickLinksTabPicker').style.display = 'none';
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'tabPickerSearch') return;
+  renderTabPickerList(e.target.value);
+});
+
+document.addEventListener('click', async (e) => {
+  const item = e.target.closest('[data-action="add-from-tab"]');
+  if (!item) return;
+  const name = item.dataset.name;
+  const url  = item.dataset.url;
+  if (!name || !url) return;
+  const links = await getQuickLinks();
+  if (links.some(l => l.url === url)) { showToast('Already in quick links'); return; }
+  links.push({ name: name.length > 40 ? name.slice(0, 40) + '…' : name, url });
+  await saveQuickLinks(links);
+  document.getElementById('quickLinksTabPicker').style.display = 'none';
+  await renderQuickLinks();
+  showToast('Added to quick links');
 });
 
 // ---- Quick links: save new link ----
