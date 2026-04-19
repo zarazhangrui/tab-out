@@ -36,57 +36,70 @@
   </header>
 
   <!-- ================================================================
-       SEARCH BAR — filter open tabs by title or URL
+       QUICK SHORTCUTS — important website icons (left-click to open, right-click to edit)
        ================================================================ -->
-  <div class="search-bar-wrapper" id="searchBarWrapper" style="display:none">
-    <div class="search-bar">
-      <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-      </svg>
-      <input type="text" id="tabSearch" class="tab-search-input" placeholder="">
-      <button class="search-clear" id="searchClear" style="display:none" title="Clear search">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-        </svg>
-      </button>
+  <div class="shortcuts-bar" id="shortcutsBar">
+    <div class="section-header">
+      <h2>快捷方式</h2>
+      <div class="section-line"></div>
     </div>
+    <div class="shortcuts-icons" id="shortcutsIcons"></div>
   </div>
 
   <!-- ================================================================
-       TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
-       Hidden by default; app.js shows it when dupeTabOutCount > 1
+       TAB MANAGEMENT SECTION — Open tabs
        ================================================================ -->
-  <div class="tab-cleanup-banner" id="tabOutDupeBanner" style="display:none">
-    <div class="tab-cleanup-left">
-      <div class="tab-cleanup-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+  <div class="active-section" id="openTabsSection" style="display:none">
+    <div class="section-header">
+      <h2 id="openTabsSectionTitle">标签页管理</h2>
+      <div class="section-line"></div>
+      <div class="section-count" id="openTabsSectionCount"></div>
+    </div>
+
+    <!-- ================================================================
+         SEARCH BAR — filter open tabs by title or URL
+         ================================================================ -->
+    <div class="search-bar-wrapper" id="searchBarWrapper" style="display:none">
+      <div class="search-bar">
+        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
         </svg>
-      </div>
-      <div class="tab-cleanup-text" id="tabOutDupeBannerText">
-        You have <strong id="tabOutDupeCount"></strong> Tab Out tabs open. Keep just this one?
+        <input type="text" id="tabSearch" class="tab-search-input" placeholder="">
+        <button class="search-clear" id="searchClear" style="display:none" title="Clear search">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
     </div>
-    <button class="tab-cleanup-btn" id="closeExtrasBtn" data-action="close-tabout-dupes">Close extras</button>
+
+    <!-- ================================================================
+         TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
+         Hidden by default; app.js shows it when dupeTabOutCount > 1
+         ================================================================ -->
+    <div class="tab-cleanup-banner" id="tabOutDupeBanner" style="display:none">
+      <div class="tab-cleanup-left">
+        <div class="tab-cleanup-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+          </svg>
+        </div>
+        <div class="tab-cleanup-text" id="tabOutDupeBannerText">
+          You have <strong id="tabOutDupeCount"></strong> Tab Out tabs open. Keep just this one?
+        </div>
+      </div>
+      <button class="tab-cleanup-btn" id="closeExtrasBtn" data-action="close-tabout-dupes">Close extras</button>
+    </div>
+
+    <div class="missions" id="openTabsMissions"></div>
   </div>
 
   <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
-       Left: open tabs (domain/mission cards)
        Right: saved for later checklist
        The right column only renders when it has items (JS controls this)
        ================================================================ -->
   <div class="dashboard-columns" id="dashboardColumns">
-
-    <!-- LEFT COLUMN: Open tabs -->
-    <div class="active-section" id="openTabsSection" style="display:none">
-      <div class="section-header">
-        <h2 id="openTabsSectionTitle">Right now</h2>
-        <div class="section-line"></div>
-        <div class="section-count" id="openTabsSectionCount"></div>
-      </div>
-      <div class="missions" id="openTabsMissions"></div>
-    </div>
 
     <!-- RIGHT COLUMN: Saved for Later checklist -->
     <div class="deferred-column" id="deferredColumn" style="display:none">
@@ -136,6 +149,32 @@
   </footer>
 
 </div><!-- end .container -->
+
+<!-- ================================================================
+     SHORTCUTS EDIT PANEL — slides in from the right on right-click
+     ================================================================ -->
+<div class="shortcuts-edit-panel" id="shortcutsEditPanel">
+  <div class="shortcuts-edit-header">
+    <h3>编辑快捷方式</h3>
+    <button class="shortcuts-edit-close" id="shortcutsEditClose">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+  <div class="shortcuts-edit-content" id="shortcutsEditContent">
+    <div class="shortcuts-edit-list" id="shortcutsEditList"></div>
+    <div class="shortcuts-edit-add">
+      <button class="shortcuts-add-btn" id="shortcutsAddBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        添加新快捷方式
+      </button>
+    </div>
+  </div>
+</div>
+<div class="shortcuts-edit-overlay" id="shortcutsEditOverlay"></div>
 
 <!-- ================================================================
      TOAST — floats above everything, used for action confirmations

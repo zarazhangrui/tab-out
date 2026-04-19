@@ -17,7 +17,7 @@ const I18N_MESSAGES = {
     greeting_evening:   'Good evening',
 
     // Section headers
-    section_open_tabs:  'Open tabs',
+    section_open_tabs:  'Tab Management',
     saved_for_later:    'Saved for later',
 
     // Domain cards
@@ -90,7 +90,7 @@ const I18N_MESSAGES = {
     greeting_afternoon: '下午好',
     greeting_evening:   '晚上好',
 
-    section_open_tabs:  '当前标签页',
+    section_open_tabs:  '标签页管理',
     saved_for_later:    '稍后阅读',
 
     homepages:          '主页',

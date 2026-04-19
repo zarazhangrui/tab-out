@@ -1920,6 +1920,355 @@ document.getElementById('searchClear')?.addEventListener('click', async () => {
 
 
 /* ----------------------------------------------------------------
+   QUICK SHORTCUTS — chrome.storage.local
+   ---------------------------------------------------------------- */
+
+/**
+ * getShortcuts()
+ *
+ * Returns all saved shortcuts from chrome.storage.local.
+ */
+async function getShortcuts() {
+  const { shortcuts = [] } = await chrome.storage.local.get('shortcuts');
+
+  // Return default shortcuts if none exist
+  if (shortcuts.length === 0) {
+    return [
+      { id: 'default-1', url: 'https://www.google.com', title: 'Google', faviconUrl: 'https://www.google.com/s2/favicons?domain=google.com&sz=64' },
+      { id: 'default-2', url: 'https://github.com', title: 'GitHub', faviconUrl: 'https://www.google.com/s2/favicons?domain=github.com&sz=64' },
+      { id: 'default-3', url: 'https://huggingface.co', title: 'Hugging Face', faviconUrl: 'https://www.google.com/s2/favicons?domain=huggingface.co&sz=64' },
+    ];
+  }
+
+  return shortcuts;
+}
+
+/**
+ * saveShortcuts(shortcuts)
+ *
+ * Saves the shortcuts array to chrome.storage.local.
+ */
+async function saveShortcuts(shortcuts) {
+  await chrome.storage.local.set({ shortcuts });
+}
+
+/**
+ * addShortcut(url, title, faviconUrl)
+ *
+ * Adds a new shortcut.
+ */
+async function addShortcut(url, title, faviconUrl) {
+  const shortcuts = await getShortcuts();
+  const id = Date.now().toString();
+  shortcuts.push({
+    id,
+    url: url.trim(),
+    title: title.trim() || url,
+    faviconUrl: faviconUrl || '',
+  });
+  await saveShortcuts(shortcuts);
+  return id;
+}
+
+/**
+ * updateShortcut(id, url, title, faviconUrl)
+ *
+ * Updates an existing shortcut.
+ */
+async function updateShortcut(id, url, title, faviconUrl) {
+  const shortcuts = await getShortcuts();
+  const idx = shortcuts.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    shortcuts[idx] = {
+      ...shortcuts[idx],
+      url: url.trim(),
+      title: title.trim() || url,
+      faviconUrl: faviconUrl || '',
+    };
+    await saveShortcuts(shortcuts);
+  }
+}
+
+/**
+ * deleteShortcut(id)
+ *
+ * Deletes a shortcut by ID.
+ */
+async function deleteShortcut(id) {
+  const shortcuts = await getShortcuts();
+  const filtered = shortcuts.filter(s => s.id !== id);
+  await saveShortcuts(filtered);
+}
+
+/**
+ * getFaviconForShortcut(url)
+ *
+ * Returns the best favicon URL for a shortcut.
+ */
+function getFaviconForShortcut(url) {
+  try {
+    const domain = new URL(url).hostname;
+    if (domain) {
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+    }
+  } catch {}
+  return '';
+}
+
+/**
+ * getLetterForShortcut(title)
+ *
+ * Returns the first letter of the title for display.
+ */
+function getLetterForShortcut(title) {
+  return (title || '').charAt(0).toUpperCase() || '?';
+}
+
+/**
+ * renderShortcuts()
+ *
+ * Renders the shortcuts icons bar.
+ */
+async function renderShortcuts() {
+  const container = document.getElementById('shortcutsIcons');
+  if (!container) return;
+
+  const shortcuts = await getShortcuts();
+
+  if (shortcuts.length === 0) {
+    container.innerHTML = `<span class="shortcuts-empty">右键点击添加快捷方式</span>`;
+    return;
+  }
+
+  container.innerHTML = shortcuts.map(shortcut => {
+    const safeUrl = (shortcut.url || '').replace(/"/g, '&quot;');
+    const safeTitle = (shortcut.title || '').replace(/"/g, '&quot;');
+    const faviconUrl = shortcut.faviconUrl || getFaviconForShortcut(shortcut.url);
+    const safeFavicon = faviconUrl.replace(/"/g, '&quot;');
+    const letter = getLetterForShortcut(shortcut.title);
+
+    return `<div class="shortcut-icon"
+      data-action="shortcut-open"
+      data-shortcut-url="${safeUrl}"
+      data-shortcut-id="${shortcut.id}"
+      title="${safeTitle}">
+      <div class="shortcut-img-box">
+        ${faviconUrl
+          ? `<img class="shortcut-favicon" src="${safeFavicon}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><span class="shortcut-letter" style="display:none">${letter}</span>`
+          : `<span class="shortcut-letter" style="display:flex">${letter}</span>`
+        }
+      </div>
+      <span class="shortcut-label">${safeTitle}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ----------------------------------------------------------------
+   SHORTCUTS EVENT HANDLERS
+   ---------------------------------------------------------------- */
+
+// Left-click on shortcut icon: open URL
+document.addEventListener('click', async (e) => {
+  const icon = e.target.closest('[data-action="shortcut-open"]');
+  if (!icon) return;
+
+  const url = icon.dataset.shortcutUrl;
+  if (url) {
+    await chrome.tabs.create({ url });
+  }
+});
+
+// Right-click on shortcut icon: open edit panel
+document.addEventListener('contextmenu', async (e) => {
+  const icon = e.target.closest('.shortcut-icon');
+  if (!icon) return;
+
+  e.preventDefault();
+  await openShortcutsEditPanel();
+});
+
+// Open edit panel
+async function openShortcutsEditPanel() {
+  const panel = document.getElementById('shortcutsEditPanel');
+  const overlay = document.getElementById('shortcutsEditOverlay');
+  const list = document.getElementById('shortcutsEditList');
+
+  if (!panel || !overlay || !list) return;
+
+  // Render the list
+  const shortcuts = await getShortcuts();
+  list.innerHTML = shortcuts.map(s => {
+    const faviconUrl = s.faviconUrl || getFaviconForShortcut(s.url);
+    const safeUrl = (s.url || '').replace(/"/g, '&quot;');
+    const safeTitle = (s.title || '').replace(/"/g, '&quot;');
+    return `<div class="shortcut-edit-item" data-shortcut-id="${s.id}">
+      <img class="shortcut-edit-favicon" src="${faviconUrl}" alt="" onerror="this.style.opacity='0.3'">
+      <div class="shortcut-edit-info">
+        <div class="shortcut-edit-title">${safeTitle}</div>
+        <div class="shortcut-edit-url">${safeUrl}</div>
+      </div>
+      <div class="shortcut-edit-actions">
+        <button class="shortcut-edit-btn" data-action="shortcut-edit" data-shortcut-id="${s.id}" title="Edit">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+          </svg>
+        </button>
+        <button class="shortcut-edit-btn delete" data-action="shortcut-delete" data-shortcut-id="${s.id}" title="Delete">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+          </svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  panel.classList.add('visible');
+  overlay.classList.add('visible');
+}
+
+// Close edit panel
+function closeShortcutsEditPanel() {
+  const panel = document.getElementById('shortcutsEditPanel');
+  const overlay = document.getElementById('shortcutsEditOverlay');
+  if (panel) panel.classList.remove('visible');
+  if (overlay) overlay.classList.remove('visible');
+  closeShortcutForm();
+}
+
+document.getElementById('shortcutsEditClose')?.addEventListener('click', closeShortcutsEditPanel);
+document.getElementById('shortcutsEditOverlay')?.addEventListener('click', closeShortcutsEditPanel);
+
+// Add new shortcut button
+document.getElementById('shortcutsAddBtn')?.addEventListener('click', () => {
+  openShortcutForm(null);
+});
+
+// Edit shortcut
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="shortcut-edit"]');
+  if (!btn) return;
+
+  const id = btn.dataset.shortcutId;
+  const shortcuts = await getShortcuts();
+  const shortcut = shortcuts.find(s => s.id === id);
+  if (shortcut) {
+    openShortcutForm(shortcut);
+  }
+});
+
+// Delete shortcut
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="shortcut-delete"]');
+  if (!btn) return;
+
+  const id = btn.dataset.shortcutId;
+  if (!id) return;
+
+  // Remove from DOM with animation
+  const item = btn.closest('.shortcut-edit-item');
+  if (item) {
+    item.style.transition = 'opacity 0.2s, transform 0.2s';
+    item.style.opacity = '0';
+    item.style.transform = 'translateX(20px)';
+    setTimeout(() => item.remove(), 200);
+  }
+
+  await deleteShortcut(id);
+  showToast('Shortcut deleted');
+  await renderShortcuts();
+});
+
+// Shortcut form modal
+let currentEditingId = null;
+
+function openShortcutForm(shortcut = null) {
+  currentEditingId = shortcut ? shortcut.id : null;
+
+  // Create modal if not exists
+  let modal = document.getElementById('shortcutFormModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.className = 'shortcut-form-modal';
+    modal.id = 'shortcutFormModal';
+    modal.innerHTML = `
+      <h3 id="shortcutFormTitle">添加快捷方式</h3>
+      <div class="shortcut-form-group">
+        <label>标题</label>
+        <input type="text" id="shortcutFormTitleInput" placeholder="e.g., GitHub">
+      </div>
+      <div class="shortcut-form-group">
+        <label>网址</label>
+        <input type="url" id="shortcutFormUrlInput" placeholder="https://github.com">
+      </div>
+      <div class="shortcut-form-actions">
+        <button class="shortcut-form-cancel" id="shortcutFormCancel">取消</button>
+        <button class="shortcut-form-submit" id="shortcutFormSubmit">保存</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('shortcutFormCancel').addEventListener('click', closeShortcutForm);
+    document.getElementById('shortcutFormSubmit').addEventListener('click', submitShortcutForm);
+  }
+
+  const titleInput = document.getElementById('shortcutFormTitleInput');
+  const urlInput = document.getElementById('shortcutFormUrlInput');
+  const formTitle = document.getElementById('shortcutFormTitle');
+
+  if (shortcut) {
+    titleInput.value = shortcut.title || '';
+    urlInput.value = shortcut.url || '';
+    formTitle.textContent = '编辑快捷方式';
+  } else {
+    titleInput.value = '';
+    urlInput.value = '';
+    formTitle.textContent = '添加快捷方式';
+  }
+
+  modal.classList.add('visible');
+}
+
+function closeShortcutForm() {
+  const modal = document.getElementById('shortcutFormModal');
+  if (modal) modal.classList.remove('visible');
+  currentEditingId = null;
+}
+
+async function submitShortcutForm() {
+  const titleInput = document.getElementById('shortcutFormTitleInput');
+  const urlInput = document.getElementById('shortcutFormUrlInput');
+
+  const url = urlInput.value.trim();
+  if (!url) {
+    showToast('Please enter a URL');
+    return;
+  }
+
+  // Validate URL
+  try {
+    new URL(url);
+  } catch {
+    showToast('Please enter a valid URL');
+    return;
+  }
+
+  const title = titleInput.value.trim() || url;
+  const faviconUrl = getFaviconForShortcut(url);
+
+  if (currentEditingId) {
+    await updateShortcut(currentEditingId, url, title, faviconUrl);
+    showToast('Shortcut updated');
+  } else {
+    await addShortcut(url, title, faviconUrl);
+    showToast('Shortcut added');
+  }
+
+  closeShortcutForm();
+  await openShortcutsEditPanel(); // Refresh the panel
+  await renderShortcuts(); // Refresh the icons bar
+}
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
 function initI18nElements() {
@@ -1943,6 +2292,7 @@ function initI18nElements() {
 }
 
 initI18nElements();
+renderShortcuts();
 renderDashboard();
 
 

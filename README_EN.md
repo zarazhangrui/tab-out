@@ -55,6 +55,7 @@ Tab Out flips the script: **makes closing tabs easy, clear, and even a little sa
 - **Hover preview** — hovering a tab shows a floating card with the full title, last accessed time, and tab count for that domain
 - **Live auto-refresh** — dashboard updates automatically when tabs open or close in other windows; manual refresh button in the top-right corner
 - **Personal config** — `config.local.js` (gitignored) lets you define custom landing page rules and tab grouping
+- **Shortcuts** — top bar with important website icons; left-click to open, right-click to edit (add, delete, modify). Perfect for use as your browser homepage
 
 ---
 
