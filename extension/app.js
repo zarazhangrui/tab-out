@@ -1532,6 +1532,23 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// ---- Quick links: › more button — show/hide action icons ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksMoreBtn')) return;
+  const btn = document.getElementById('quickLinksMoreBtn');
+  const actions = document.getElementById('quickLinksActions');
+  if (!actions) return;
+  const open = actions.style.display !== 'none';
+  actions.style.display = open ? 'none' : 'flex';
+  btn.classList.toggle('open', !open);
+  // Close any open sub-panels when collapsing
+  if (!open === false) {
+    document.getElementById('quickLinksForm').style.display = 'none';
+    document.getElementById('quickLinksTabPicker').style.display = 'none';
+    document.getElementById('quickLinksSettingsPanel').style.display = 'none';
+  }
+});
+
 // ---- Quick links: settings panel toggle ----
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#quickLinksSettingsBtn')) return;

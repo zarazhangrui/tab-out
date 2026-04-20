@@ -1092,6 +1092,26 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   transform: rotate(180deg);
 }
 
+.quick-links-more-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.15s, transform 0.2s;
+}
+
+.quick-links-more-btn:hover { color: var(--ink); }
+.quick-links-more-btn.open { transform: rotate(90deg); }
+
+.quick-links-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .quick-links-add-btn {
   background: none;
   border: none;
