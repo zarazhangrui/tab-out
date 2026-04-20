@@ -1059,7 +1059,7 @@ async function renderQuickLinks() {
     const safeName = link.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl  = link.url.replace(/"/g, '%22');
     return `<div class="quick-link-chip">
-      <a class="quick-link-inner" href="${safeUrl}" target="_top">
+      <a class="quick-link-inner" href="${safeUrl}" target="_blank" rel="noopener">
         <img class="quick-link-favicon" src="${faviconUrl}" alt="">
         ${safeName}
       </a>
