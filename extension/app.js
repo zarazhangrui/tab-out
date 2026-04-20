@@ -173,6 +173,39 @@ async function closeTabOutDupes() {
 
 
 /* ----------------------------------------------------------------
+   THEME SWITCHER
+
+   Four color palettes the user can cycle through (warm / midnight /
+   arctic / forest). The active theme is written to localStorage and
+   re-applied on load by theme-init.js before the body paints, so the
+   page doesn't flash the default palette. This function only has to
+   sync the DOM state and the pressed-button indicator.
+   ---------------------------------------------------------------- */
+const THEMES = ['warm', 'midnight', 'arctic', 'forest'];
+const THEME_STORAGE_KEY = 'tab-out-theme';
+
+function getActiveTheme() {
+  const t = document.documentElement.dataset.theme;
+  return THEMES.includes(t) ? t : 'warm';
+}
+
+function applyTheme(name, { save = false } = {}) {
+  if (!THEMES.includes(name)) return;
+  document.documentElement.dataset.theme = name;
+  if (save) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, name); } catch {}
+  }
+  document.querySelectorAll('.theme-btn[data-theme-name]').forEach(btn => {
+    btn.setAttribute('aria-pressed', btn.dataset.themeName === name ? 'true' : 'false');
+  });
+}
+
+function initThemeSwitcher() {
+  applyTheme(getActiveTheme(), { save: false });
+}
+
+
+/* ----------------------------------------------------------------
    SAVED FOR LATER — chrome.storage.local
 
    Replaces the old server-side SQLite + REST API with Chrome's
@@ -1194,6 +1227,13 @@ document.addEventListener('click', async (e) => {
 
   const action = actionEl.dataset.action;
 
+  // ---- Switch color theme ----
+  if (action === 'set-theme') {
+    const name = actionEl.dataset.themeName;
+    if (name) applyTheme(name, { save: true });
+    return;
+  }
+
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
     await closeTabOutDupes();
@@ -1499,4 +1539,5 @@ document.addEventListener('error', (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+initThemeSwitcher();
 renderDashboard();

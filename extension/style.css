@@ -4,7 +4,8 @@
    also updating the mockup. This is the approved design.
    ============================================================ */
 
-:root {
+:root,
+[data-theme="warm"] {
   --ink: #1a1613;
   --paper: #f8f5f0;
   --warm-gray: #e8e2da;
@@ -19,6 +20,105 @@
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
 }
+
+/* Midnight — dark cosmic palette */
+[data-theme="midnight"] {
+  --ink: #e6e6fa;
+  --paper: #14101f;
+  --warm-gray: #332849;
+  --muted: #a490c2;
+  --accent-amber: #e0a75a;
+  --accent-sage: #7ab39a;
+  --accent-slate: #8a9cc2;
+  --accent-rose: #d88a8a;
+  --status-active: #5fc98a;
+  --status-cooling: #e0b958;
+  --status-abandoned: #e07a7a;
+  --card-bg: #2b1e3e;
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* Arctic — cool, crisp steel-blue palette */
+[data-theme="arctic"] {
+  --ink: #1e3a5f;
+  --paper: #eef4fb;
+  --warm-gray: #c6d6e8;
+  --muted: #6b8299;
+  --accent-amber: #d67a2e;
+  --accent-sage: #4a8a94;
+  --accent-slate: #4a6fa5;
+  --accent-rose: #c25a7a;
+  --status-active: #3d8a95;
+  --status-cooling: #c89a45;
+  --status-abandoned: #b35a6a;
+  --card-bg: #ffffff;
+  --shadow: rgba(74, 111, 165, 0.10);
+}
+
+/* Forest — grounded earth tones */
+[data-theme="forest"] {
+  --ink: #1e2f1c;
+  --paper: #f3f1e8;
+  --warm-gray: #d8d4c5;
+  --muted: #7d8471;
+  --accent-amber: #c48a3a;
+  --accent-sage: #2d4a2b;
+  --accent-slate: #556b5c;
+  --accent-rose: #a0553c;
+  --status-active: #4a7c3a;
+  --status-cooling: #b88838;
+  --status-abandoned: #a0553c;
+  --card-bg: #fbfaf4;
+  --shadow: rgba(45, 74, 43, 0.08);
+}
+
+/* ---- Theme switcher (top-right of header) ---- */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.theme-switcher {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+}
+
+.theme-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.theme-btn:hover { transform: scale(1.08); }
+
+.theme-btn[aria-pressed="true"] {
+  border-color: var(--ink);
+}
+
+.theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.theme-swatch-warm     { background: linear-gradient(135deg, #f8f5f0 50%, #c8713a 50%); }
+.theme-swatch-midnight { background: linear-gradient(135deg, #2b1e3e 50%, #a490c2 50%); }
+.theme-swatch-arctic   { background: linear-gradient(135deg, #eef4fb 50%, #4a6fa5 50%); }
+.theme-swatch-forest   { background: linear-gradient(135deg, #f3f1e8 50%, #2d4a2b 50%); }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
