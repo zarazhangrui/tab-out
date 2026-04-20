@@ -1130,15 +1130,40 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   position: relative;
 }
 
-.quick-link-inner {
+.quick-link-favicon-link {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 10px 6px 10px;
+  padding: 6px 0 6px 10px;
+  flex-shrink: 0;
   text-decoration: none;
-  color: var(--ink);
+}
+
+.quick-link-name {
   font-size: 13px;
-  font-weight: 400;
+  color: var(--ink);
+  padding: 6px 4px 6px 7px;
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.quick-link-name:hover {
+  color: var(--accent-amber);
+}
+
+.quick-link-name-input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  width: 100%;
+  min-width: 60px;
+  max-width: 160px;
 }
 
 .quick-link-chip:hover {

@@ -1059,10 +1059,10 @@ async function renderQuickLinks() {
     const safeName = link.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl  = link.url.replace(/"/g, '%22');
     return `<div class="quick-link-chip">
-      <a class="quick-link-inner" href="${safeUrl}" target="_blank" rel="noopener">
+      <a class="quick-link-favicon-link" href="${safeUrl}" target="_blank" rel="noopener">
         <img class="quick-link-favicon" src="${faviconUrl}" alt="">
-        ${safeName}
       </a>
+      <span class="quick-link-name" data-index="${i}" title="Click to rename">${safeName}</span>
       <button class="quick-link-remove" data-action="remove-quick-link" data-index="${i}" title="Remove">×</button>
     </div>`;
   }).join('');
@@ -1667,6 +1667,40 @@ document.addEventListener('keydown', async (e) => {
   if (active?.id === 'quickLinkName' || active?.id === 'quickLinkUrl') {
     await saveNewQuickLink();
   }
+});
+
+// ---- Quick links: rename (click on name to edit) ----
+document.addEventListener('click', (e) => {
+  const nameEl = e.target.closest('.quick-link-name');
+  if (!nameEl || nameEl.querySelector('input')) return;
+
+  const index = parseInt(nameEl.dataset.index, 10);
+  const original = nameEl.textContent.trim();
+
+  const input = document.createElement('input');
+  input.className = 'quick-link-name-input';
+  input.value = original;
+  nameEl.textContent = '';
+  nameEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  async function commit() {
+    const newName = input.value.trim() || original;
+    const links = await getQuickLinks();
+    if (links[index]) links[index].name = newName;
+    await saveQuickLinks(links);
+    await renderQuickLinks();
+  }
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') {
+      input.removeEventListener('blur', commit);
+      nameEl.textContent = original;
+    }
+  });
 });
 
 // ---- Quick links: remove a link ----
