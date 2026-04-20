@@ -1055,12 +1055,13 @@ async function renderQuickLinks() {
   grid.innerHTML = links.map((link, i) => {
     let domain = '';
     try { domain = new URL(link.url).hostname; } catch { domain = link.url; }
-    const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+    const faviconFallback = `https://${domain}/favicon.ico`;
     const safeName = link.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl  = link.url.replace(/"/g, '%22');
     return `<div class="quick-link-chip">
       <a class="quick-link-favicon-link" href="${safeUrl}" target="_blank" rel="noopener">
-        <img class="quick-link-favicon" src="${faviconUrl}" alt="">
+        <img class="quick-link-favicon" src="${faviconUrl}" data-fallback="${faviconFallback}" alt="">
       </a>
       <span class="quick-link-name" data-index="${i}" title="Click to rename">${safeName}</span>
       <button class="quick-link-remove" data-action="remove-quick-link" data-index="${i}" title="Remove">×</button>
@@ -1646,12 +1647,13 @@ function renderTabPickerList(filter) {
   list.innerHTML = tabs.map(t => {
     let domain = '';
     try { domain = new URL(t.url).hostname; } catch {}
-    const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+    const faviconFallback = `https://${domain}/favicon.ico`;
     const safeTitle = (t.title || t.url).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl   = t.url.replace(/"/g, '%22');
     const safeDomain = domain.replace(/&/g,'&amp;');
     return `<div class="tab-picker-item" data-action="add-from-tab" data-url="${safeUrl}" data-name="${safeTitle}">
-      <img class="quick-link-favicon" src="${faviconUrl}" alt="">
+      <img class="quick-link-favicon" src="${faviconUrl}" data-fallback="${faviconFallback}" alt="">
       <span class="tab-picker-title">${safeTitle}</span>
       <span class="tab-picker-domain">${safeDomain}</span>
     </div>`;
@@ -1823,8 +1825,14 @@ document.addEventListener('input', async (e) => {
    (inline onerror attributes violate the extension's CSP)
    ---------------------------------------------------------------- */
 document.addEventListener('error', (e) => {
-  if (e.target.tagName === 'IMG' && e.target.closest('.quick-link-chip, .tab-picker-item, .mission-card, .deferred-item')) {
-    e.target.style.display = 'none';
+  const img = e.target;
+  if (img.tagName !== 'IMG') return;
+  if (!img.closest('.quick-link-chip, .tab-picker-item, .mission-card, .deferred-item')) return;
+  const fallback = img.dataset.fallback;
+  if (fallback && img.src !== fallback) {
+    img.src = fallback;   // try direct /favicon.ico
+  } else {
+    img.style.display = 'none';
   }
 }, true);
 
