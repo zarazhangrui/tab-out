@@ -84,21 +84,6 @@ async function closeTabsByUrls(urls) {
 }
 
 /**
- * closeTabsExact(urls)
- *
- * Closes tabs by exact URL match (not hostname). Used for landing pages
- * so closing "Gmail inbox" doesn't also close individual email threads.
- */
-async function closeTabsExact(urls) {
-  if (!urls || urls.length === 0) return;
-  const urlSet = new Set(urls);
-  const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
-  await fetchOpenTabs();
-}
-
-/**
  * focusTab(url)
  *
  * Switches Chrome to the tab with the given URL (exact match first,
@@ -777,7 +762,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   const hiddenChips = hiddenTabs.map(tab => {
     const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
     const count    = urlCounts[tab.url] || 1;
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${escapeHtml(count)}x)</span>` : '';
+    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = escapeHtml(tab.url || '');
     const safeTitle = escapeHtml(label);
@@ -858,7 +843,7 @@ function renderDomainCard(group) {
       if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
     } catch {}
     const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${escapeHtml(count)}x)</span>` : '';
+    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = escapeHtml(tab.url || '');
     const safeTitle = escapeHtml(label);
@@ -992,7 +977,7 @@ function renderDeferredItem(item) {
     <div class="deferred-item" data-deferred-id="${safeId}">
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${safeId}">
       <div class="deferred-info">
-        <a href="${safeUrl}" target="_blank" rel="noopener" class="deferred-title" title="${safeTitle}">
+        <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="deferred-title" title="${safeTitle}">
           ${faviconUrl ? `<img src="${escapeHtml(faviconUrl)}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">` : ''}${safeTitle}
         </a>
         <div class="deferred-meta">
@@ -1017,7 +1002,7 @@ function renderArchiveItem(item) {
   const safeTitle = escapeHtml(item.title || item.url || '');
   return `
     <div class="archive-item">
-      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+      <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="archive-item-title" title="${safeTitle}">
         ${safeTitle}
       </a>
       <span class="archive-item-date">${escapeHtml(ago)}</span>
@@ -1370,16 +1355,8 @@ document.addEventListener('click', async (e) => {
     });
     if (!group) return;
 
-    const urls      = group.tabs.map(t => t.url);
-    // Landing pages and custom groups (whose domain key isn't a real hostname)
-    // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
-
-    if (useExact) {
-      await closeTabsExact(urls);
-    } else {
-      await closeTabsByUrls(urls);
-    }
+    const urls = group.tabs.map(t => t.url);
+    await closeTabsByUrls(urls);
 
     if (card) {
       playCloseSound();
@@ -1436,8 +1413,17 @@ document.addEventListener('click', async (e) => {
 
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
+    // Exclude Tab Out's own new-tab pages (across Chrome/Edge/Brave) and
+    // other internal schemes so we don't close the page the user is on.
     const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
+      .filter(t =>
+        t.url &&
+        !t.isTabOut &&
+        !t.url.startsWith('chrome') &&
+        !t.url.startsWith('edge:') &&
+        !t.url.startsWith('brave:') &&
+        !t.url.startsWith('about:')
+      )
       .map(t => t.url);
     await closeTabsByUrls(allUrls);
     playCloseSound();
