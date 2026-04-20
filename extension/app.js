@@ -1739,3 +1739,12 @@ document.addEventListener('error', (e) => {
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+
+/* ----------------------------------------------------------------
+   AUTO-REFRESH — re-render when tabs open, close, or finish loading
+   ---------------------------------------------------------------- */
+chrome.tabs.onCreated.addListener(() => renderDashboard());
+chrome.tabs.onRemoved.addListener(() => renderDashboard());
+chrome.tabs.onUpdated.addListener((id, change) => {
+  if (change.status === 'complete' || change.title) renderDashboard();
+});
