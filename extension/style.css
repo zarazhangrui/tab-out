@@ -1133,15 +1133,12 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 .quick-link-favicon-link {
   display: flex;
   align-items: center;
-  padding: 6px 0 6px 10px;
   flex-shrink: 0;
   text-decoration: none;
 }
 
 .quick-link-name {
-  font-size: 13px;
   color: var(--ink);
-  padding: 6px 4px 6px 7px;
   cursor: text;
   white-space: nowrap;
   overflow: hidden;
@@ -1155,7 +1152,6 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .quick-link-name-input {
   font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
   color: var(--ink);
   background: none;
   border: none;
@@ -1197,6 +1193,118 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .quick-link-remove:hover {
   color: var(--accent-rose);
+}
+
+/* Quick links chip size scaling via CSS variable */
+.quick-links-grid {
+  --ql-scale: 1;
+}
+
+.quick-link-favicon-link {
+  padding: calc(6px * var(--ql-scale)) 0 calc(6px * var(--ql-scale)) calc(10px * var(--ql-scale));
+}
+
+.quick-link-favicon {
+  width: calc(16px * var(--ql-scale));
+  height: calc(16px * var(--ql-scale));
+}
+
+.quick-link-name {
+  font-size: calc(13px * var(--ql-scale));
+  padding: calc(6px * var(--ql-scale)) calc(4px * var(--ql-scale)) calc(6px * var(--ql-scale)) calc(7px * var(--ql-scale));
+}
+
+.quick-link-name-input {
+  font-size: calc(13px * var(--ql-scale));
+}
+
+/* Minimal mode — favicon only */
+.quick-links-grid.minimal .quick-link-name,
+.quick-links-grid.minimal .quick-link-name-input {
+  display: none;
+}
+
+.quick-links-grid.minimal .quick-link-remove {
+  padding: 0 calc(6px * var(--ql-scale)) 0 0;
+}
+
+/* Settings panel */
+.quick-links-settings-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: fit-content;
+}
+
+.ql-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ql-setting-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 160px;
+}
+
+.ql-slider {
+  -webkit-appearance: none;
+  width: 100px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--warm-gray);
+  outline: none;
+  cursor: pointer;
+}
+
+.ql-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-amber);
+  cursor: pointer;
+}
+
+/* Toggle switch */
+.ql-toggle {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  border: none;
+  background: var(--warm-gray);
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.ql-toggle[aria-pressed="true"] {
+  background: var(--accent-amber);
+}
+
+.ql-toggle span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s;
+  display: block;
+}
+
+.ql-toggle[aria-pressed="true"] span {
+  transform: translateX(14px);
 }
 
 /* Inline add form */

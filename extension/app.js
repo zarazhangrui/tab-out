@@ -1075,6 +1075,17 @@ async function renderQuickLinks() {
     toggle && toggle.classList.add('open');
     if (body) body.style.display = 'block';
   }
+
+  // Restore size + minimal mode
+  const scale = localStorage.getItem('qlScale') || '1';
+  grid.style.setProperty('--ql-scale', scale);
+  const sizeInput = document.getElementById('quickLinksSize');
+  if (sizeInput) sizeInput.value = scale;
+
+  const minimal = localStorage.getItem('qlMinimal') === 'true';
+  grid.classList.toggle('minimal', minimal);
+  const minBtn = document.getElementById('quickLinksMinimal');
+  if (minBtn) minBtn.setAttribute('aria-pressed', minimal);
 }
 
 /* ----------------------------------------------------------------
@@ -1519,6 +1530,38 @@ document.addEventListener('click', async (e) => {
     showToast('All tabs closed. Fresh start.');
     return;
   }
+});
+
+// ---- Quick links: settings panel toggle ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#quickLinksSettingsBtn')) return;
+  const panel = document.getElementById('quickLinksSettingsPanel');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'flex';
+  // Close other panels
+  if (!open) {
+    document.getElementById('quickLinksForm').style.display = 'none';
+    document.getElementById('quickLinksTabPicker').style.display = 'none';
+  }
+});
+
+// ---- Quick links: size slider ----
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'quickLinksSize') return;
+  const scale = e.target.value;
+  document.getElementById('quickLinksGrid').style.setProperty('--ql-scale', scale);
+  localStorage.setItem('qlScale', scale);
+});
+
+// ---- Quick links: minimal mode toggle ----
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#quickLinksMinimal');
+  if (!btn) return;
+  const on = btn.getAttribute('aria-pressed') !== 'true';
+  btn.setAttribute('aria-pressed', on);
+  document.getElementById('quickLinksGrid').classList.toggle('minimal', on);
+  localStorage.setItem('qlMinimal', on);
 });
 
 // ---- Quick links: copy / paste ----
