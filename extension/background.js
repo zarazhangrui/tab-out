@@ -26,11 +26,15 @@ async function updateBadge() {
     const tabs = await chrome.tabs.query({});
 
     // Only count actual web pages — skip browser internals and extension pages
+    // Includes Firefox schemes (moz-extension://, resource://, about:*) so the
+    // badge stays accurate when running as a Firefox WebExtension.
     const count = tabs.filter(t => {
       const url = t.url || '';
       return (
         !url.startsWith('chrome://') &&
         !url.startsWith('chrome-extension://') &&
+        !url.startsWith('moz-extension://') &&
+        !url.startsWith('resource://') &&
         !url.startsWith('about:') &&
         !url.startsWith('edge://') &&
         !url.startsWith('brave://')

@@ -34,9 +34,10 @@ let openTabs = [];
  */
 async function fetchOpenTabs() {
   try {
-    const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
-    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+    // runtime.getURL() returns the right scheme per browser:
+    //   chrome-extension://<id>/index.html  in Chrome
+    //   moz-extension://<id>/index.html     in Firefox
+    const newtabUrl = chrome.runtime.getURL('index.html');
 
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
@@ -46,7 +47,12 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
+      // (Chrome's blank new tab is chrome://newtab/; Firefox's is about:newtab or about:home)
+      isTabOut:
+        t.url === newtabUrl ||
+        t.url === 'chrome://newtab/' ||
+        t.url === 'about:newtab' ||
+        t.url === 'about:home',
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -175,13 +181,16 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  * Closes all duplicate Tab Out new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
-  const extensionId = chrome.runtime.id;
-  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+  // Cross-browser: chrome-extension:// in Chrome, moz-extension:// in Firefox
+  const newtabUrl = chrome.runtime.getURL('index.html');
 
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
+    t.url === newtabUrl ||
+    t.url === 'chrome://newtab/' ||
+    t.url === 'about:newtab' ||
+    t.url === 'about:home'
   );
 
   if (tabOutTabs.length <= 1) return;
@@ -725,6 +734,8 @@ function getRealTabs() {
     return (
       !url.startsWith('chrome://') &&
       !url.startsWith('chrome-extension://') &&
+      !url.startsWith('moz-extension://') &&
+      !url.startsWith('resource://') &&
       !url.startsWith('about:') &&
       !url.startsWith('edge://') &&
       !url.startsWith('brave://')
