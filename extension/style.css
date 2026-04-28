@@ -1156,3 +1156,185 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+/* ---- Other-devices subsections ---- */
+.device-subsection {
+  margin-bottom: 28px;
+}
+.device-subsection-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed var(--warm-gray);
+}
+.device-subsection-name {
+  font-family: 'Newsreader', serif;
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.device-subsection-meta {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+/* Read-only cards from other devices: subtle visual cue (no close button) */
+.mission-card.remote-card {
+  background: rgba(255, 253, 249, 0.6);
+}
+
+/* ---- Global search bar (top of dashboard) ---- */
+.global-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 0 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 10px;
+  padding: 0 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.global-search:focus-within {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.12);
+}
+.global-search-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.global-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 14px 12px;
+  outline: none;
+  width: 100%;
+}
+.global-search input::placeholder {
+  color: var(--muted);
+}
+.global-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+.global-search-clear:hover {
+  color: var(--ink);
+  background: var(--warm-gray);
+}
+.global-search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- Inline chip name editor + custom-name styling ---- */
+.chip-name-input {
+  font: inherit;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--accent-amber);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  width: 100%;
+  min-width: 80px;
+  box-shadow: 0 0 0 2px rgba(200, 113, 58, 0.12);
+}
+.page-chip.editing {
+  cursor: text;
+}
+.page-chip.editing .chip-actions {
+  display: none;
+}
+/* Custom-named chips get a faint amber tick mark to signal "renamed" */
+.page-chip.chip-has-custom-name .chip-text {
+  color: var(--ink);
+  font-weight: 500;
+}
+.page-chip.chip-has-custom-name .chip-text::before {
+  content: '✎';
+  color: var(--accent-amber);
+  margin-right: 4px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* ---- Drag-and-drop reorder for local domain cards ---- */
+.mission-card.domain-card {
+  position: relative; /* anchor the absolute drag-handle */
+}
+.drag-handle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  cursor: grab;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  z-index: 2;
+  user-select: none;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.mission-card.domain-card:hover .drag-handle {
+  opacity: 0.55;
+}
+.drag-handle:hover {
+  opacity: 1 !important;
+  background: var(--warm-gray);
+  color: var(--ink);
+}
+.drag-handle svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none; /* let drag events fire on the handle div, not svg */
+}
+
+.mission-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+}
+
+/* Insertion line — indicates where the card will land on drop */
+.mission-card.drop-before::before,
+.mission-card.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent-amber);
+  border-radius: 2px;
+  z-index: 5;
+}
+.mission-card.drop-before::before { top: -6px; }
+.mission-card.drop-after::after   { bottom: -6px; }

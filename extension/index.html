@@ -29,6 +29,20 @@
   </header>
 
   <!-- ================================================================
+       GLOBAL SEARCH — filters open tabs, other-device tabs, and saved-for-later.
+       Matches on custom name, page title, and URL.
+       ================================================================ -->
+  <div class="global-search">
+    <svg class="global-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+    </svg>
+    <input type="search" id="globalSearch" placeholder="Search across all your tabs (name or URL) — press Esc to clear" autocomplete="off">
+    <button class="global-search-clear" id="globalSearchClear" type="button" aria-label="Clear search" style="display:none">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <!-- ================================================================
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
        Hidden by default; app.js shows it when dupeTabOutCount > 1
        ================================================================ -->
@@ -62,6 +76,21 @@
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
       <div class="missions" id="openTabsMissions"></div>
+
+      <!-- Other devices — synced via Chrome Sync. One card per device. -->
+      <div class="active-section" id="otherDevicesSection" style="display:none; margin-top:32px;">
+        <div class="section-header">
+          <h2 id="otherDevicesSectionTitle">On your other devices</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="otherDevicesSectionCount"></div>
+        </div>
+        <div class="missions" id="otherDevicesMissions"></div>
+      </div>
+
+      <!-- Hint shown when sync is on but no devices were returned. -->
+      <div id="otherDevicesHint" style="display:none; font-size:12px; color:var(--muted); margin-top:16px;">
+        No other devices found. To see tabs from your other devices, sign in to Chrome and turn on syncing for "Open tabs" on each device.
+      </div>
     </div>
 
     <!-- RIGHT COLUMN: Saved for Later checklist -->

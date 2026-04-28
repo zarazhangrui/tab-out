@@ -199,6 +199,182 @@ async function closeTabOutDupes() {
 
 
 /* ----------------------------------------------------------------
+   OTHER DEVICES — chrome.sessions API
+
+   chrome.sessions.getDevices() returns tabs/windows synced from
+   other devices on the same Chrome profile (when "Open tabs" is on
+   in Chrome Sync). Each tab carries a sessionId we can pass to
+   chrome.sessions.restore(sessionId) to reopen it locally. Chrome
+   does NOT expose any way to close a tab on a remote device, so the
+   remote-device cards are read-only (open / save-for-later only).
+   ---------------------------------------------------------------- */
+
+// Cached fetch result. Shape: [{ deviceName, lastModified, tabs: [...] }]
+let otherDeviceGroups = [];
+
+/**
+ * fetchOtherDeviceTabs()
+ *
+ * Reads synced sessions from other devices on this Chrome profile.
+ * Flattens the per-device session list (each containing windows or
+ * single tabs) into one tab array per device. Skips browser-internal
+ * URLs and dedupes by URL within each device. Most-recently-used
+ * tab first.
+ */
+async function fetchOtherDeviceTabs() {
+  otherDeviceGroups = [];
+
+  if (!chrome.sessions || typeof chrome.sessions.getDevices !== 'function') {
+    return otherDeviceGroups;
+  }
+
+  let devices = [];
+  try {
+    devices = await new Promise((resolve, reject) => {
+      try {
+        chrome.sessions.getDevices((result) => {
+          const err = chrome.runtime.lastError;
+          if (err) reject(err); else resolve(result || []);
+        });
+      } catch (e) { reject(e); }
+    });
+  } catch (err) {
+    console.warn('[tab-out] chrome.sessions.getDevices failed:', err);
+    return otherDeviceGroups;
+  }
+
+  for (const device of devices) {
+    const tabs = [];
+    const seenUrls = new Set();
+    let lastModified = 0;
+
+    for (const session of (device.sessions || [])) {
+      if (session.lastModified && session.lastModified > lastModified) {
+        lastModified = session.lastModified;
+      }
+
+      // A session is either a single tab or a window containing tabs
+      const windowTabs = session.window && Array.isArray(session.window.tabs)
+        ? session.window.tabs
+        : [];
+      const allTabs = session.tab ? [session.tab, ...windowTabs] : windowTabs;
+
+      for (const t of allTabs) {
+        const url = t.url || '';
+        if (!url) continue;
+        if (
+          url.startsWith('chrome://') ||
+          url.startsWith('chrome-extension://') ||
+          url.startsWith('about:') ||
+          url.startsWith('edge://') ||
+          url.startsWith('brave://')
+        ) continue;
+        if (seenUrls.has(url)) continue;
+        seenUrls.add(url);
+        tabs.push({
+          url,
+          title:     t.title || url,
+          sessionId: t.sessionId,
+        });
+      }
+    }
+
+    if (tabs.length === 0) continue;
+
+    otherDeviceGroups.push({
+      deviceName: device.deviceName || 'Other device',
+      lastModified,
+      tabs,
+    });
+  }
+
+  // Most recently active device first
+  otherDeviceGroups.sort((a, b) => b.lastModified - a.lastModified);
+  return otherDeviceGroups;
+}
+
+/**
+ * restoreRemoteSession(sessionId)
+ *
+ * Reopens a synced tab from another device on THIS device. There is
+ * no API to focus the original device; "restore" creates a new local
+ * tab pointing at that URL. Falls back to chrome.tabs.create on error.
+ */
+async function restoreRemoteSession(sessionId, fallbackUrl) {
+  if (sessionId && chrome.sessions && typeof chrome.sessions.restore === 'function') {
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.sessions.restore(sessionId, () => {
+          const err = chrome.runtime.lastError;
+          if (err) reject(err); else resolve();
+        });
+      });
+      return;
+    } catch (err) {
+      console.warn('[tab-out] sessions.restore failed, falling back to create:', err);
+    }
+  }
+  if (fallbackUrl) {
+    try { await chrome.tabs.create({ url: fallbackUrl, active: true }); }
+    catch (e) { console.warn('[tab-out] tabs.create fallback failed:', e); }
+  }
+}
+
+/**
+ * deviceIcon(deviceName)
+ *
+ * Best-effort guess of a phone vs laptop icon based on the device
+ * name string Chrome reports (e.g. "Jatin's MacBook Pro", "Pixel 8").
+ */
+function deviceIcon(deviceName) {
+  const n = (deviceName || '').toLowerCase();
+  const isPhone =
+    n.includes('phone') || n.includes('iphone') || n.includes('android') ||
+    n.includes('pixel') || n.includes('galaxy');
+  const isTablet = n.includes('ipad') || n.includes('tablet');
+
+  if (isPhone) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" width="14" height="14" style="vertical-align:-2px"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></svg>`;
+  }
+  if (isTablet) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" width="14" height="14" style="vertical-align:-2px"><rect x="4" y="3" width="16" height="18" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M11 18h2"/></svg>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" width="14" height="14" style="vertical-align:-2px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 3.75 19.5h16.5L21.75 18M4.5 4.5h15a.75.75 0 0 1 .75.75v11.25H3.75V5.25a.75.75 0 0 1 .75-.75Z"/></svg>`;
+}
+
+/**
+ * renderDeviceSubsection(device, deviceIndex)
+ *
+ * Renders one synced device as a subsection: a small device header
+ * (name + last-active + tab count) followed by domain-grouped cards
+ * built with the same renderDomainCard logic the local section uses
+ * (read-only mode — no close buttons, since Chrome can't close tabs
+ * on a remote device).
+ */
+function renderDeviceSubsection(device, deviceIndex) {
+  const tabs   = device.tabs || [];
+  const groups = groupTabsByDomain(tabs);
+
+  const lastSeen = device.lastModified
+    ? `last active ${timeAgo(new Date(device.lastModified * 1000).toISOString())}`
+    : '';
+
+  const cardsHtml = groups
+    .map(g => renderDomainCard(g, { remote: true, deviceIndex }))
+    .join('');
+
+  return `
+    <div class="device-subsection" data-device-index="${deviceIndex}">
+      <div class="device-subsection-header">
+        <span class="device-subsection-name">${deviceIcon(device.deviceName)} ${device.deviceName}</span>
+        <span class="device-subsection-meta">${tabs.length} tab${tabs.length !== 1 ? 's' : ''}${lastSeen ? ' · ' + lastSeen : ''}</span>
+      </div>
+      <div class="missions">${cardsHtml}</div>
+    </div>`;
+}
+
+
+/* ----------------------------------------------------------------
    SAVED FOR LATER — chrome.storage.local
 
    Replaces the old server-side SQLite + REST API with Chrome's
@@ -281,6 +457,151 @@ async function dismissSavedTab(id) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
   }
+}
+
+
+/* ----------------------------------------------------------------
+   SITE NAMES — chrome.storage.local
+
+   User-editable nickname for any URL. Keyed by full URL so the same
+   page renamed once shows the same nickname everywhere it appears,
+   including remote-device cards (because Chrome Sync gives us the
+   exact same URL across devices). Lives in chrome.storage.local
+   (per-profile, persists across browser restarts).
+
+   Storage shape under "siteNames":
+   { "https://example.com/foo": "My nickname", ... }
+   ---------------------------------------------------------------- */
+
+let siteNames = {};
+
+/**
+ * loadSiteNames()
+ *
+ * Reads the siteNames map from chrome.storage.local into the in-memory
+ * cache. Called once before the dashboard renders, and again after any
+ * edit so the view stays consistent.
+ */
+async function loadSiteNames() {
+  try {
+    const { siteNames: s = {} } = await chrome.storage.local.get('siteNames');
+    siteNames = s || {};
+  } catch (err) {
+    console.warn('[tab-out] Failed to load siteNames:', err);
+    siteNames = {};
+  }
+}
+
+/**
+ * setSiteName(url, name)
+ *
+ * Persists a custom name for a URL. Empty/whitespace name clears the
+ * override (back to the auto-cleaned title).
+ */
+async function setSiteName(url, name) {
+  if (!url) return;
+  const trimmed = (name || '').trim();
+  if (!trimmed) {
+    delete siteNames[url];
+  } else {
+    siteNames[url] = trimmed;
+  }
+  try {
+    await chrome.storage.local.set({ siteNames });
+  } catch (err) {
+    console.warn('[tab-out] Failed to save siteNames:', err);
+  }
+}
+
+/**
+ * defaultLabelForTab(tab)
+ *
+ * The auto-computed label we'd show if there's no custom name. Pulled
+ * out so the edit input can use it as a placeholder, and so the
+ * search query can match against it too.
+ */
+function defaultLabelForTab(tab) {
+  let hostname = '';
+  try { hostname = new URL(tab.url).hostname; } catch {}
+  let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), hostname);
+  try {
+    const parsed = new URL(tab.url);
+    if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
+  } catch {}
+  return label || tab.url || '';
+}
+
+
+/* ----------------------------------------------------------------
+   GLOBAL SEARCH — in-memory filter applied at render time
+
+   A single query string filters chips across local tabs, every
+   remote-device subsection, and the saved-for-later list. Matches
+   on custom name, auto-title, and URL (case-insensitive).
+   ---------------------------------------------------------------- */
+
+let searchQuery = '';
+
+/* ----------------------------------------------------------------
+   DOMAIN ORDER — persisted user-chosen ordering of local domain cards
+
+   Storage shape under "domainOrder":
+   ["github.com", "x.com", "__landing-pages__", ...]
+
+   Domains not in this list fall back to the default sort (landing
+   first, priority sites next, then by tab count). When the user
+   reorders, we save the visible-card order and append any unseen
+   (e.g. filtered-out) domains at the end so their relative ordering
+   isn't lost.
+   ---------------------------------------------------------------- */
+
+let domainOrder = [];
+
+async function loadDomainOrder() {
+  try {
+    const { domainOrder: o = [] } = await chrome.storage.local.get('domainOrder');
+    domainOrder = Array.isArray(o) ? o : [];
+  } catch (err) {
+    console.warn('[tab-out] Failed to load domainOrder:', err);
+    domainOrder = [];
+  }
+}
+
+async function persistDomainOrder() {
+  try {
+    await chrome.storage.local.set({ domainOrder });
+  } catch (err) {
+    console.warn('[tab-out] Failed to save domainOrder:', err);
+  }
+}
+
+/**
+ * applyUserDomainOrder(groups)
+ *
+ * Stable-sorts groups so that any group whose domain is in the user's
+ * persisted order comes first (in that order), and the rest keep their
+ * incoming order (which is already the "natural" sort from
+ * groupTabsByDomain — landing pages first, etc.).
+ */
+function applyUserDomainOrder(groups) {
+  if (!domainOrder || domainOrder.length === 0) return groups;
+  const orderIndex = new Map(domainOrder.map((d, i) => [d, i]));
+  const indexed = groups.map((g, naturalIdx) => ({
+    g,
+    primary:   orderIndex.has(g.domain) ? orderIndex.get(g.domain) : Infinity,
+    secondary: naturalIdx,
+  }));
+  indexed.sort((a, b) => a.primary - b.primary || a.secondary - b.secondary);
+  return indexed.map(x => x.g);
+}
+
+function tabMatchesQuery(tab, q) {
+  if (!q) return true;
+  const url   = (tab.url || '').toLowerCase();
+  const title = (tab.title || '').toLowerCase();
+  const named = (siteNames[tab.url] || '').toLowerCase();
+  const auto  = defaultLabelForTab(tab).toLowerCase();
+  return url.includes(q) || title.includes(q) || named.includes(q) || auto.includes(q);
 }
 
 
@@ -754,33 +1075,81 @@ function checkTabOutDupes() {
 
 
 /* ----------------------------------------------------------------
+   PAGE CHIP RENDERER — shared by domain cards (local + remote)
+
+   opts.remote   = true  → chip click restores a synced session
+                   instead of focusing a local tab; chip has no
+                   close-X button (Chrome can't close remote tabs).
+   opts.groupKey = the domain or group key, used by cleanTitle()
+                   to strip site names from titles.
+   ---------------------------------------------------------------- */
+
+function renderChip(tab, urlCounts = {}, opts = {}) {
+  const groupKey = opts.groupKey || '';
+  let hostname = '';
+  try { hostname = new URL(tab.url).hostname; } catch {}
+
+  // Auto-computed label: domain-stripped, smart-titled, port-prefixed
+  // for localhost. Used as fallback when no custom name is set, and as
+  // placeholder text when editing.
+  let autoLabel = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), groupKey || hostname);
+  try {
+    const parsed = new URL(tab.url);
+    if (parsed.hostname === 'localhost' && parsed.port) autoLabel = `${parsed.port} ${autoLabel}`;
+  } catch {}
+
+  const customName = siteNames[tab.url] || '';
+  const label      = customName || autoLabel;
+
+  const count     = urlCounts[tab.url] || 1;
+  const dupeTag   = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
+  const chipClass = (count > 1 ? ' chip-has-dupes' : '') + (customName ? ' chip-has-custom-name' : '');
+  const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
+  const safeTitle = label.replace(/"/g, '&quot;');
+  const safeAuto  = autoLabel.replace(/"/g, '&quot;');
+  const faviconUrl = hostname ? `https://www.google.com/s2/favicons?domain=${hostname}&sz=16` : '';
+
+  // Remote chips open via chrome.sessions.restore (sessionId), local chips
+  // focus an existing tab by URL.
+  const clickAction = opts.remote ? 'restore-remote-tab' : 'focus-tab';
+  const sessionAttr = opts.remote
+    ? ` data-session-id="${(tab.sessionId || '').replace(/"/g, '&quot;')}"`
+    : '';
+
+  // No close button on remote chips — Chrome doesn't expose any way to
+  // close tabs on another device.
+  const closeBtn = opts.remote
+    ? ''
+    : `<button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+       </button>`;
+
+  // Pencil button — toggles inline rename input. Available on local AND
+  // remote chips so you can rename a synced page from any device.
+  const editBtn = `<button class="chip-action chip-edit" data-action="edit-name" data-tab-url="${safeUrl}" data-auto-label="${safeAuto}" title="Rename">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.799a2.121 2.121 0 1 1 3 3L19.862 7.487M16.862 4.487 6.687 14.662a4.5 4.5 0 0 0-1.13 1.897l-1.05 3.504 3.504-1.05a4.5 4.5 0 0 0 1.897-1.13L19.862 7.487M16.862 4.487l3 3" /></svg>
+  </button>`;
+
+  return `<div class="page-chip clickable${chipClass}" data-action="${clickAction}" data-tab-url="${safeUrl}"${sessionAttr} title="${safeTitle}">
+    ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+    <span class="chip-text">${label}</span>${dupeTag}
+    <div class="chip-actions">
+      ${editBtn}
+      <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+      </button>
+      ${closeBtn}
+    </div>
+  </div>`;
+}
+
+
+/* ----------------------------------------------------------------
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
    ---------------------------------------------------------------- */
 
-function buildOverflowChips(hiddenTabs, urlCounts = {}) {
-  const hiddenChips = hiddenTabs.map(tab => {
-    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
-    const count    = urlCounts[tab.url] || 1;
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
-  }).join('');
+function buildOverflowChips(hiddenTabs, urlCounts = {}, opts = {}) {
+  const hiddenChips = hiddenTabs.map(tab => renderChip(tab, urlCounts, opts)).join('');
 
   return `
     <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
@@ -795,27 +1164,34 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
    ---------------------------------------------------------------- */
 
 /**
- * renderDomainCard(group, groupIndex)
+ * renderDomainCard(group, opts)
  *
  * Builds the HTML for one domain group card.
- * group = { domain: string, tabs: [{ url, title, id, windowId, active }] }
+ * group = { domain: string, tabs: [...] }
+ * opts.remote      = true → read-only card (no close/dedup buttons; chips
+ *                    open via sessions.restore). For tabs synced from
+ *                    other devices.
+ * opts.deviceIndex = index of the owning device (used to namespace IDs).
  */
-function renderDomainCard(group) {
+function renderDomainCard(group, opts = {}) {
+  const remote    = !!opts.remote;
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
   const isLanding = group.domain === '__landing-pages__';
-  const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+  const idPrefix  = remote ? `device-${opts.deviceIndex || 0}-domain-` : 'domain-';
+  const stableId  = idPrefix + group.domain.replace(/[^a-z0-9]/g, '-');
 
-  // Count duplicates (exact URL match)
+  // Count duplicates (exact URL match) — only meaningful for local tabs;
+  // remote tabs are pre-deduped by URL across the device.
   const urlCounts = {};
   for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
-  const dupeUrls   = Object.entries(urlCounts).filter(([, c]) => c > 1);
-  const hasDupes   = dupeUrls.length > 0;
+  const dupeUrls    = Object.entries(urlCounts).filter(([, c]) => c > 1);
+  const hasDupes    = !remote && dupeUrls.length > 0;
   const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
 
   const tabBadge = `<span class="open-tabs-badge">
     ${ICONS.tabs}
-    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+    ${tabCount} tab${tabCount !== 1 ? 's' : ''}${remote ? '' : ' open'}
   </span>`;
 
   const dupeBadge = hasDupes
@@ -831,55 +1207,50 @@ function renderDomainCard(group) {
     if (!seen.has(tab.url)) { seen.add(tab.url); uniqueTabs.push(tab); }
   }
 
+  const chipOpts    = { remote, groupKey: group.domain };
   const visibleTabs = uniqueTabs.slice(0, 8);
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
-  const pageChips = visibleTabs.map(tab => {
-    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
-    // For localhost tabs, prepend port number so you can tell projects apart
-    try {
-      const parsed = new URL(tab.url);
-      if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
-    } catch {}
-    const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
-  }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
+  const pageChips = visibleTabs.map(tab => renderChip(tab, urlCounts, chipOpts)).join('')
+    + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts, chipOpts) : '');
 
-  let actionsHtml = `
-    <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
-      ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
-    </button>`;
-
-  if (hasDupes) {
-    const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
-    actionsHtml += `
-      <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
-        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+  // Action buttons. None for remote cards — Chrome can't close tabs on
+  // another device, so a close button would be a lie.
+  let actionsHtml = '';
+  if (!remote) {
+    actionsHtml = `
+      <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
+        ${ICONS.close}
+        Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
       </button>`;
+
+    if (hasDupes) {
+      const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
+      actionsHtml += `
+        <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
+          Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        </button>`;
+    }
   }
 
+  const actionsBlock = actionsHtml ? `<div class="actions">${actionsHtml}</div>` : '';
+
+  // Drag handle — only on local cards. Only the handle is draggable so
+  // the rest of the card (chips, buttons, edit-name input) keeps normal
+  // click and text-selection behavior.
+  const dragHandle = remote ? '' : `
+    <div class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><circle cx="9" cy="6" r="0.9" fill="currentColor"/><circle cx="15" cy="6" r="0.9" fill="currentColor"/><circle cx="9" cy="12" r="0.9" fill="currentColor"/><circle cx="15" cy="12" r="0.9" fill="currentColor"/><circle cx="9" cy="18" r="0.9" fill="currentColor"/><circle cx="15" cy="18" r="0.9" fill="currentColor"/></svg>
+    </div>`;
+
+  // Encode the actual domain key on the element so the drag handler can
+  // read it back without having to map sanitized IDs.
+  const domainAttr = ` data-domain="${(group.domain || '').replace(/"/g, '&quot;')}"`;
+
   return `
-    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}${remote ? ' remote-card' : ''}" data-domain-id="${stableId}"${domainAttr}>
       <div class="status-bar"></div>
+      ${dragHandle}
       <div class="mission-content">
         <div class="mission-top">
           <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
@@ -887,7 +1258,7 @@ function renderDomainCard(group) {
           ${dupeBadge}
         </div>
         <div class="mission-pages">${pageChips}</div>
-        <div class="actions">${actionsHtml}</div>
+        ${actionsBlock}
       </div>
       <div class="mission-meta">
         <div class="mission-page-count">${tabCount}</div>
@@ -922,8 +1293,24 @@ async function renderDeferredColumn() {
   try {
     const { active, archived } = await getSavedTabs();
 
-    // Hide the entire column if there's nothing to show
+    // Apply global search filter — matches on custom name, title, URL
+    const q = searchQuery.toLowerCase();
+    const matchItem = (item) =>
+      !q ||
+      (item.title || '').toLowerCase().includes(q) ||
+      (item.url   || '').toLowerCase().includes(q) ||
+      (siteNames[item.url] || '').toLowerCase().includes(q);
+
+    const activeFiltered   = q ? active.filter(matchItem)   : active;
+    const archivedFiltered = q ? archived.filter(matchItem) : archived;
+
+    // Hide the entire column if there's nothing to show (and no query active)
     if (active.length === 0 && archived.length === 0) {
+      column.style.display = 'none';
+      return;
+    }
+    // With a query but nothing matches, also hide
+    if (q && activeFiltered.length === 0 && archivedFiltered.length === 0) {
       column.style.display = 'none';
       return;
     }
@@ -931,9 +1318,9 @@ async function renderDeferredColumn() {
     column.style.display = 'block';
 
     // Render active checklist items
-    if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
-      list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
+    if (activeFiltered.length > 0) {
+      countEl.textContent = `${activeFiltered.length} item${activeFiltered.length !== 1 ? 's' : ''}${q ? ' · matches' : ''}`;
+      list.innerHTML = activeFiltered.map(item => renderDeferredItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
     } else {
@@ -943,9 +1330,9 @@ async function renderDeferredColumn() {
     }
 
     // Render archive section
-    if (archived.length > 0) {
-      archiveCountEl.textContent = `(${archived.length})`;
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
+    if (archivedFiltered.length > 0) {
+      archiveCountEl.textContent = `(${archivedFiltered.length})`;
+      archiveList.innerHTML = archivedFiltered.map(item => renderArchiveItem(item)).join('');
       archiveEl.style.display = 'block';
     } else {
       archiveEl.style.display = 'none';
@@ -1005,6 +1392,122 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
+   DOMAIN GROUPING — shared between local and remote-device tab lists
+   ---------------------------------------------------------------- */
+
+const LANDING_PAGE_PATTERNS = [
+  { hostname: 'mail.google.com', test: (p, h) =>
+      !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
+  { hostname: 'x.com',               pathExact: ['/home'] },
+  { hostname: 'www.linkedin.com',    pathExact: ['/'] },
+  { hostname: 'github.com',          pathExact: ['/'] },
+  { hostname: 'www.youtube.com',     pathExact: ['/'] },
+  // Merge personal patterns from config.local.js (if it exists)
+  ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
+];
+
+function isLandingPage(url) {
+  try {
+    const parsed = new URL(url);
+    return LANDING_PAGE_PATTERNS.some(p => {
+      const hostnameMatch = p.hostname
+        ? parsed.hostname === p.hostname
+        : p.hostnameEndsWith
+          ? parsed.hostname.endsWith(p.hostnameEndsWith)
+          : false;
+      if (!hostnameMatch) return false;
+      if (p.test)       return p.test(parsed.pathname, url);
+      if (p.pathPrefix) return parsed.pathname.startsWith(p.pathPrefix);
+      if (p.pathExact)  return p.pathExact.includes(parsed.pathname);
+      return parsed.pathname === '/';
+    });
+  } catch { return false; }
+}
+
+function matchCustomGroup(url) {
+  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
+  try {
+    const parsed = new URL(url);
+    return customGroups.find(r => {
+      const hostMatch = r.hostname
+        ? parsed.hostname === r.hostname
+        : r.hostnameEndsWith
+          ? parsed.hostname.endsWith(r.hostnameEndsWith)
+          : false;
+      if (!hostMatch) return false;
+      if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
+      return true;
+    }) || null;
+  } catch { return null; }
+}
+
+/**
+ * groupTabsByDomain(tabs)
+ *
+ * Pure helper used for both local tabs and synced remote-device tabs.
+ * Same logic the dashboard has always used: pull landing pages into a
+ * special group, honor custom groups from config.local.js, otherwise
+ * group by hostname. Returns a sorted array of groups.
+ */
+function groupTabsByDomain(tabs) {
+  const groupMap    = {};
+  const landingTabs = [];
+
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    try {
+      if (isLandingPage(tab.url)) {
+        landingTabs.push(tab);
+        continue;
+      }
+
+      const customRule = matchCustomGroup(tab.url);
+      if (customRule) {
+        const key = customRule.groupKey;
+        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
+        groupMap[key].tabs.push(tab);
+        continue;
+      }
+
+      let hostname;
+      if (tab.url.startsWith('file://')) {
+        hostname = 'local-files';
+      } else {
+        hostname = new URL(tab.url).hostname;
+      }
+      if (!hostname) continue;
+
+      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
+      groupMap[hostname].tabs.push(tab);
+    } catch {
+      // skip malformed URLs
+    }
+  }
+
+  if (landingTabs.length > 0) {
+    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
+  }
+
+  const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
+  const landingSuffixes  = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
+  const isLandingDomain  = (domain) =>
+    landingHostnames.has(domain) || landingSuffixes.some(s => domain.endsWith(s));
+
+  return Object.values(groupMap).sort((a, b) => {
+    const aIsLanding = a.domain === '__landing-pages__';
+    const bIsLanding = b.domain === '__landing-pages__';
+    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
+
+    const aIsPriority = isLandingDomain(a.domain);
+    const bIsPriority = isLandingDomain(b.domain);
+    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+
+    return b.tabs.length - a.tabs.length;
+  });
+}
+
+
+/* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
@@ -1026,136 +1529,15 @@ async function renderStaticDashboard() {
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
 
-  // --- Fetch tabs ---
+  // --- Load persisted state (custom names + drag order) before any chip render ---
+  await Promise.all([loadSiteNames(), loadDomainOrder()]);
+
+  // --- Fetch tabs (local + synced from other devices) ---
   await fetchOpenTabs();
-  const realTabs = getRealTabs();
+  await fetchOtherDeviceTabs();
 
-  // --- Group tabs by domain ---
-  // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
-  // so they can be closed together without affecting content tabs on the same domain.
-  const LANDING_PAGE_PATTERNS = [
-    { hostname: 'mail.google.com', test: (p, h) =>
-        !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'x.com',               pathExact: ['/home'] },
-    { hostname: 'www.linkedin.com',    pathExact: ['/'] },
-    { hostname: 'github.com',          pathExact: ['/'] },
-    { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
-    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
-  ];
-
-  function isLandingPage(url) {
-    try {
-      const parsed = new URL(url);
-      return LANDING_PAGE_PATTERNS.some(p => {
-        // Support both exact hostname and suffix matching (for wildcard subdomains)
-        const hostnameMatch = p.hostname
-          ? parsed.hostname === p.hostname
-          : p.hostnameEndsWith
-            ? parsed.hostname.endsWith(p.hostnameEndsWith)
-            : false;
-        if (!hostnameMatch) return false;
-        if (p.test)       return p.test(parsed.pathname, url);
-        if (p.pathPrefix) return parsed.pathname.startsWith(p.pathPrefix);
-        if (p.pathExact)  return p.pathExact.includes(parsed.pathname);
-        return parsed.pathname === '/';
-      });
-    } catch { return false; }
-  }
-
-  domainGroups = [];
-  const groupMap    = {};
-  const landingTabs = [];
-
-  // Custom group rules from config.local.js (if any)
-  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
-
-  // Check if a URL matches a custom group rule; returns the rule or null
-  function matchCustomGroup(url) {
-    try {
-      const parsed = new URL(url);
-      return customGroups.find(r => {
-        const hostMatch = r.hostname
-          ? parsed.hostname === r.hostname
-          : r.hostnameEndsWith
-            ? parsed.hostname.endsWith(r.hostnameEndsWith)
-            : false;
-        if (!hostMatch) return false;
-        if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
-        return true; // hostname matched, no path filter
-      }) || null;
-    } catch { return null; }
-  }
-
-  for (const tab of realTabs) {
-    try {
-      if (isLandingPage(tab.url)) {
-        landingTabs.push(tab);
-        continue;
-      }
-
-      // Check custom group rules first (e.g. merge subdomains, split by path)
-      const customRule = matchCustomGroup(tab.url);
-      if (customRule) {
-        const key = customRule.groupKey;
-        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
-        groupMap[key].tabs.push(tab);
-        continue;
-      }
-
-      let hostname;
-      if (tab.url && tab.url.startsWith('file://')) {
-        hostname = 'local-files';
-      } else {
-        hostname = new URL(tab.url).hostname;
-      }
-      if (!hostname) continue;
-
-      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
-      groupMap[hostname].tabs.push(tab);
-    } catch {
-      // Skip malformed URLs
-    }
-  }
-
-  if (landingTabs.length > 0) {
-    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
-  }
-
-  // Sort: landing pages first, then domains from landing page sites, then by tab count
-  // Collect exact hostnames and suffix patterns for priority sorting
-  const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
-  const landingSuffixes = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
-  function isLandingDomain(domain) {
-    if (landingHostnames.has(domain)) return true;
-    return landingSuffixes.some(s => domain.endsWith(s));
-  }
-  domainGroups = Object.values(groupMap).sort((a, b) => {
-    const aIsLanding = a.domain === '__landing-pages__';
-    const bIsLanding = b.domain === '__landing-pages__';
-    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
-
-    const aIsPriority = isLandingDomain(a.domain);
-    const bIsPriority = isLandingDomain(b.domain);
-    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
-
-    return b.tabs.length - a.tabs.length;
-  });
-
-  // --- Render domain cards ---
-  const openTabsSection      = document.getElementById('openTabsSection');
-  const openTabsMissionsEl   = document.getElementById('openTabsMissions');
-  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
-  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-
-  if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
-    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
-    openTabsSection.style.display = 'block';
-  } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
-  }
+  // --- Render every tab section (sync DOM updates from cached state) ---
+  rerenderTabSections();
 
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
@@ -1166,6 +1548,101 @@ async function renderStaticDashboard() {
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+}
+
+/**
+ * rerenderTabSections()
+ *
+ * Pure DOM update from already-fetched state. Called on initial load
+ * and again whenever the search query changes or a custom name is
+ * edited — no chrome.tabs / chrome.sessions calls.
+ */
+function rerenderTabSections() {
+  renderLocalTabsSection();
+  renderOtherDevicesSection();
+}
+
+/**
+ * renderLocalTabsSection()
+ *
+ * Renders the "Open tabs" section from the cached `openTabs` list,
+ * applying the global search filter.
+ */
+function renderLocalTabsSection() {
+  const openTabsSection      = document.getElementById('openTabsSection');
+  const openTabsMissionsEl   = document.getElementById('openTabsMissions');
+  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+  if (!openTabsSection) return;
+
+  const realTabs = getRealTabs();
+  const q = searchQuery.toLowerCase();
+  const filteredTabs = q ? realTabs.filter(t => tabMatchesQuery(t, q)) : realTabs;
+  domainGroups = applyUserDomainOrder(groupTabsByDomain(filteredTabs));
+
+  if (domainGroups.length > 0) {
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = q ? 'Open tabs — matches' : 'Open tabs';
+    openTabsSectionCount.innerHTML = q
+      ? `${filteredTabs.length} match${filteredTabs.length !== 1 ? 'es' : ''} in ${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}`
+      : `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    openTabsSection.style.display = 'block';
+  } else if (q) {
+    // Search active but no local matches — keep section visible with empty hint
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs — matches';
+    openTabsSectionCount.innerHTML = '0 matches';
+    openTabsMissionsEl.innerHTML = `<div style="font-size:13px;color:var(--muted);padding:12px 4px;">No open tabs match "${q.replace(/</g, '&lt;')}".</div>`;
+    openTabsSection.style.display = 'block';
+  } else {
+    openTabsSection.style.display = 'none';
+  }
+}
+
+/**
+ * renderOtherDevicesSection()
+ *
+ * Pure DOM update from cached `otherDeviceGroups`, applying the global
+ * search filter. If the API is missing, sync is off, or no devices
+ * return, shows a hint instead of the section.
+ */
+function renderOtherDevicesSection() {
+  const section   = document.getElementById('otherDevicesSection');
+  const missions  = document.getElementById('otherDevicesMissions');
+  const countEl   = document.getElementById('otherDevicesSectionCount');
+  const hintEl    = document.getElementById('otherDevicesHint');
+  if (!section || !missions) return;
+
+  if (otherDeviceGroups.length === 0) {
+    section.style.display = 'none';
+    if (hintEl) hintEl.style.display = 'block';
+    return;
+  }
+  if (hintEl) hintEl.style.display = 'none';
+
+  const q = searchQuery.toLowerCase();
+  // Apply filter per-device; drop devices whose tabs all fail the filter
+  const filteredDevices = otherDeviceGroups
+    .map(d => ({
+      ...d,
+      tabs: q ? d.tabs.filter(t => tabMatchesQuery(t, q)) : d.tabs,
+    }))
+    .filter(d => d.tabs.length > 0);
+
+  if (filteredDevices.length === 0) {
+    if (countEl) countEl.textContent = q ? '0 matches' : '';
+    missions.innerHTML = q
+      ? `<div style="font-size:13px;color:var(--muted);padding:12px 4px;">No tabs from other devices match "${q.replace(/</g, '&lt;')}".</div>`
+      : '';
+    section.style.display = q ? 'block' : 'none';
+    return;
+  }
+
+  const totalTabs = filteredDevices.reduce((s, d) => s + d.tabs.length, 0);
+  if (countEl) {
+    countEl.textContent = `${filteredDevices.length} device${filteredDevices.length !== 1 ? 's' : ''} · ${totalTabs} tab${totalTabs !== 1 ? 's' : ''}${q ? ' · matches' : ''}`;
+  }
+  missions.innerHTML = filteredDevices.map((d, i) => renderDeviceSubsection(d, i)).join('');
+  section.style.display = 'block';
 }
 
 async function renderDashboard() {
@@ -1218,6 +1695,25 @@ document.addEventListener('click', async (e) => {
   if (action === 'focus-tab') {
     const tabUrl = actionEl.dataset.tabUrl;
     if (tabUrl) await focusTab(tabUrl);
+    return;
+  }
+
+  // ---- Open a tab synced from another device (locally) ----
+  if (action === 'restore-remote-tab') {
+    const sessionId = actionEl.dataset.sessionId;
+    const tabUrl    = actionEl.dataset.tabUrl;
+    await restoreRemoteSession(sessionId, tabUrl);
+    return;
+  }
+
+  // ---- Inline-edit a chip's custom name ----
+  if (action === 'edit-name') {
+    e.stopPropagation(); // don't trigger parent chip's focus / restore
+    const chip = actionEl.closest('.page-chip');
+    if (!chip) return;
+    const tabUrl = actionEl.dataset.tabUrl;
+    if (!tabUrl) return;
+    beginChipNameEdit(chip, tabUrl, actionEl.dataset.autoLabel || '');
     return;
   }
 
@@ -1474,6 +1970,240 @@ document.addEventListener('input', async (e) => {
     console.warn('[tab-out] Archive search failed:', err);
   }
 });
+
+
+/* ----------------------------------------------------------------
+   CHIP NAME EDITING — inline rename for any chip
+
+   Replaces the chip's text label with an input field. Enter or blur
+   commits, Escape cancels. Persists to chrome.storage.local under
+   `siteNames[url]` so the override survives sync, restarts, and
+   shows up on every device that opens the same URL.
+   ---------------------------------------------------------------- */
+
+function beginChipNameEdit(chip, url, autoLabel) {
+  if (!chip) return;
+  if (chip.classList.contains('editing')) return;
+
+  const textEl = chip.querySelector('.chip-text');
+  if (!textEl) return;
+
+  chip.classList.add('editing');
+  // Disable the chip's main click-through while editing
+  chip.dataset.actionBackup = chip.dataset.action || '';
+  chip.removeAttribute('data-action');
+
+  const current = siteNames[url] || '';
+  // Pre-fill with whatever's currently displayed — custom name if set,
+  // otherwise the auto-cleaned label — so the user can edit instead of
+  // typing from scratch.
+  const startValue = current || autoLabel || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'chip-name-input';
+  input.value = startValue;
+  input.placeholder = autoLabel || 'Custom name';
+  input.maxLength = 80;
+  input.setAttribute('aria-label', 'Rename this site');
+
+  const originalText = textEl.textContent;
+  textEl.replaceWith(input);
+  // Defer focus until after click event finishes
+  setTimeout(() => { input.focus(); input.select(); }, 0);
+
+  let finished = false;
+  const restore = () => {
+    chip.classList.remove('editing');
+    if (chip.dataset.actionBackup) {
+      chip.dataset.action = chip.dataset.actionBackup;
+      delete chip.dataset.actionBackup;
+    }
+  };
+
+  const commit = async (save) => {
+    if (finished) return;
+    finished = true;
+
+    if (save) {
+      const newName = input.value.trim();
+      // If the user opened the editor and submits without changes (or
+      // submits a value identical to the auto-label), don't lock the
+      // auto-label in as a "custom" name.
+      const effective = (newName === autoLabel) ? '' : newName;
+
+      if (effective !== current) {
+        await setSiteName(url, effective);
+        // Re-render every section so all instances of this URL update
+        rerenderTabSections();
+        await renderDeferredColumn();
+        showToast(effective ? 'Renamed' : 'Name cleared');
+        return; // re-render replaces the chip entirely
+      }
+    }
+    // Cancel path or no-op save: restore the original label in place
+    const span = document.createElement('span');
+    span.className = 'chip-text';
+    span.textContent = originalText;
+    input.replaceWith(span);
+    restore();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')      { e.preventDefault(); commit(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); commit(false); }
+    e.stopPropagation();
+  });
+  input.addEventListener('blur',  () => commit(true));
+  input.addEventListener('click', (e) => e.stopPropagation());
+}
+
+
+/* ----------------------------------------------------------------
+   GLOBAL SEARCH WIRING
+
+   Single input at the top filters every tab section live (and the
+   saved-for-later list). Debounced lightly so heavy typers don't
+   re-render on every keystroke.
+   ---------------------------------------------------------------- */
+
+(function wireGlobalSearch() {
+  const input    = document.getElementById('globalSearch');
+  const clearBtn = document.getElementById('globalSearchClear');
+  if (!input) return;
+
+  let debounceTimer = null;
+  const apply = () => {
+    searchQuery = input.value.trim();
+    if (clearBtn) clearBtn.style.display = searchQuery ? 'flex' : 'none';
+    rerenderTabSections();
+    renderDeferredColumn();
+  };
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(apply, 80);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      input.value = '';
+      apply();
+      input.blur();
+    }
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      apply();
+      input.focus();
+    });
+  }
+
+  // Cmd/Ctrl+K focuses the search bar
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      input.focus();
+      input.select();
+    }
+  });
+})();
+
+
+/* ----------------------------------------------------------------
+   DRAG-AND-DROP REORDER for local domain cards
+
+   Only the .drag-handle inside each local card has draggable=true, so
+   chips and buttons keep normal click/text behavior. On drop we splice
+   the dragged card into the new DOM position, then read back the
+   resulting card order and persist it to chrome.storage.local. The
+   stored order survives sync (it's just a list of domain keys).
+   ---------------------------------------------------------------- */
+
+(function wireDragReorder() {
+  const container = document.getElementById('openTabsMissions');
+  if (!container) return;
+
+  let draggedCard = null;
+
+  const clearDropIndicators = () => {
+    container.querySelectorAll('.drop-before, .drop-after').forEach(el =>
+      el.classList.remove('drop-before', 'drop-after')
+    );
+  };
+
+  // Save the new order from the current DOM. Preserves any domains that
+  // are NOT currently in the DOM (e.g. filtered out by search) by
+  // appending them in their existing relative order.
+  const persistOrderFromDOM = async () => {
+    const cards = container.querySelectorAll('.mission-card.domain-card:not(.remote-card)');
+    const visibleOrder = [];
+    cards.forEach(card => {
+      const d = card.dataset.domain;
+      if (d) visibleOrder.push(d);
+    });
+    const visibleSet = new Set(visibleOrder);
+    const remaining = domainOrder.filter(d => !visibleSet.has(d));
+    domainOrder = [...visibleOrder, ...remaining];
+    await persistDomainOrder();
+  };
+
+  container.addEventListener('dragstart', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return; // drag from anything other than the handle is ignored
+    const card = handle.closest('.mission-card.domain-card');
+    if (!card || card.classList.contains('remote-card')) return;
+    draggedCard = card;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // setData is required in Firefox for the drag to actually start
+    try { e.dataTransfer.setData('text/plain', card.dataset.domain || ''); } catch {}
+    // Use the whole card (not just the small handle) as the drag image
+    const rect = card.getBoundingClientRect();
+    try { e.dataTransfer.setDragImage(card, e.clientX - rect.left, e.clientY - rect.top); } catch {}
+  });
+
+  container.addEventListener('dragover', (e) => {
+    if (!draggedCard) return;
+    const card = e.target.closest('.mission-card.domain-card');
+    if (!card || card === draggedCard || card.classList.contains('remote-card')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = card.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    clearDropIndicators();
+    card.classList.add(before ? 'drop-before' : 'drop-after');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    // Only clear if leaving the container entirely (not just moving between cards)
+    if (e.relatedTarget && container.contains(e.relatedTarget)) return;
+    clearDropIndicators();
+  });
+
+  container.addEventListener('drop', async (e) => {
+    if (!draggedCard) return;
+    const card = e.target.closest('.mission-card.domain-card');
+    if (!card || card === draggedCard || card.classList.contains('remote-card')) {
+      clearDropIndicators();
+      return;
+    }
+    e.preventDefault();
+    const rect = card.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    if (before) container.insertBefore(draggedCard, card);
+    else        container.insertBefore(draggedCard, card.nextSibling);
+    clearDropIndicators();
+    await persistOrderFromDOM();
+  });
+
+  container.addEventListener('dragend', () => {
+    if (draggedCard) draggedCard.classList.remove('dragging');
+    draggedCard = null;
+    clearDropIndicators();
+  });
+})();
 
 
 /* ----------------------------------------------------------------
