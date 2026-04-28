@@ -25,6 +25,7 @@
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+let favoriteNameWasEdited = false;
 
 /**
  * fetchOpenTabs()
@@ -283,6 +284,110 @@ async function dismissSavedTab(id) {
   }
 }
 
+/**
+ * deleteSavedTab(id)
+ *
+ * Permanently removes a saved tab from storage.
+ */
+async function deleteSavedTab(id) {
+  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  await chrome.storage.local.set({
+    deferred: deferred.filter(t => t.id !== id),
+  });
+}
+
+
+/* ----------------------------------------------------------------
+   FAVORITES — chrome.storage.local
+   ---------------------------------------------------------------- */
+
+async function getFavoriteSites() {
+  const { favorites = [] } = await chrome.storage.local.get('favorites');
+  return favorites;
+}
+
+function normalizeFavoriteUrl(value) {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)
+    ? raw
+    : `https://${raw}`;
+  const parsed = new URL(withProtocol);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Favorites must use http or https URLs');
+  }
+  return parsed.href;
+}
+
+function deriveFavoriteTitleFromUrl(value) {
+  try {
+    const parsed = new URL(normalizeFavoriteUrl(value));
+    return friendlyDomain(parsed.hostname) || parsed.hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function autofillFavoriteNameFromUrl() {
+  const nameInput = document.getElementById('favoriteName');
+  const urlInput  = document.getElementById('favoriteUrl');
+  if (!nameInput || !urlInput) return;
+  if (favoriteNameWasEdited && nameInput.value.trim() !== '') return;
+
+  const suggestedTitle = deriveFavoriteTitleFromUrl(urlInput.value);
+  if (suggestedTitle) nameInput.value = suggestedTitle;
+}
+
+function setFavoriteFormOpen(open) {
+  const form = document.getElementById('favoriteForm');
+  const nameInput = document.getElementById('favoriteName');
+  const urlInput = document.getElementById('favoriteUrl');
+  const toggle = document.querySelector('[data-action="toggle-favorite-form"]');
+  if (!form) return;
+
+  form.style.display = open ? 'grid' : 'none';
+  if (toggle) toggle.classList.toggle('open', open);
+
+  if (open) {
+    favoriteNameWasEdited = false;
+    if (nameInput) nameInput.value = '';
+    if (urlInput) {
+      urlInput.value = '';
+      urlInput.focus();
+    }
+  }
+}
+
+async function saveFavoriteSite({ title, url }) {
+  const normalizedUrl = normalizeFavoriteUrl(url);
+  const parsed = new URL(normalizedUrl);
+  const displayTitle = (title || '').trim() || friendlyDomain(parsed.hostname) || parsed.hostname;
+  const { favorites = [] } = await chrome.storage.local.get('favorites');
+  const existing = favorites.find(site => site.url === normalizedUrl);
+
+  if (existing) {
+    existing.title = displayTitle;
+    existing.updatedAt = new Date().toISOString();
+  } else {
+    favorites.unshift({
+      id: Date.now().toString(),
+      title: displayTitle,
+      url: normalizedUrl,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  await chrome.storage.local.set({ favorites });
+}
+
+async function deleteFavoriteSite(id) {
+  const { favorites = [] } = await chrome.storage.local.get('favorites');
+  await chrome.storage.local.set({
+    favorites: favorites.filter(site => site.id !== id),
+  });
+}
+
 
 /* ----------------------------------------------------------------
    UI HELPERS
@@ -489,6 +594,15 @@ function timeAgo(dateStr) {
   if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
   if (diffDays === 1) return 'yesterday';
   return diffDays + ' days ago';
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -700,6 +814,7 @@ const ICONS = {
   close:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>`,
   archive: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>`,
   focus:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>`,
+  trash:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673A2.25 2.25 0 0 1 15.916 21H8.084a2.25 2.25 0 0 1-2.244-1.327L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>`,
 };
 
 
@@ -898,6 +1013,57 @@ function renderDomainCard(group) {
 
 
 /* ----------------------------------------------------------------
+   FAVORITES — Render Top Section
+   ---------------------------------------------------------------- */
+
+async function renderFavoritesSection() {
+  const list    = document.getElementById('favoriteList');
+  const empty   = document.getElementById('favoriteEmpty');
+  if (!list) return;
+
+  try {
+    const favorites = await getFavoriteSites();
+
+    if (favorites.length === 0) {
+      list.innerHTML = '';
+      list.style.display = 'none';
+      if (empty) empty.style.display = 'none';
+      return;
+    }
+
+    list.innerHTML = favorites.map(renderFavoriteItem).join('');
+    list.style.display = 'grid';
+    if (empty) empty.style.display = 'none';
+  } catch (err) {
+    console.warn('[tab-out] Could not load favorites:', err);
+    list.innerHTML = '';
+  }
+}
+
+function renderFavoriteItem(site) {
+  let domain = '';
+  try { domain = new URL(site.url).hostname.replace(/^www\./, ''); } catch {}
+  const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+  const safeTitle = escapeHtml(site.title || site.url);
+  const safeUrl = escapeHtml(site.url || '');
+  const safeDomain = escapeHtml(domain);
+  const safeId = escapeHtml(site.id);
+
+  return `
+    <div class="favorite-item" data-favorite-id="${safeId}">
+      <button class="favorite-link" data-action="open-favorite" data-favorite-url="${safeUrl}" title="${safeTitle}">
+        ${faviconUrl ? `<img class="favorite-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+        <span class="favorite-title">${safeTitle}</span>
+        <span class="favorite-domain">${safeDomain}</span>
+      </button>
+      <button class="favorite-delete" data-action="delete-favorite" data-favorite-id="${safeId}" title="Delete favorite">
+        ${ICONS.trash}
+      </button>
+    </div>`;
+}
+
+
+/* ----------------------------------------------------------------
    SAVED FOR LATER — Render Checklist Column
    ---------------------------------------------------------------- */
 
@@ -994,12 +1160,18 @@ function renderDeferredItem(item) {
  */
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+  const safeTitle = escapeHtml(item.title || item.url);
+  const safeUrl = escapeHtml(item.url || '');
+  const safeId = escapeHtml(item.id);
   return `
-    <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
+    <div class="archive-item" data-deferred-id="${safeId}">
+      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+        ${safeTitle}
       </a>
       <span class="archive-item-date">${ago}</span>
+      <button class="archive-delete" data-action="delete-archive-item" data-deferred-id="${safeId}" title="Delete archived tab">
+        ${ICONS.trash}
+      </button>
     </div>`;
 }
 
@@ -1025,6 +1197,9 @@ async function renderStaticDashboard() {
   const dateEl     = document.getElementById('dateDisplay');
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Favorites ---
+  await renderFavoritesSection();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1188,6 +1363,40 @@ document.addEventListener('click', async (e) => {
 
   const action = actionEl.dataset.action;
 
+  // ---- Show/hide the compact favorite add form ----
+  if (action === 'toggle-favorite-form') {
+    const form = document.getElementById('favoriteForm');
+    const isOpen = form && form.style.display !== 'none';
+    setFavoriteFormOpen(!isOpen);
+    return;
+  }
+
+  // ---- Open a favorite website ----
+  if (action === 'open-favorite') {
+    e.preventDefault();
+    const url = actionEl.dataset.favoriteUrl;
+    if (url) await chrome.tabs.create({ url });
+    return;
+  }
+
+  // ---- Delete a favorite website ----
+  if (action === 'delete-favorite') {
+    e.stopPropagation();
+    const id = actionEl.dataset.favoriteId;
+    if (!id) return;
+
+    await deleteFavoriteSite(id);
+    const item = actionEl.closest('.favorite-item');
+    if (item) {
+      item.classList.add('removing');
+      setTimeout(() => renderFavoritesSection(), 180);
+    } else {
+      await renderFavoritesSection();
+    }
+    showToast('Favorite deleted');
+    return;
+  }
+
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
     await closeTabOutDupes();
@@ -1340,6 +1549,23 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Delete an archived saved tab permanently ----
+  if (action === 'delete-archive-item') {
+    const id = actionEl.dataset.deferredId;
+    if (!id) return;
+
+    await deleteSavedTab(id);
+    const item = actionEl.closest('.archive-item');
+    if (item) {
+      item.classList.add('removing');
+      setTimeout(() => renderDeferredColumn(), 180);
+    } else {
+      await renderDeferredColumn();
+    }
+    showToast('Archived tab deleted');
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1433,6 +1659,28 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'favoriteForm') return;
+  e.preventDefault();
+
+  const nameInput = document.getElementById('favoriteName');
+  const urlInput  = document.getElementById('favoriteUrl');
+  const title = nameInput ? nameInput.value : '';
+  const url   = urlInput ? urlInput.value : '';
+
+  try {
+    await saveFavoriteSite({ title, url });
+    if (nameInput) nameInput.value = '';
+    if (urlInput) urlInput.value = '';
+    favoriteNameWasEdited = false;
+    setFavoriteFormOpen(false);
+    await renderFavoritesSection();
+    showToast('Favorite saved');
+  } catch {
+    showToast('Enter a valid website URL');
+  }
+});
+
 // ---- Archive toggle — expand/collapse the archive section ----
 document.addEventListener('click', (e) => {
   const toggle = e.target.closest('#archiveToggle');
@@ -1447,6 +1695,16 @@ document.addEventListener('click', (e) => {
 
 // ---- Archive search — filter archived items as user types ----
 document.addEventListener('input', async (e) => {
+  if (e.target.id === 'favoriteName') {
+    favoriteNameWasEdited = true;
+    return;
+  }
+
+  if (e.target.id === 'favoriteUrl') {
+    autofillFavoriteNameFromUrl();
+    return;
+  }
+
   if (e.target.id !== 'archiveSearch') return;
 
   const q = e.target.value.trim().toLowerCase();
