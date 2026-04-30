@@ -26,6 +26,20 @@
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
+function isTabOutPageUrl(url) {
+  if (!url) return false;
+
+  const normalizedUrl = url.replace(/[?#].*$/, '').replace(/\/?$/, '/');
+  const extensionIndexUrl = chrome.runtime.getURL('index.html').replace(/\/?$/, '/');
+
+  return normalizedUrl === extensionIndexUrl || [
+    'chrome://newtab/',
+    'edge://newtab/',
+    'brave://newtab/',
+    'vivaldi://newtab/',
+  ].includes(normalizedUrl);
+}
+
 /**
  * fetchOpenTabs()
  *
@@ -34,10 +48,6 @@ let openTabs = [];
  */
 async function fetchOpenTabs() {
   try {
-    const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
-    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
-
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
       id:       t.id,
@@ -46,7 +56,7 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
+      isTabOut: isTabOutPageUrl(t.url),
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -175,14 +185,9 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  * Closes all duplicate Tab Out new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
-  const extensionId = chrome.runtime.id;
-  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
-
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
-  const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
-  );
+  const tabOutTabs = allTabs.filter(t => isTabOutPageUrl(t.url));
 
   if (tabOutTabs.length <= 1) return;
 
@@ -1475,8 +1480,42 @@ document.addEventListener('input', async (e) => {
   }
 });
 
+/**
+ * loadOptionalLocalConfig()
+ *
+ * Attempts to load the gitignored local config file before first render.
+ * MV3 extension pages block inline event handlers, so we handle "missing file"
+ * here instead of using <script onerror="..."> in index.html.
+ */
+function loadOptionalLocalConfig() {
+  return new Promise((resolve) => {
+    const scriptUrl = chrome.runtime.getURL('config.local.js');
+
+    fetch(scriptUrl, { method: 'GET', cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) {
+          resolve();
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.async = false;
+        script.onload = () => resolve();
+        script.onerror = () => resolve();
+        document.head.appendChild(script);
+      })
+      .catch(() => resolve());
+  });
+}
+
+async function bootstrap() {
+  await loadOptionalLocalConfig();
+  await renderDashboard();
+}
+
 
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+bootstrap();
