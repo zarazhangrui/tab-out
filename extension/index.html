@@ -56,6 +56,7 @@
         <svg class="quick-links-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
         Quick links
       </button>
+      <div class="section-line"></div>
       <button class="quick-links-more-btn" id="quickLinksMoreBtn" aria-label="More actions" title="More">›</button>
       <div class="quick-links-actions" id="quickLinksActions" style="display:none">
         <button class="quick-links-add-btn" id="quickLinksCopyBtn" title="Copy all links">
@@ -112,7 +113,12 @@
     <!-- LEFT COLUMN: Open tabs -->
     <div class="active-section" id="openTabsSection" style="display:none">
       <div class="section-header">
-        <h2 id="openTabsSectionTitle">Right now</h2>
+        <h2>
+          <button class="section-toggle open" id="openTabsToggle" data-action="toggle-open-tabs">
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            <span id="openTabsSectionTitle">Right now</span>
+          </button>
+        </h2>
         <div class="section-line"></div>
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
@@ -178,12 +184,31 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
   </svg>
   <span id="toastText"></span>
+  <button class="toast-action" id="toastAction" style="display:none"></button>
+</div>
+
+<div class="command-palette" id="commandPalette" style="display:none">
+  <div class="command-dialog" role="dialog" aria-modal="true" aria-label="Search open tabs">
+    <div class="command-input-wrap">
+      <input type="text" id="commandInput" class="command-input" placeholder="Search open tabs...">
+      <button class="command-close" id="commandClose" aria-label="Close">×</button>
+    </div>
+    <div class="command-results" id="commandResults"></div>
+  </div>
+</div>
+
+<div class="bulk-action-bar" id="bulkActionBar" style="display:none">
+  <div class="bulk-count" id="bulkCount">0 selected</div>
+  <button class="bulk-btn" data-action="bulk-save-close">Save & close</button>
+  <button class="bulk-btn danger" data-action="bulk-close">Close selected</button>
+  <button class="bulk-btn ghost" data-action="bulk-cancel">Cancel</button>
 </div>
 
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="config.local.js"></script>
 
+<script src="app-core.js"></script>
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
 </body>

@@ -25,6 +25,13 @@
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+let lastUndoSnapshot = null;
+let toastTimer = null;
+let selectionMode = false;
+const selectedTabIds = new Set();
+let commandItems = [];
+let commandActiveIndex = 0;
+let openTabsCollapsed = false;
 
 /**
  * fetchOpenTabs()
@@ -45,6 +52,7 @@ async function fetchOpenTabs() {
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
+      pinned:   t.pinned,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
@@ -435,11 +443,52 @@ function animateCardOut(card) {
  *
  * Brief pop-up notification at the bottom of the screen.
  */
-function showToast(message) {
+function showToast(message, options = {}) {
   const toast = document.getElementById('toast');
+  const actionBtn = document.getElementById('toastAction');
+  if (toastTimer) clearTimeout(toastTimer);
   document.getElementById('toastText').textContent = message;
+  if (actionBtn && options.actionLabel && options.onAction) {
+    actionBtn.textContent = options.actionLabel;
+    actionBtn.style.display = 'inline-flex';
+    actionBtn.onclick = options.onAction;
+  } else if (actionBtn) {
+    actionBtn.style.display = 'none';
+    actionBtn.onclick = null;
+  }
   toast.classList.add('visible');
-  setTimeout(() => toast.classList.remove('visible'), 2500);
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), options.duration || 3500);
+}
+
+function getClosableTabs(tabs = openTabs) {
+  return tabs.filter(t => t.url && TabOutCore.isRestorableUrl(t.url) && !t.isTabOut);
+}
+
+async function closeTabsWithUndo(tabs, label) {
+  const restorable = getClosableTabs(tabs);
+  if (restorable.length === 0) return 0;
+
+  lastUndoSnapshot = TabOutCore.createUndoSnapshot(label, restorable);
+  await chrome.tabs.remove(restorable.map(t => t.id));
+  await fetchOpenTabs();
+  showToast(label, {
+    actionLabel: 'Undo',
+    onAction: restoreLastClosedTabs,
+    duration: 6000,
+  });
+  return restorable.length;
+}
+
+async function restoreLastClosedTabs() {
+  if (!lastUndoSnapshot || !lastUndoSnapshot.tabs.length) return;
+  const snapshot = lastUndoSnapshot;
+  lastUndoSnapshot = null;
+
+  for (const tab of snapshot.tabs) {
+    await chrome.tabs.create({ url: tab.url, pinned: tab.pinned, active: false });
+  }
+  await renderDashboard();
+  showToast(`Restored ${snapshot.tabs.length} tab${snapshot.tabs.length !== 1 ? 's' : ''}`);
 }
 
 /**
@@ -700,6 +749,7 @@ const ICONS = {
   close:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>`,
   archive: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>`,
   focus:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>`,
+  search:  `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>`,
 };
 
 
@@ -707,6 +757,30 @@ const ICONS = {
    IN-MEMORY STORE FOR OPEN-TAB GROUPS
    ---------------------------------------------------------------- */
 let domainGroups = [];
+
+function updateBulkBar() {
+  document.body.classList.toggle('bulk-mode', selectionMode);
+  const bar = document.getElementById('bulkActionBar');
+  const count = document.getElementById('bulkCount');
+  if (!bar || !count) return;
+
+  const selectedCount = selectedTabIds.size;
+  bar.style.display = selectionMode ? 'flex' : 'none';
+  count.textContent = `${selectedCount} selected`;
+}
+
+function setSelectionMode(enabled) {
+  selectionMode = enabled;
+  if (!enabled) selectedTabIds.clear();
+  document.querySelectorAll('.bulk-select-checkbox').forEach(input => {
+    input.checked = selectedTabIds.has(Number(input.dataset.tabId));
+  });
+  updateBulkBar();
+}
+
+function getSelectedOpenTabs() {
+  return openTabs.filter(tab => selectedTabIds.has(tab.id));
+}
 
 
 /* ----------------------------------------------------------------
@@ -765,10 +839,12 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
+    const checked = selectedTabIds.has(tab.id) ? ' checked' : '';
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" title="${safeTitle}">
+      <input type="checkbox" class="bulk-select-checkbox" data-action="toggle-bulk-select" data-tab-id="${tab.id}"${checked}>
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
@@ -846,10 +922,12 @@ function renderDomainCard(group) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
+    const checked = selectedTabIds.has(tab.id) ? ' checked' : '';
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" title="${safeTitle}">
+      <input type="checkbox" class="bulk-select-checkbox" data-action="toggle-bulk-select" data-tab-id="${tab.id}"${checked}>
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
@@ -1239,8 +1317,16 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = `
+      <span>${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}</span>
+      <span class="section-actions">
+        <button class="action-btn compact" data-action="open-command-palette">${ICONS.search} Search</button>
+        <button class="action-btn compact" data-action="enter-bulk-mode">Select tabs</button>
+        <button class="action-btn compact close-tabs" data-action="close-all-open-tabs">${ICONS.close} Close all ${realTabs.length} tabs</button>
+      </span>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    openTabsMissionsEl.style.display = openTabsCollapsed ? 'none' : '';
+    document.getElementById('openTabsToggle')?.classList.toggle('open', !openTabsCollapsed);
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
@@ -1255,10 +1341,72 @@ async function renderStaticDashboard() {
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+
+  updateBulkBar();
 }
 
 async function renderDashboard() {
   await renderStaticDashboard();
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function openCommandPalette() {
+  await fetchOpenTabs();
+  commandItems = TabOutCore.buildCommandItems({
+    openTabs: getClosableTabs(),
+  });
+  commandActiveIndex = 0;
+
+  const palette = document.getElementById('commandPalette');
+  const input = document.getElementById('commandInput');
+  if (!palette || !input) return;
+  palette.style.display = 'flex';
+  input.value = '';
+  renderCommandResults('');
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeCommandPalette() {
+  const palette = document.getElementById('commandPalette');
+  if (palette) palette.style.display = 'none';
+}
+
+function renderCommandResults(query) {
+  const resultsEl = document.getElementById('commandResults');
+  if (!resultsEl) return;
+  const results = TabOutCore.filterCommandItems(commandItems, query);
+  commandActiveIndex = Math.min(commandActiveIndex, Math.max(results.length - 1, 0));
+
+  resultsEl.innerHTML = results.length
+    ? results.map((item, index) => `
+      <button class="command-result ${index === commandActiveIndex ? 'active' : ''}" data-command-index="${index}">
+        <div class="command-result-main">
+          <div class="command-result-title">${escapeHtml(item.title)}</div>
+          <div class="command-result-url">${escapeHtml(item.url)}</div>
+        </div>
+        <div class="command-result-meta">${escapeHtml(item.meta)}</div>
+      </button>
+    `).join('')
+    : '<div class="command-empty">No matches</div>';
+
+  resultsEl.dataset.query = query || '';
+}
+
+async function runCommandItem(item) {
+  if (!item) return;
+  closeCommandPalette();
+  if (item.type === 'open-tab') {
+    await focusTab(item.url);
+    return;
+  }
+  await chrome.tabs.create({ url: item.url, active: true });
 }
 
 
@@ -1276,6 +1424,67 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  if (action === 'open-command-palette') {
+    await openCommandPalette();
+    return;
+  }
+
+  if (action === 'toggle-open-tabs') {
+    openTabsCollapsed = !openTabsCollapsed;
+    actionEl.classList.toggle('open', !openTabsCollapsed);
+    const missions = document.getElementById('openTabsMissions');
+    if (missions) missions.style.display = openTabsCollapsed ? 'none' : '';
+    return;
+  }
+
+  // ---- Bulk selection controls ----
+  if (action === 'enter-bulk-mode') {
+    setSelectionMode(true);
+    return;
+  }
+
+  if (action === 'toggle-bulk-select') {
+    e.stopPropagation();
+    const tabId = Number(actionEl.dataset.tabId);
+    if (!tabId) return;
+    if (actionEl.checked) selectedTabIds.add(tabId);
+    else selectedTabIds.delete(tabId);
+    updateBulkBar();
+    return;
+  }
+
+  if (action === 'bulk-cancel') {
+    setSelectionMode(false);
+    return;
+  }
+
+  if (action === 'bulk-close') {
+    const selectedTabs = getSelectedOpenTabs();
+    if (selectedTabs.length === 0) return;
+    const closed = await closeTabsWithUndo(selectedTabs, `Closed ${selectedTabs.length} selected tab${selectedTabs.length !== 1 ? 's' : ''}`);
+    if (closed > 0) {
+      playCloseSound();
+      setSelectionMode(false);
+      await renderDashboard();
+    }
+    return;
+  }
+
+  if (action === 'bulk-save-close') {
+    const selectedTabs = getSelectedOpenTabs();
+    if (selectedTabs.length === 0) return;
+    for (const tab of selectedTabs) {
+      await saveTabForLater({ url: tab.url, title: tab.title || tab.url });
+    }
+    const closed = await closeTabsWithUndo(selectedTabs, `Saved and closed ${selectedTabs.length} tab${selectedTabs.length !== 1 ? 's' : ''}`);
+    if (closed > 0) {
+      playCloseSound();
+      setSelectionMode(false);
+      await renderDashboard();
+    }
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1305,6 +1514,7 @@ document.addEventListener('click', async (e) => {
 
   // ---- Focus a specific tab ----
   if (action === 'focus-tab') {
+    if (selectionMode) return;
     const tabUrl = actionEl.dataset.tabUrl;
     if (tabUrl) await focusTab(tabUrl);
     return;
@@ -1316,10 +1526,9 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
     const allTabs = await chrome.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (match) await closeTabsWithUndo([match], 'Tab closed');
     await fetchOpenTabs();
 
     playCloseSound();
@@ -1349,7 +1558,6 @@ document.addEventListener('click', async (e) => {
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
 
-    showToast('Tab closed');
     return;
   }
 
@@ -1372,7 +1580,7 @@ document.addEventListener('click', async (e) => {
     // Close the tab in Chrome
     const allTabs = await chrome.tabs.query({});
     const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (match) await closeTabsWithUndo([match], 'Saved for later');
     await fetchOpenTabs();
 
     // Animate chip out
@@ -1384,7 +1592,6 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
     await renderDeferredColumn();
     return;
   }
@@ -1449,15 +1656,8 @@ document.addEventListener('click', async (e) => {
     if (!group) return;
 
     const urls      = group.tabs.map(t => t.url);
-    // Landing pages and custom groups (whose domain key isn't a real hostname)
-    // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
-
-    if (useExact) {
-      await closeTabsExact(urls);
-    } else {
-      await closeTabsByUrls(urls);
-    }
+    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+    await closeTabsWithUndo(group.tabs, `Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
     if (card) {
       playCloseSound();
@@ -1467,9 +1667,6 @@ document.addEventListener('click', async (e) => {
     // Remove from in-memory groups
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
-
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
@@ -1514,10 +1711,8 @@ document.addEventListener('click', async (e) => {
 
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
-    const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
-      .map(t => t.url);
-    await closeTabsByUrls(allUrls);
+    const tabsToClose = getClosableTabs(openTabs);
+    await closeTabsWithUndo(tabsToClose, `Closed all ${tabsToClose.length} tabs`);
     playCloseSound();
 
     document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
@@ -1528,9 +1723,71 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
     return;
   }
+});
+
+// ---- Command palette: Cmd/Ctrl+K or "/" to search tabs, saved items, quick links ----
+document.addEventListener('keydown', async (e) => {
+  const active = document.activeElement;
+  const typing = active && ['INPUT', 'TEXTAREA'].includes(active.tagName);
+  const paletteOpen = document.getElementById('commandPalette')?.style.display !== 'none';
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    await openCommandPalette();
+    return;
+  }
+
+  if (!typing && !paletteOpen && e.key === '/') {
+    e.preventDefault();
+    await openCommandPalette();
+    return;
+  }
+
+  if (!paletteOpen) return;
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCommandPalette();
+    return;
+  }
+
+  const results = TabOutCore.filterCommandItems(commandItems, document.getElementById('commandResults')?.dataset.query || '');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    commandActiveIndex = Math.min(commandActiveIndex + 1, Math.max(results.length - 1, 0));
+    renderCommandResults(document.getElementById('commandInput')?.value || '');
+    return;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    commandActiveIndex = Math.max(commandActiveIndex - 1, 0);
+    renderCommandResults(document.getElementById('commandInput')?.value || '');
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    await runCommandItem(results[commandActiveIndex]);
+  }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'commandInput') return;
+  commandActiveIndex = 0;
+  renderCommandResults(e.target.value);
+});
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'commandPalette' || e.target.closest('#commandClose')) {
+    closeCommandPalette();
+    return;
+  }
+
+  const result = e.target.closest('.command-result');
+  if (!result) return;
+  const results = TabOutCore.filterCommandItems(commandItems, document.getElementById('commandResults')?.dataset.query || '');
+  await runCommandItem(results[Number(result.dataset.commandIndex)]);
 });
 
 // ---- Quick links: › more button — show/hide action icons ----
