@@ -59,6 +59,10 @@
       <div class="section-header">
         <h2 id="openTabsSectionTitle">Right now</h2>
         <div class="section-line"></div>
+        <div class="view-toggle" id="viewToggle" style="display:none">
+          <button class="view-btn active" data-view="tabgroup">Tab groups</button>
+          <button class="view-btn" data-view="domain">Domains</button>
+        </div>
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
       <div class="missions" id="openTabsMissions"></div>
@@ -107,7 +111,7 @@
       </div>
     </div>
     <div class="last-refresh">
-      <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> by <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
+      <span style="color: var(--muted); font-size: 11px;">Tab Out</span>
     </div>
   </footer>
 
@@ -127,7 +131,7 @@
 
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
-<script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
+<script src="config.local.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>

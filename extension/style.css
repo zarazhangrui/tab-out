@@ -184,6 +184,63 @@ header {
   font-weight: 600;
 }
 
+/* ---- Drag and drop ---- */
+
+/* Grab cursor on card headers — only in tab group view */
+.dnd-active .mission-top {
+  cursor: grab;
+  user-select: none;
+}
+
+/* Source element while being dragged */
+.page-chip.dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.mission-card.dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Valid drop target — amber ring + slight lift */
+.mission-card.drag-over {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 2px rgba(200, 113, 58, 0.25), 0 4px 20px var(--shadow);
+  transform: translateY(-2px);
+  transition: border-color 0.1s, box-shadow 0.1s, transform 0.1s;
+}
+
+/* ---- View toggle (Domains / Tab groups) ---- */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--warm-gray);
+  border-radius: 5px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.view-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.view-btn.active {
+  background: var(--card-bg);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
 /* ---- Section Headers ---- */
 .section-header {
   display: flex;
@@ -257,6 +314,41 @@ header {
 .mission-card:hover {
   box-shadow: 0 4px 20px var(--shadow);
   transform: translateY(-1px);
+}
+
+/* Divider between named tab groups and ungrouped domain cards */
+.tg-ungrouped-divider {
+  column-span: all;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 4px;
+  font-family: 'Newsreader', serif;
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tg-ungrouped-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--warm-gray);
+}
+
+/* Tab group card — top border uses the Chrome group color via CSS variable */
+.tab-group-card::before {
+  background: var(--tg-color, var(--warm-gray));
+}
+
+/* Color dot shown next to the group name */
+.tg-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 /* Closing animation — card scales down and fades out */
@@ -395,15 +487,25 @@ header {
   overflow: hidden;
 }
 
-/* Duplicate badge */
+/* Duplicate badge — amber pill */
 .chip-dupe-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
   color: var(--accent-amber);
+  font-size: 10px;
   font-weight: 600;
+  background: rgba(200, 113, 58, 0.13);
+  border: 1px solid rgba(200, 113, 58, 0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 
-/* Duplicate border highlight */
+/* Duplicate row — amber left stripe + light amber wash */
 .chip-has-dupes {
-  border-color: rgba(200, 113, 58, 0.25);
+  background: rgba(200, 113, 58, 0.06);
+  box-shadow: inset 3px 0 0 var(--accent-amber);
 }
 
 /* Action buttons grouped on the right */
