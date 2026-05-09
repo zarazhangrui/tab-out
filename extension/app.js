@@ -17,6 +17,50 @@
 
 
 /* ----------------------------------------------------------------
+   THEME MODE
+   Mode = "system" | "light" | "dark"; default = system (follows OS).
+   theme-init.js applies the initial mode before <body> paints;
+   this file owns runtime updates, OS-change tracking, and cross-tab sync.
+   ---------------------------------------------------------------- */
+
+function applyThemeMode(mode) {
+  const root = document.documentElement;
+  const prefersDark = window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = mode === 'dark' || (mode === 'system' && prefersDark);
+  if (isDark) root.setAttribute('data-theme', 'dark');
+  else        root.removeAttribute('data-theme');
+  root.setAttribute('data-mode', mode);
+}
+
+// Re-apply when the OS toggles light/dark — but only while in "system" mode.
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const onChange = () => {
+    const mode = document.documentElement.getAttribute('data-mode') || 'system';
+    if (mode === 'system') applyThemeMode('system');
+  };
+  if (mq.addEventListener) mq.addEventListener('change', onChange);
+  else if (mq.addListener) mq.addListener(onChange); // older Safari fallback
+}
+
+// Sync across other open new-tab pages: when one tab toggles the theme,
+// chrome.storage.onChanged fires here too.
+try {
+  if (chrome && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes.theme) return;
+      const next = changes.theme.newValue;
+      if (next !== 'light' && next !== 'dark' && next !== 'system') return;
+      if (next === document.documentElement.getAttribute('data-mode')) return;
+      applyThemeMode(next);
+      try { localStorage.setItem('tabout-theme', next); } catch (err) {}
+    });
+  }
+} catch (err) {}
+
+
+/* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
    Since this page IS the extension's new tab page, it has full
@@ -1187,6 +1231,20 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  // ---- Cycle theme mode: system → light → dark → system ----
+  // Persisted to chrome.storage.local (shared across all new-tab pages),
+  // mirrored to localStorage so theme-init.js can apply it synchronously
+  // before paint and avoid a flash of light content.
+  if (action === 'toggle-theme') {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-mode') || 'system';
+    const next = cur === 'system' ? 'light' : cur === 'light' ? 'dark' : 'system';
+    applyThemeMode(next);
+    try { localStorage.setItem('tabout-theme', next); } catch (err) {}
+    try { await chrome.storage.local.set({ theme: next }); } catch (err) {}
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {

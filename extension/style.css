@@ -18,6 +18,31 @@
   --status-abandoned: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --noise-opacity: 0.03;
+}
+
+/* ---- Dark theme — activated by [data-theme="dark"] on <html> ---- */
+:root[data-theme="dark"] {
+  --ink: #e8e2da;
+  --paper: #0f0d0b;
+  --warm-gray: #2a2520;
+  --muted: #8a817a;
+  --accent-amber: #d8895a;
+  --accent-sage: #7aa085;
+  --accent-slate: #7a8a9a;
+  --accent-rose: #c87a7a;
+  --status-active: #5a9a6a;
+  --status-cooling: #d8a94a;
+  --status-abandoned: #c87a7a;
+  --card-bg: #1a1714;
+  --shadow: rgba(0, 0, 0, 0.4);
+  --noise-opacity: 0.05;
+}
+
+/* Adjust the paper-noise overlay so it stays subtle on dark mode */
+:root[data-theme="dark"] body::before {
+  filter: invert(1);
+  opacity: 0.6;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -80,6 +105,48 @@ header {
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Theme toggle button ---- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--warm-gray);
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.2s;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Show only the icon matching the current theme mode (system/light/dark).
+   Default = system before JS sets data-mode. */
+.theme-icon { display: none; }
+.theme-icon-system { display: block; }
+:root[data-mode="light"] .theme-icon-system { display: none; }
+:root[data-mode="light"] .theme-icon-light  { display: block; }
+:root[data-mode="dark"]  .theme-icon-system { display: none; }
+:root[data-mode="dark"]  .theme-icon-dark   { display: block; }
 
 /* ---- Tab cleanup banner ---- */
 .tab-cleanup-banner {
