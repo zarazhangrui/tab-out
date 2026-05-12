@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,12 +19,20 @@
   <!-- ================================================================
        HEADER — greeting on the left
        ================================================================ -->
-  <header>
+  <header class="hero-header">
     <div class="header-left">
       <!-- "Good afternoon" — written by getGreeting() in app.js -->
+      <div class="eyebrow">标签工作台</div>
       <h1 id="greeting"></h1>
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
+    </div>
+    <div class="header-right">
+      <div class="header-note">按域名整理已打开页面，顺手查看收藏栏、最近关闭和浏览历史。</div>
+      <label class="global-search" for="globalSearch">
+        <span class="global-search-label">快速查找</span>
+        <input type="search" id="globalSearch" placeholder="搜索标签、收藏、历史记录">
+      </label>
     </div>
   </header>
 
@@ -40,10 +48,10 @@
         </svg>
       </div>
       <div class="tab-cleanup-text">
-        You have <strong id="tabOutDupeCount"></strong> Tab Out tabs open. Keep just this one?
+        当前开了 <strong id="tabOutDupeCount"></strong> 个 Tab Out 页面，只保留这一页吗？
       </div>
     </div>
-    <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
+    <button class="tab-cleanup-btn" data-action="close-tabout-dupes">关闭多余页</button>
   </div>
 
   <!-- ================================================================
@@ -54,42 +62,69 @@
        ================================================================ -->
   <div class="dashboard-columns" id="dashboardColumns">
 
-    <!-- LEFT COLUMN: Open tabs -->
-    <div class="active-section" id="openTabsSection" style="display:none">
-      <div class="section-header">
-        <h2 id="openTabsSectionTitle">Right now</h2>
-        <div class="section-line"></div>
-        <div class="section-count" id="openTabsSectionCount"></div>
+    <div class="main-column">
+      <div class="active-section panel" id="openTabsSection" style="display:none">
+        <div class="section-header">
+          <h2 id="openTabsSectionTitle">当前打开</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="openTabsSectionCount"></div>
+        </div>
+        <div class="missions" id="openTabsMissions"></div>
       </div>
-      <div class="missions" id="openTabsMissions"></div>
     </div>
 
-    <!-- RIGHT COLUMN: Saved for Later checklist -->
-    <div class="deferred-column" id="deferredColumn" style="display:none">
+    <div class="side-column">
+    <div class="deferred-column panel" id="deferredColumn">
       <div class="section-header">
-        <h2>Saved for later</h2>
+        <h2>稍后处理</h2>
         <div class="section-line"></div>
         <div class="section-count" id="deferredCount"></div>
       </div>
+      <div class="panel-body">
 
       <!-- Active checklist items — injected by renderDeferredList() in app.js -->
       <div class="deferred-list" id="deferredList"></div>
 
       <!-- Empty state — shown when no active deferred tabs -->
       <div class="deferred-empty" id="deferredEmpty" style="display:none">
-        Nothing saved. Living in the moment.
+        还没有暂存页面，看到想留着晚点再看的内容时可以顺手收进来。
       </div>
 
       <!-- Archive section — collapsed by default -->
       <div class="deferred-archive" id="deferredArchive" style="display:none">
         <button class="archive-toggle" id="archiveToggle">
           <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-          Archive
+          已完成
           <span class="archive-count" id="archiveCount"></span>
         </button>
         <div class="archive-body" id="archiveBody" style="display:none">
-          <input type="text" class="archive-search" id="archiveSearch" placeholder="Search archived tabs...">
+          <input type="text" class="archive-search" id="archiveSearch" placeholder="搜索已完成页面">
           <div class="archive-list" id="archiveList"></div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+      <div class="panel utility-panel" id="bookmarksSection">
+        <div class="section-header">
+          <h2>收藏夹</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="bookmarksCount"></div>
+        </div>
+        <div class="panel-body">
+          <div class="utility-list" id="bookmarkFolderList"></div>
+          <div class="utility-empty" id="bookmarkFolderEmpty" style="display:none">收藏栏里还没有可展示的书签。</div>
+        </div>
+      </div>
+      <div class="panel utility-panel" id="historySection">
+        <div class="section-header">
+          <h2>最近历史</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="historyCount"></div>
+        </div>
+        <div class="panel-body">
+          <div class="utility-list" id="historyList"></div>
+          <div class="utility-empty" id="historyEmpty" style="display:none">这里会展示最近访问的页面记录。</div>
         </div>
       </div>
     </div>
@@ -103,7 +138,7 @@
     <div class="footer-stats">
       <div class="stat">
         <div class="stat-num" id="statTabs">—</div>
-        <div class="stat-label">Open tabs</div>
+        <div class="stat-label">当前标签</div>
       </div>
     </div>
     <div class="last-refresh">

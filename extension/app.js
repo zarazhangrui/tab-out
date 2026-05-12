@@ -577,6 +577,15 @@ const FRIENDLY_DOMAINS = {
   'npmjs.com':            'npm',
   'www.npmjs.com':        'npm',
   'developer.mozilla.org':'MDN',
+  'baidu.com':            '百度',
+  'www.baidu.com':        '百度',
+  'zhihu.com':            '知乎',
+  'www.zhihu.com':        '知乎',
+  'bilibili.com':         '哔哩哔哩',
+  'www.bilibili.com':     '哔哩哔哩',
+  'weixin.qq.com':        '微信',
+  'qq.com':               'QQ',
+  'www.qq.com':           'QQ',
   'arxiv.org':            'arXiv',
   'www.arxiv.org':        'arXiv',
   'huggingface.co':       'Hugging Face',
@@ -599,11 +608,26 @@ function friendlyDomain(hostname) {
     return capitalize(hostname.replace('.github.io', '')) + ' (GitHub Pages)';
   }
 
-  let clean = hostname
-    .replace(/^www\./, '')
-    .replace(/\.(com|org|net|io|co|ai|dev|app|so|me|xyz|info|us|uk|co\.uk|co\.jp)$/, '');
+  return hostname.replace(/^www\./, '');
+}
 
-  return clean.split('.').map(part => capitalize(part)).join(' ');
+function getGroupDisplayName(group) {
+  if (!group) return '';
+  if (group.domain === '__landing-pages__') return '常用首页';
+  if (group.label) return group.label;
+
+  const friendly = friendlyDomain(group.domain);
+  const raw = (group.domain || '').replace(/^www\./, '');
+  if (friendly && friendly !== raw) return friendly;
+
+  const firstTab = group.tabs?.[0];
+  if (firstTab?.title) {
+    const title = cleanTitle(smartTitle(stripTitleNoise(firstTab.title), firstTab.url), group.domain);
+    const concise = title.split(/ \| | - | — | – /)[0]?.trim();
+    if (concise && concise.length <= 28) return concise;
+  }
+
+  return raw;
 }
 
 function capitalize(str) {
@@ -769,7 +793,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -850,7 +874,7 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -974,7 +998,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img src="${faviconUrl}" alt="" class="deferred-favicon">${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1188,6 +1212,40 @@ document.addEventListener('click', async (e) => {
 
   const action = actionEl.dataset.action;
 
+  if (action === 'toggle-panel') {
+    const panelId = actionEl.dataset.panelId;
+    if (!panelId) return;
+
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+
+    const collapsed = panel.classList.toggle('is-collapsed');
+    actionEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const text = actionEl.querySelector('.panel-toggle-text');
+    if (text) text.textContent = collapsed ? '展开' : '收起';
+    return;
+  }
+
+  if (action === 'toggle-bookmark-folder') {
+    const folderId = actionEl.dataset.folderId;
+    if (!folderId) return;
+
+    const folder = actionEl.closest('.bookmark-folder');
+    if (!folder) return;
+
+    const collapsed = folder.classList.toggle('is-collapsed');
+    if (collapsed) {
+      collapsedBookmarkFolders.add(folderId);
+    } else {
+      collapsedBookmarkFolders.delete(folderId);
+    }
+
+    actionEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const text = folder.querySelector('.bookmark-folder-toggle');
+    if (text) text.textContent = collapsed ? '展开' : '收起';
+    return;
+  }
+
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
     await closeTabOutDupes();
@@ -1198,7 +1256,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast('已关闭多余的 Tab Out 页面');
     return;
   }
 
@@ -1260,7 +1318,7 @@ document.addEventListener('click', async (e) => {
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
 
-    showToast('Tab closed');
+    showToast('页面已关闭');
     return;
   }
 
@@ -1276,7 +1334,7 @@ document.addEventListener('click', async (e) => {
       await saveTabForLater({ url: tabUrl, title: tabTitle });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
+      showToast('暂存失败，请重试');
       return;
     }
 
@@ -1295,7 +1353,7 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
+    showToast('已加入稍后处理');
     await renderDeferredColumn();
     return;
   }
@@ -1340,6 +1398,55 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'restore-session') {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleRestoreSession(actionEl.dataset.sessionId);
+    return;
+  }
+
+  if (action === 'hide-recently-closed') {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleHideRecentlyClosed(actionEl.dataset.sessionId);
+    return;
+  }
+
+  if (action === 'delete-bookmark') {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleDeleteBookmark(actionEl.dataset.bookmarkId);
+    return;
+  }
+
+  if (action === 'delete-history-item') {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleDeleteHistoryItem(actionEl.dataset.historyUrl);
+    return;
+  }
+
+  if (action === 'delete-archive-item') {
+    e.preventDefault();
+    e.stopPropagation();
+    await handleDeleteArchiveItem(actionEl.dataset.deferredId);
+    return;
+  }
+
+  if (action === 'dedup-all-open-tabs') {
+    const duplicateUrls = getDuplicateUrls(getRealTabs());
+    if (duplicateUrls.length === 0) {
+      showToast('当前没有可清理的重复页');
+      return;
+    }
+
+    await closeDuplicateTabs(duplicateUrls, true);
+    playCloseSound();
+    showToast(`已清理全部重复页，保留每组 1 份`);
+    await renderDashboard();
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1368,8 +1475,8 @@ document.addEventListener('click', async (e) => {
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    const groupLabel = getGroupDisplayName(group);
+    showToast(`已关闭 ${groupLabel} 下的 ${urls.length} 个标签`);
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
@@ -1408,7 +1515,7 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
-    showToast('Closed duplicates, kept one copy each');
+    showToast('重复页面已清理，每组保留 1 份');
     return;
   }
 
@@ -1428,7 +1535,7 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    showToast('已关闭全部标签，重新开始吧');
     return;
   }
 });
@@ -1469,7 +1576,7 @@ document.addEventListener('input', async (e) => {
     );
 
     archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">没有匹配结果</div>';
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
@@ -1479,4 +1586,902 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+let dashboardSearchQuery = '';
+let bookmarkCollections = { sections: [], total: 0, barTotal: 0, folderTotal: 0 };
+let recentHistoryItems = [];
+const collapsedBookmarkFolders = new Set();
+let utilityState = {
+  bookmarks: { ready: true, message: '' },
+  history: { ready: true, message: '' },
+};
+
+function setUtilityState(key, ready, message = '') {
+  utilityState[key] = { ready, message };
+}
+
+function getPermissionHint(label) {
+  return `${label}权限还没生效，请去 chrome://extensions 里重新加载 Tab Out 扩展。`;
+}
+
+async function getStorageList(key) {
+  const data = await chrome.storage.local.get(key);
+  return Array.isArray(data[key]) ? data[key] : [];
+}
+
+async function setStorageList(key, values) {
+  await chrome.storage.local.set({ [key]: values });
+}
+
+async function hideRecentlyClosedSession(sessionId) {
+  const hidden = new Set(await getStorageList('hiddenRecentlyClosedSessions'));
+  hidden.add(sessionId);
+  await setStorageList('hiddenRecentlyClosedSessions', Array.from(hidden));
+}
+
+async function handleDeleteBookmark(bookmarkId) {
+  if (!bookmarkId) return;
+  try {
+    await chrome.bookmarks.remove(bookmarkId);
+    showToast('书签已删除');
+    bookmarkCollections = await getBookmarkCollections();
+    renderBookmarksPanel();
+    updateOverview(getRealTabs(), domainGroups);
+  } catch (err) {
+    console.warn('[tab-out] Failed to delete bookmark:', err);
+    showToast('删除书签失败');
+  }
+}
+
+async function handleDeleteHistoryItem(url) {
+  if (!url) return;
+  try {
+    await chrome.history.deleteUrl({ url });
+    recentHistoryItems = recentHistoryItems.filter(item => item.url !== url);
+    renderHistoryPanel();
+    updateOverview(getRealTabs(), domainGroups);
+    showToast('历史记录已删除');
+  } catch (err) {
+    console.warn('[tab-out] Failed to delete history item:', err);
+    showToast('删除历史记录失败');
+  }
+}
+
+async function handleDeleteArchiveItem(id) {
+  if (!id) return;
+  await dismissSavedTab(id);
+  showToast('已从已完成中删除');
+  await renderDeferredColumn();
+}
+
+async function handleUtilityPanelAction(actionEl) {
+  if (!actionEl) return false;
+
+  if (actionEl.dataset.action === 'delete-bookmark') {
+    await handleDeleteBookmark(actionEl.dataset.bookmarkId);
+    return true;
+  }
+
+  if (actionEl.dataset.action === 'delete-history-item') {
+    await handleDeleteHistoryItem(actionEl.dataset.historyUrl);
+    return true;
+  }
+
+  if (actionEl.dataset.action === 'delete-archive-item') {
+    await handleDeleteArchiveItem(actionEl.dataset.deferredId);
+    return true;
+  }
+
+  return false;
+}
+
+function bindUtilityPanelDelegation() {
+  const panelIds = ['bookmarkFolderList', 'historyList', 'archiveList'];
+
+  for (const id of panelIds) {
+    const panel = document.getElementById(id);
+    if (!panel || panel.dataset.utilityBound === 'true') continue;
+
+    panel.addEventListener('click', async (e) => {
+      const actionEl = e.target.closest('[data-action]');
+      if (!actionEl) return;
+
+      const handled = await handleUtilityPanelAction(actionEl);
+      if (!handled) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    panel.dataset.utilityBound = 'true';
+  }
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+function getDomainFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function getFaviconUrl(url) {
+  const domain = getDomainFromUrl(url);
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+}
+
+function matchesDashboardSearch(...parts) {
+  const q = dashboardSearchQuery.trim().toLowerCase();
+  if (!q) return true;
+  return parts.some(part => String(part || '').toLowerCase().includes(q));
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function countDuplicateExtras(tabs) {
+  const counts = {};
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    counts[tab.url] = (counts[tab.url] || 0) + 1;
+  }
+  return Object.values(counts).reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+}
+
+function getDuplicateUrls(tabs) {
+  const counts = {};
+  for (const tab of tabs) {
+    if (!tab?.url) continue;
+    counts[tab.url] = (counts[tab.url] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .filter(([, count]) => count > 1)
+    .map(([url]) => url);
+}
+
+function uniqueByUrl(items) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    if (!item?.url || seen.has(item.url)) continue;
+    seen.add(item.url);
+    result.push(item);
+  }
+  return result;
+}
+
+function bookmarkFolderTrail(parts) {
+  return parts.filter(Boolean).join(' / ');
+}
+
+async function getBookmarkCollections() {
+  if (!chrome.bookmarks?.getTree) {
+    setUtilityState('bookmarks', false, getPermissionHint('书签'));
+    return { sections: [], total: 0, barTotal: 0, folderTotal: 0 };
+  }
+
+  let root;
+  try {
+    [root] = await chrome.bookmarks.getTree();
+    setUtilityState('bookmarks', true, '');
+  } catch (err) {
+    console.warn('[tab-out] Could not load bookmarks:', err);
+    setUtilityState('bookmarks', false, getPermissionHint('书签'));
+    return { sections: [], total: 0, barTotal: 0, folderTotal: 0 };
+  }
+  const folderNamesToSkip = new Set([
+    '',
+    'Bookmarks bar',
+    'Other bookmarks',
+    'Mobile bookmarks',
+    '书签栏',
+    '其他书签',
+    '移动设备书签',
+  ]);
+
+  function flatten(node, trail = [], bucket = []) {
+    if (!node) return bucket;
+    if (node.url) {
+      bucket.push({
+        id: node.id,
+        title: node.title || node.url,
+        url: node.url,
+        path: bookmarkFolderTrail(trail),
+        dateAdded: node.dateAdded || 0,
+      });
+      return bucket;
+    }
+
+    const nextTrail = folderNamesToSkip.has(node.title || '')
+      ? trail
+      : [...trail, node.title];
+
+    for (const child of node.children || []) flatten(child, nextTrail, bucket);
+    return bucket;
+  }
+
+  function findBookmarkBar(node) {
+    if (!node) return null;
+    if (node.id === '1' || /bookmarks bar|书签栏/i.test(node.title || '')) return node;
+    for (const child of node.children || []) {
+      const found = findBookmarkBar(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const bookmarkBarNode = findBookmarkBar(root);
+  if (!bookmarkBarNode) {
+    return { sections: [], total: 0, barTotal: 0, folderTotal: 0 };
+  }
+
+  function makeBookmarkItem(node, trail = []) {
+    return {
+      id: node.id,
+      title: node.title || node.url,
+      url: node.url,
+      path: bookmarkFolderTrail(trail),
+      dateAdded: node.dateAdded || 0,
+    };
+  }
+
+  const sections = [];
+  const rootItems = [];
+
+  for (const child of bookmarkBarNode.children || []) {
+    if (child.url) {
+      rootItems.push(makeBookmarkItem(child));
+      continue;
+    }
+
+    sections.push({
+      id: `folder-${child.id}`,
+      title: child.title || '未命名收藏夹',
+      description: '收藏栏文件夹',
+      items: flatten(child, [], []),
+    });
+  }
+
+  if (rootItems.length > 0) {
+    sections.unshift({
+      id: 'bookmark-bar-root',
+      title: '书签栏顶层',
+      description: '未放入文件夹的书签',
+      items: rootItems,
+    });
+  }
+
+  const barTotal = sections.reduce((sum, section) => sum + section.items.length, 0);
+
+  return {
+    sections,
+    total: barTotal,
+    barTotal,
+    folderTotal: sections.length,
+  };
+}
+
+async function getRecentHistoryItems() {
+  if (!chrome.history?.search) {
+    setUtilityState('history', false, getPermissionHint('历史'));
+    return [];
+  }
+
+  let items = [];
+  try {
+    items = await chrome.history.search({
+      text: '',
+      startTime: Date.now() - 1000 * 60 * 60 * 24 * 30,
+      maxResults: 60,
+    });
+    setUtilityState('history', true, '');
+  } catch (err) {
+    console.warn('[tab-out] Could not load history:', err);
+    setUtilityState('history', false, getPermissionHint('历史'));
+    return [];
+  }
+  return uniqueByUrl(items
+    .filter(item => {
+      const url = item.url || '';
+      return (
+        url &&
+        !url.startsWith('chrome://') &&
+        !url.startsWith('chrome-extension://') &&
+        !url.startsWith('about:')
+      );
+    })
+    .sort((a, b) => (b.lastVisitTime || 0) - (a.lastVisitTime || 0)))
+    .slice(0, 18);
+}
+
+function getFilteredLabel(filteredLength, totalLength, unit = '项') {
+  if (dashboardSearchQuery && filteredLength !== totalLength) {
+    return `${filteredLength} / ${totalLength} ${unit}`;
+  }
+  return `${filteredLength} ${unit}`;
+}
+
+function renderBookmarkItem(item, metaText) {
+  const title = cleanTitle(smartTitle(stripTitleNoise(item.title || ''), item.url), getDomainFromUrl(item.url)) || item.url;
+  const faviconUrl = getFaviconUrl(item.url);
+  return `
+    <div class="utility-item utility-item-actionable">
+      <div class="utility-main">
+        <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener" class="utility-link" title="${escapeAttr(item.title || item.url)}">
+          ${faviconUrl ? `<img class="utility-favicon" src="${faviconUrl}" alt="">` : ''}
+          <span class="utility-text">${escapeHtml(title)}</span>
+        </a>
+        <div class="utility-meta">${escapeHtml(metaText)}</div>
+      </div>
+      <div class="utility-actions">
+        <button type="button" class="utility-action-btn utility-action-btn--danger" data-action="delete-bookmark" data-bookmark-id="${escapeAttr(item.id)}">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function getBookmarkSectionItemMeta(item, section) {
+  const path = item.path || '';
+  if (!path) return section.description;
+  if (path === section.title) return section.description;
+  if (path.startsWith(`${section.title} / `)) {
+    return `子文件夹 · ${path.slice(section.title.length + 3)}`;
+  }
+  return `路径 · ${path}`;
+}
+
+function renderBookmarkSection(section) {
+  const isCollapsed = collapsedBookmarkFolders.has(section.id);
+  const countText = dashboardSearchQuery && section.visibleItems.length !== section.items.length
+    ? `${section.visibleItems.length} / ${section.items.length} 个书签`
+    : `${section.items.length} 个书签`;
+
+  return `
+    <div class="bookmark-folder ${isCollapsed ? 'is-collapsed' : ''}" data-folder-id="${escapeAttr(section.id)}">
+      <button class="bookmark-folder-header" type="button" data-action="toggle-bookmark-folder" data-folder-id="${escapeAttr(section.id)}" aria-expanded="${isCollapsed ? 'false' : 'true'}">
+        <div class="bookmark-folder-heading">
+          <span class="bookmark-folder-title">${escapeHtml(section.title)}</span>
+          <span class="bookmark-folder-meta">${escapeHtml(section.description)}</span>
+        </div>
+        <div class="bookmark-folder-side">
+          <span class="bookmark-folder-count">${escapeHtml(countText)}</span>
+          <span class="bookmark-folder-toggle">${isCollapsed ? '展开' : '收起'}</span>
+        </div>
+      </button>
+      <div class="bookmark-folder-items">
+        ${section.visibleItems.length > 0
+          ? section.visibleItems.map(item => renderBookmarkItem(item, getBookmarkSectionItemMeta(item, section))).join('')
+          : '<div class="bookmark-folder-empty">这个收藏夹里还没有书签。</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function renderHistoryItem(item) {
+  const title = cleanTitle(smartTitle(stripTitleNoise(item.title || ''), item.url), getDomainFromUrl(item.url)) || item.url;
+  const domain = friendlyDomain(getDomainFromUrl(item.url)) || getDomainFromUrl(item.url) || '历史页面';
+  const faviconUrl = getFaviconUrl(item.url);
+  const visits = item.visitCount ? ` · ${item.visitCount} 次访问` : '';
+  return `
+    <div class="utility-item utility-item-actionable">
+      <div class="utility-main">
+        <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener" class="utility-link" title="${escapeAttr(item.title || item.url)}">
+          ${faviconUrl ? `<img class="utility-favicon" src="${faviconUrl}" alt="">` : ''}
+          <span class="utility-text">${escapeHtml(title)}</span>
+        </a>
+        <div class="utility-meta">${escapeHtml(domain)} · ${escapeHtml(formatDateTime(item.lastVisitTime))}${escapeHtml(visits)}</div>
+      </div>
+      <div class="utility-actions">
+        <button type="button" class="utility-action-btn utility-action-btn--danger" data-action="delete-history-item" data-history-url="${escapeAttr(item.url)}">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderBookmarksPanel() {
+  const list = document.getElementById('bookmarkFolderList');
+  const empty = document.getElementById('bookmarkFolderEmpty');
+  const count = document.getElementById('bookmarksCount');
+  if (!list || !empty || !count) return;
+
+  const visibleSections = bookmarkCollections.sections
+    .map(section => {
+      const visibleItems = section.items.filter(item =>
+        matchesDashboardSearch(section.title, item.title, item.url, item.path, getDomainFromUrl(item.url))
+      );
+      const sectionMatched = matchesDashboardSearch(section.title, section.description);
+      if (!sectionMatched && visibleItems.length === 0) return null;
+      return { ...section, visibleItems };
+    })
+    .filter(Boolean);
+
+  const visibleItemTotal = visibleSections.reduce((sum, section) => sum + section.visibleItems.length, 0);
+  const folderLabel = getFilteredLabel(visibleSections.length, bookmarkCollections.folderTotal, '个收藏夹');
+  const itemLabel = getFilteredLabel(visibleItemTotal, bookmarkCollections.total, '个书签');
+  count.textContent = `${folderLabel} · ${itemLabel}`;
+
+  list.innerHTML = visibleSections.map(renderBookmarkSection).join('');
+  empty.style.display = visibleSections.length ? 'none' : 'block';
+
+  if (!utilityState.bookmarks.ready) {
+    empty.textContent = utilityState.bookmarks.message;
+    return;
+  }
+
+  empty.textContent = dashboardSearchQuery
+    ? '没有匹配的收藏夹或书签。'
+    : '收藏栏里还没有可展示的书签。';
+  bindUtilityPanelDelegation();
+}
+
+function renderHistoryPanel() {
+  const list = document.getElementById('historyList');
+  if (!list) return;
+
+  const filtered = recentHistoryItems.filter(item =>
+    matchesDashboardSearch(item.title, item.url, getDomainFromUrl(item.url))
+  );
+
+  document.getElementById('historyCount').textContent = getFilteredLabel(filtered.length, recentHistoryItems.length);
+  list.innerHTML = filtered.map(renderHistoryItem).join('');
+  document.getElementById('historyEmpty').style.display = filtered.length ? 'none' : 'block';
+  if (!utilityState.history.ready) {
+    document.getElementById('historyEmpty').textContent = utilityState.history.message;
+  }
+  bindUtilityPanelDelegation();
+}
+
+function updateOverview(realTabs, allDomainGroups) {
+  const openTabsEl = document.getElementById('overviewOpenTabs');
+  const openGroupsEl = document.getElementById('overviewOpenGroups');
+  const duplicatesEl = document.getElementById('overviewDuplicates');
+  const bookmarkBarEl = document.getElementById('overviewBookmarkBar');
+  const bookmarkMetaEl = document.getElementById('overviewBookmarkMeta');
+  const historyMetaEl = document.getElementById('overviewHistoryMeta');
+
+  if (openTabsEl) openTabsEl.textContent = String(realTabs.length);
+  if (openGroupsEl) openGroupsEl.textContent = `${allDomainGroups.length} 个分组`;
+  if (duplicatesEl) duplicatesEl.textContent = String(countDuplicateExtras(realTabs));
+  if (bookmarkBarEl) bookmarkBarEl.textContent = String(bookmarkCollections.barTotal || bookmarkCollections.total);
+  if (bookmarkMetaEl) bookmarkMetaEl.textContent = `${bookmarkCollections.folderTotal} 个收藏夹 / ${bookmarkCollections.total} 个书签`;
+  if (historyMetaEl) historyMetaEl.textContent = `${recentHistoryItems.length} 条最近历史`;
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const then = new Date(dateStr);
+  const now = new Date();
+  const diffMins = Math.floor((now - then) / 60000);
+  const diffHours = Math.floor((now - then) / 3600000);
+  const diffDays = Math.floor((now - then) / 86400000);
+
+  if (diffMins < 1) return '刚刚';
+  if (diffMins < 60) return `${diffMins} 分钟前`;
+  if (diffHours < 24) return `${diffHours} 小时前`;
+  if (diffDays === 1) return '昨天';
+  return `${diffDays} 天前`;
+}
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 6) return '夜深了，先收一收标签页';
+  if (hour < 12) return '早上好，开始清爽地开工';
+  if (hour < 18) return '下午好，继续把页面整理顺手';
+  return '晚上好，把今天的页面归个档';
+}
+
+function getDateDisplay() {
+  return new Intl.DateTimeFormat('zh-CN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date());
+}
+
+function checkAndShowEmptyState() {
+  const missionsEl = document.getElementById('openTabsMissions');
+  if (!missionsEl) return;
+
+  const remaining = missionsEl.querySelectorAll('.mission-card:not(.closing)').length;
+  if (remaining > 0) return;
+
+  missionsEl.innerHTML = `
+    <div class="missions-empty-state">
+      <div class="empty-checkmark">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
+      </div>
+      <div class="empty-title">标签页已经清得很干净了。</div>
+      <div class="empty-subtitle">现在你可以从右侧的收藏夹或最近历史里重新打开需要的页面。</div>
+    </div>
+  `;
+
+  const countEl = document.getElementById('openTabsSectionCount');
+  if (countEl) countEl.textContent = '0 个分组';
+}
+
+function buildOverflowChips(hiddenTabs, urlCounts = {}) {
+  const hiddenChips = hiddenTabs.map(tab => {
+    const label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), getDomainFromUrl(tab.url));
+    const count = urlCounts[tab.url] || 1;
+    const dupeTag = count > 1 ? ` <span class="chip-dupe-badge">(${count} 个)</span>` : '';
+    const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const safeUrl = escapeAttr(tab.url || '');
+    const safeTitle = escapeAttr(label || tab.url || '');
+    const faviconUrl = getFaviconUrl(tab.url);
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span class="chip-text">${escapeHtml(label || tab.url || '')}</span>${dupeTag}
+      <div class="chip-actions">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后处理">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="关闭此页">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
+    <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
+      <span class="chip-text">展开剩余 ${hiddenTabs.length} 个页面</span>
+    </div>`;
+}
+
+function renderDomainCard(group) {
+  const tabs = group.tabs || [];
+  const tabCount = tabs.length;
+  const isLanding = group.domain === '__landing-pages__';
+  const stableId = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+
+  const urlCounts = {};
+  for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  const dupeUrls = Object.entries(urlCounts).filter(([, count]) => count > 1);
+  const hasDupes = dupeUrls.length > 0;
+  const totalExtras = dupeUrls.reduce((sum, [, count]) => sum + count - 1, 0);
+
+  const tabBadge = `<span class="open-tabs-badge">${ICONS.tabs}${tabCount} 个标签</span>`;
+  const dupeBadge = hasDupes
+    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">${totalExtras} 个重复页</span>`
+    : '';
+
+  const seen = new Set();
+  const uniqueTabs = [];
+  for (const tab of tabs) {
+    if (!seen.has(tab.url)) {
+      seen.add(tab.url);
+      uniqueTabs.push(tab);
+    }
+  }
+
+  const visibleTabs = uniqueTabs.slice(0, 8);
+  const extraCount = uniqueTabs.length - visibleTabs.length;
+  const groupName = getGroupDisplayName(group);
+
+  const pageChips = visibleTabs.map(tab => {
+    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
+    try {
+      const parsed = new URL(tab.url);
+      if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
+    } catch {}
+    const count = urlCounts[tab.url];
+    const dupeTag = count > 1 ? ` <span class="chip-dupe-badge">(${count} 个)</span>` : '';
+    const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const safeUrl = escapeAttr(tab.url || '');
+    const safeTitle = escapeAttr(label || tab.url || '');
+    const faviconUrl = getFaviconUrl(tab.url);
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span class="chip-text">${escapeHtml(label || tab.url || '')}</span>${dupeTag}
+      <div class="chip-actions">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="稍后处理">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="关闭此页">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
+
+  let actionsHtml = `
+    <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
+      ${ICONS.close}
+      一键关闭 ${tabCount} 个
+    </button>`;
+
+  if (hasDupes) {
+    const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
+    actionsHtml += `
+      <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
+        清理 ${totalExtras} 个重复页
+      </button>`;
+  }
+
+  return `
+    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+      <div class="status-bar"></div>
+      <div class="mission-content">
+        <div class="mission-top">
+          <span class="mission-name">${escapeHtml(groupName)}</span>
+          ${tabBadge}
+          ${dupeBadge}
+        </div>
+        <div class="mission-pages">${pageChips}</div>
+        <div class="actions">${actionsHtml}</div>
+      </div>
+      <div class="mission-meta">
+        <div class="mission-page-count">${tabCount}</div>
+        <div class="mission-page-label">tabs</div>
+      </div>
+    </div>`;
+}
+
+function renderDeferredItem(item) {
+  const domain = getDomainFromUrl(item.url);
+  const faviconUrl = getFaviconUrl(item.url);
+  const ago = timeAgo(item.savedAt);
+  const title = cleanTitle(smartTitle(stripTitleNoise(item.title || ''), item.url), domain) || item.url;
+
+  return `
+    <div class="deferred-item" data-deferred-id="${item.id}">
+      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
+      <div class="deferred-info">
+        <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener" class="deferred-title" title="${escapeAttr(item.title || item.url)}">
+          ${faviconUrl ? `<img src="${faviconUrl}" alt="" class="deferred-favicon">` : ''}${escapeHtml(title)}
+        </a>
+        <div class="deferred-meta">
+          <span>${escapeHtml(friendlyDomain(domain) || domain || '暂存页面')}</span>
+          <span>${escapeHtml(ago)}</span>
+        </div>
+      </div>
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="移除">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>`;
+}
+
+function renderArchiveItem(item) {
+  const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+  const title = cleanTitle(smartTitle(stripTitleNoise(item.title || ''), item.url), getDomainFromUrl(item.url)) || item.url;
+  return `
+    <div class="archive-item utility-item-actionable">
+      <div class="utility-main">
+        <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener" class="archive-item-title" title="${escapeAttr(item.title || item.url)}">
+          ${escapeHtml(title)}
+        </a>
+        <span class="archive-item-date">${escapeHtml(ago)}</span>
+      </div>
+      <div class="utility-actions">
+        <button type="button" class="utility-action-btn utility-action-btn--ghost" data-action="delete-archive-item" data-deferred-id="${escapeAttr(item.id)}">删除</button>
+      </div>
+    </div>`;
+}
+
+async function renderDeferredColumn() {
+  const column = document.getElementById('deferredColumn');
+  const list = document.getElementById('deferredList');
+  const empty = document.getElementById('deferredEmpty');
+  const countEl = document.getElementById('deferredCount');
+  const archiveEl = document.getElementById('deferredArchive');
+  const archiveCountEl = document.getElementById('archiveCount');
+  const archiveList = document.getElementById('archiveList');
+  if (!column || !list || !empty || !countEl || !archiveEl || !archiveCountEl || !archiveList) return;
+
+  const { active, archived } = await getSavedTabs();
+  const filteredActive = active.filter(item => matchesDashboardSearch(item.title, item.url));
+  const filteredArchived = archived.filter(item => matchesDashboardSearch(item.title, item.url));
+
+  column.style.display = 'block';
+  countEl.textContent = getFilteredLabel(filteredActive.length, active.length);
+
+  if (filteredActive.length > 0) {
+    list.innerHTML = filteredActive.map(renderDeferredItem).join('');
+    list.style.display = 'block';
+    empty.style.display = 'none';
+  } else {
+    list.innerHTML = '';
+    list.style.display = 'none';
+    empty.style.display = 'block';
+    empty.textContent = dashboardSearchQuery
+      ? '没有匹配的暂存页面。'
+      : '还没有暂存页面，看到想留着晚点再看的内容时可以顺手收进来。';
+  }
+
+  if (filteredArchived.length > 0) {
+    archiveCountEl.textContent = `(${filteredArchived.length})`;
+    archiveList.innerHTML = filteredArchived.map(renderArchiveItem).join('');
+    archiveEl.style.display = 'block';
+  } else {
+    archiveEl.style.display = archived.length > 0 && !dashboardSearchQuery ? 'block' : 'none';
+    archiveCountEl.textContent = archived.length ? `(${archived.length})` : '';
+    archiveList.innerHTML = dashboardSearchQuery ? '<div style="font-size:12px;color:var(--muted);padding:8px 0">没有匹配结果</div>' : archived.map(renderArchiveItem).join('');
+  }
+
+  bindUtilityPanelDelegation();
+}
+
+async function renderStaticDashboard() {
+  const greetingEl = document.getElementById('greeting');
+  const dateEl = document.getElementById('dateDisplay');
+  if (greetingEl) greetingEl.textContent = getGreeting();
+  if (dateEl) dateEl.textContent = getDateDisplay();
+
+  await fetchOpenTabs();
+  const realTabs = getRealTabs();
+
+  const LANDING_PAGE_PATTERNS = [
+    { hostname: 'mail.google.com', test: (p, h) => !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
+    { hostname: 'x.com', pathExact: ['/home'] },
+    { hostname: 'www.linkedin.com', pathExact: ['/'] },
+    { hostname: 'github.com', pathExact: ['/'] },
+    { hostname: 'www.youtube.com', pathExact: ['/'] },
+    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
+  ];
+
+  function isLandingPage(url) {
+    try {
+      const parsed = new URL(url);
+      return LANDING_PAGE_PATTERNS.some(pattern => {
+        const hostnameMatch = pattern.hostname
+          ? parsed.hostname === pattern.hostname
+          : pattern.hostnameEndsWith
+            ? parsed.hostname.endsWith(pattern.hostnameEndsWith)
+            : false;
+        if (!hostnameMatch) return false;
+        if (pattern.test) return pattern.test(parsed.pathname, url);
+        if (pattern.pathPrefix) return parsed.pathname.startsWith(pattern.pathPrefix);
+        if (pattern.pathExact) return pattern.pathExact.includes(parsed.pathname);
+        return parsed.pathname === '/';
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
+
+  function matchCustomGroup(url) {
+    try {
+      const parsed = new URL(url);
+      return customGroups.find(rule => {
+        const hostMatch = rule.hostname
+          ? parsed.hostname === rule.hostname
+          : rule.hostnameEndsWith
+            ? parsed.hostname.endsWith(rule.hostnameEndsWith)
+            : false;
+        if (!hostMatch) return false;
+        if (rule.pathPrefix) return parsed.pathname.startsWith(rule.pathPrefix);
+        return true;
+      }) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const groupMap = {};
+  const landingTabs = [];
+
+  for (const tab of realTabs) {
+    try {
+      if (isLandingPage(tab.url)) {
+        landingTabs.push(tab);
+        continue;
+      }
+
+      const customRule = matchCustomGroup(tab.url);
+      if (customRule) {
+        const key = customRule.groupKey;
+        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
+        groupMap[key].tabs.push(tab);
+        continue;
+      }
+
+      const hostname = tab.url && tab.url.startsWith('file://')
+        ? 'local-files'
+        : new URL(tab.url).hostname;
+      if (!hostname) continue;
+      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
+      groupMap[hostname].tabs.push(tab);
+    } catch {
+      // skip malformed urls
+    }
+  }
+
+  if (landingTabs.length > 0) {
+    groupMap.__landing_pages__ = { domain: '__landing-pages__', tabs: landingTabs };
+  }
+
+  const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(pattern => pattern.hostname).filter(Boolean));
+  const landingSuffixes = LANDING_PAGE_PATTERNS.map(pattern => pattern.hostnameEndsWith).filter(Boolean);
+  function isLandingDomain(domain) {
+    if (landingHostnames.has(domain)) return true;
+    return landingSuffixes.some(suffix => domain.endsWith(suffix));
+  }
+
+  const allDomainGroups = Object.values(groupMap).sort((a, b) => {
+    const aIsLanding = a.domain === '__landing-pages__';
+    const bIsLanding = b.domain === '__landing-pages__';
+    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
+
+    const aIsPriority = isLandingDomain(a.domain);
+    const bIsPriority = isLandingDomain(b.domain);
+    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+
+    return b.tabs.length - a.tabs.length;
+  });
+
+  domainGroups = allDomainGroups.filter(group => {
+    const groupLabel = getGroupDisplayName(group);
+    return matchesDashboardSearch(groupLabel, group.domain) ||
+      group.tabs.some(tab => matchesDashboardSearch(tab.title, tab.url));
+  });
+
+  const openTabsSection = document.getElementById('openTabsSection');
+  const openTabsMissionsEl = document.getElementById('openTabsMissions');
+  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+
+  if (domainGroups.length > 0 && openTabsSection && openTabsMissionsEl && openTabsSectionCount && openTabsSectionTitle) {
+    openTabsSectionTitle.textContent = '当前打开';
+    const totalDuplicateExtras = countDuplicateExtras(realTabs);
+    const dedupeButton = totalDuplicateExtras > 0
+      ? `&nbsp;&middot;&nbsp; <button class="action-btn" data-action="dedup-all-open-tabs" style="font-size:11px;padding:3px 10px;">清理全部 ${totalDuplicateExtras} 个重复页</button>`
+      : '';
+    openTabsSectionCount.innerHTML = `${getFilteredLabel(domainGroups.length, allDomainGroups.length, '个分组')}${dedupeButton} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭全部 ${realTabs.length} 个标签</button>`;
+    openTabsMissionsEl.innerHTML = domainGroups.map(renderDomainCard).join('');
+    openTabsSection.style.display = 'block';
+  } else if (openTabsSection) {
+    openTabsSection.style.display = 'block';
+    if (openTabsMissionsEl) openTabsMissionsEl.innerHTML = '';
+    checkAndShowEmptyState();
+  }
+
+  const statTabs = document.getElementById('statTabs');
+  if (statTabs) statTabs.textContent = String(openTabs.length);
+
+  checkTabOutDupes();
+
+  const [bookmarkData, historyData] = await Promise.all([
+    getBookmarkCollections(),
+    getRecentHistoryItems(),
+  ]);
+  bookmarkCollections = bookmarkData;
+  recentHistoryItems = historyData;
+
+  await renderDeferredColumn();
+  renderBookmarksPanel();
+  renderHistoryPanel();
+  updateOverview(realTabs, allDomainGroups);
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'globalSearch') return;
+  dashboardSearchQuery = e.target.value.trim();
+  renderDashboard();
+});
+
 renderDashboard();
