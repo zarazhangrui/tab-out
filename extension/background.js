@@ -26,11 +26,15 @@ async function updateBadge() {
     const tabs = await chrome.tabs.query({});
 
     // Only count actual web pages — skip browser internals and extension pages
+    // Includes Firefox schemes (moz-extension://, resource://, about:*) so the
+    // badge stays accurate when running as a Firefox WebExtension.
     const count = tabs.filter(t => {
       const url = t.url || '';
       return (
         !url.startsWith('chrome://') &&
         !url.startsWith('chrome-extension://') &&
+        !url.startsWith('moz-extension://') &&
+        !url.startsWith('resource://') &&
         !url.startsWith('about:') &&
         !url.startsWith('edge://') &&
         !url.startsWith('brave://')
@@ -91,3 +95,28 @@ chrome.tabs.onUpdated.addListener(() => {
 
 // Run once immediately when the service worker first loads
 updateBadge();
+
+// ─── Action listener (Standalone Tab Mode) ───────────────────────────────────
+
+chrome.action.onClicked.addListener(async () => {
+  const url = chrome.runtime.getURL('index.html');
+  
+  try {
+    // Check if Tab Out management page is already open
+    const tabs = await chrome.tabs.query({ url: url });
+    
+    if (tabs.length > 0) {
+      // It exists, bring it to the front
+      const tab = tabs[0];
+      await chrome.windows.update(tab.windowId, { focused: true });
+      await chrome.tabs.update(tab.id, { active: true });
+    } else {
+      // It doesn't exist, create a new one
+      await chrome.tabs.create({ url: url });
+    }
+  } catch (error) {
+    console.error('Failed to open/focus Tab Out page:', error);
+    // Fallback: try creating a new tab anyway if querying failed
+    chrome.tabs.create({ url: url });
+  }
+});

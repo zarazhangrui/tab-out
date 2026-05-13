@@ -1,41 +1,55 @@
+<div align="center">
+
 # Tab Out
 
-**Keep tabs on your tabs.**
+[中文](./README.zh.md) &nbsp;·&nbsp;
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![Chrome](https://img.shields.io/badge/Chrome%20Extension-MV3-blue)](https://developer.chrome.com/docs/extensions/mv3/)
 
-Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
+</div>
 
-No server. No account. No external API calls. Just a Chrome extension.
+<br>
 
----
+> **Keep tabs on your tabs.** A clean dashboard for your open tabs — grouped by domain,
+> with one-click cleanup. No server, no account, no data sent anywhere.
 
-## Install with a coding agent
+<br>
 
-Send your coding agent (Claude Code, Codex, etc.) this repo and say **"install this"**:
+## ✨ Features
+
+- 🗂 **Domain grouping** — all your tabs sorted by domain on a clean grid
+- 🏠 **Homepages card** — Gmail, X, YouTube, LinkedIn, GitHub homepages in one group
+- 🧹 **One-click cleanup** — close a whole domain group with a single click
+- ✨ **Swoosh + confetti** — close tabs with a satisfying sound and burst of color
+- ⚡ **Duplicate detection** — flags (2x) badges when the same page is open twice
+- 🎯 **Click to jump** — click any tab title to jump to it, even across windows
+- 📌 **Save for later** — bookmark tabs to a checklist before closing them
+- 🔢 **Localhost ports** — local dev tabs show port numbers so you can tell projects apart
+- 📋 **Expandable groups** — shows first 8 tabs, click "+N more" to expand
+- 🪟 **Standalone tab** — opens via extension icon, doesn't hijack your new tab page
+- 🔒 **100% local** — your browsing data never leaves your machine
+
+<br>
+
+## 🧭 How it works
 
 ```
-https://github.com/zarazhangrui/tab-out
+Click Tab Out icon
+  ├─ Tab Out opens in a standalone tab
+  ├─ Your open tabs appear, grouped by domain
+  ├─ Homepages (Gmail, X, etc.) get their own group at the top
+  ├─ Click any tab title → jump to it (cross-window)
+  ├─ Close groups you're done with → swoosh + confetti
+  └─ Save tabs for later before closing them
+
+Click the icon again → focuses the existing Tab Out tab (no duplicates).
 ```
 
-The agent will walk you through it. Takes about 1 minute.
+Everything runs inside the extension. Saved tabs live in `chrome.storage.local`.
 
----
+<br>
 
-## Features
-
-- **See all your tabs at a glance** on a clean grid, grouped by domain
-- **Homepages group** pulls Gmail inbox, X home, YouTube, LinkedIn, GitHub homepages into one card
-- **Close tabs with style** with swoosh sound + confetti burst
-- **Duplicate detection** flags when you have the same page open twice, with one-click cleanup
-- **Click any tab to jump to it** across windows, no new tab opened
-- **Save for later** bookmark tabs to a checklist before closing them
-- **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
-- **Expandable groups** show the first 8 tabs with a clickable "+N more"
-- **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
-
----
-
-## Manual Setup
+## 📦 Manual Setup
 
 **1. Clone the repo**
 
@@ -43,49 +57,33 @@ The agent will walk you through it. Takes about 1 minute.
 git clone https://github.com/zarazhangrui/tab-out.git
 ```
 
-**2. Load the Chrome extension**
+**2. Load in Chrome**
 
-1. Open Chrome and go to `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
+| Step | Action |
+|------|--------|
+| ① | Open `chrome://extensions` |
+| ② | Toggle **Developer mode** (top-right) |
+| ③ | Click **Load unpacked** |
+| ④ | Select the `extension/` folder in the cloned repo |
 
-**3. Open a new tab**
+**3. Pin the icon**
 
-You'll see Tab Out.
+Click the Tab Out icon in your toolbar to open the dashboard. Right-click → **Pin** for one-click access.
 
----
+<br>
 
-## How it works
+## 🤖 Install with a coding agent
+
+Send your coding agent this repo:
 
 ```
-You open a new tab
-  -> Tab Out shows your open tabs grouped by domain
-  -> Homepages (Gmail, X, etc.) get their own group at the top
-  -> Click any tab title to jump to it
-  -> Close groups you're done with (swoosh + confetti)
-  -> Save tabs for later before closing them
+https://github.com/zarazhangrui/tab-out
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+Say **"install this"** — it'll walk you through in about a minute.
 
----
+<br>
 
-## Tech stack
+## 📄 License
 
-| What | How |
-|------|-----|
-| Extension | Chrome Manifest V3 |
-| Storage | chrome.storage.local |
-| Sound | Web Audio API (synthesized, no files) |
-| Animations | CSS transitions + JS confetti particles |
-
----
-
-## License
-
-MIT
-
----
-
-Built by [Zara](https://x.com/zarazhangrui)
+MIT · Built by [Zara](https://x.com/zarazhangrui)
