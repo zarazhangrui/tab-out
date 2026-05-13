@@ -81,6 +81,95 @@ header {
   text-transform: uppercase;
 }
 
+/* ---- Header search ---- */
+.header-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 260px;
+  height: 34px;
+  padding: 0 10px 0 32px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 999px;
+  background: var(--card-bg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.header-search:focus-within {
+  border-color: var(--muted);
+  box-shadow: 0 0 0 3px rgba(154, 145, 138, 0.12);
+}
+
+.header-search .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.header-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.header-search input::placeholder {
+  color: var(--muted);
+}
+
+.header-search .search-clear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.header-search .search-clear:hover {
+  background: var(--warm-gray);
+  color: var(--ink);
+}
+
+/* Empty state when a search has zero hits.
+   Visually echoes .missions-empty-state but signals "no match", not "no tabs". */
+.missions-search-empty {
+  column-span: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  animation: fadeUp 0.5s ease both;
+}
+
+.missions-search-empty strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 /* ---- Tab cleanup banner ---- */
 .tab-cleanup-banner {
   background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));

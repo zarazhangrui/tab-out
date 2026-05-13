@@ -29,6 +29,7 @@ The agent will walk you through it. Takes about 1 minute.
 - **Click any tab to jump to it** across windows, no new tab opened
 - **Save for later** bookmark tabs to a checklist before closing them
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
+- **Search tabs** filter all open tabs in real-time by title or URL — press `/` or `Cmd/Ctrl+K` to focus, `Esc` to clear
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
 - **100% local** your data never leaves your machine
 - **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
