@@ -82,10 +82,15 @@ Everything runs inside the Chrome extension. No external server, no API calls, n
 
 ---
 
-## License
+## Credit & License
 
-MIT
+This project is a fork of **[Tab Out](https://github.com/zarazhangrui/tab-out)**
+by [Zara Zhang](https://x.com/zarazhangrui), used under the MIT License.
 
----
+- All original design, tab-grouping logic, animations, and sound © Zara
+- Pinned bar, suggestion engine, and related UI added by [Bella](https://github.com/)
 
-Built by [Zara](https://x.com/zarazhangrui)
+The upstream repo is the canonical source for Tab Out's core experience —
+if you like this fork, please also star and credit the original.
+
+Licensed under the [MIT License](./LICENSE).
