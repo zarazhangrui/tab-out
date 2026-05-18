@@ -15,6 +15,83 @@
 
 'use strict';
 
+/* ----------------------------------------------------------------
+   CONFIGURATION SYSTEM
+   ---------------------------------------------------------------- */
+
+const DEFAULT_CONFIG = {
+  // Theme settings
+  theme: 'light', // 'light' or 'dark'
+  
+  // Sound settings
+  enableSound: true,
+  
+  // Animation settings
+  enableAnimations: true,
+  enableConfetti: true,
+  
+  // Display settings
+  tabsPerGroup: 8,
+  
+  // Keyboard shortcuts
+  enableKeyboardShortcuts: true,
+  
+  // Language
+  language: 'en', // 'en' or 'zh'
+};
+
+let currentConfig = { ...DEFAULT_CONFIG };
+
+async function loadConfig() {
+  try {
+    const { config } = await chrome.storage.local.get('config');
+    if (config) {
+      currentConfig = { ...DEFAULT_CONFIG, ...config };
+    }
+  } catch (err) {
+    console.warn('[tab-out] Failed to load config:', err);
+  }
+  applyTheme();
+}
+
+async function saveConfig(newConfig) {
+  currentConfig = { ...currentConfig, ...newConfig };
+  try {
+    await chrome.storage.local.set({ config: currentConfig });
+    applyTheme();
+  } catch (err) {
+    console.warn('[tab-out] Failed to save config:', err);
+  }
+}
+
+function applyTheme() {
+  if (currentConfig.theme === 'dark') {
+    document.documentElement.classList.add('dark-theme');
+  } else {
+    document.documentElement.classList.remove('dark-theme');
+  }
+}
+
+function isSoundEnabled() {
+  return currentConfig.enableSound;
+}
+
+function isAnimationEnabled() {
+  return currentConfig.enableAnimations;
+}
+
+function isConfettiEnabled() {
+  return currentConfig.enableConfetti && currentConfig.enableAnimations;
+}
+
+function getTabsPerGroup() {
+  return currentConfig.tabsPerGroup || 8;
+}
+
+function getLanguage() {
+  return currentConfig.language || 'en';
+}
+
 
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
@@ -283,6 +360,20 @@ async function dismissSavedTab(id) {
   }
 }
 
+/**
+ * restoreSavedTab(id)
+ *
+ * Opens the saved tab in a new browser tab and removes it from the list.
+ */
+async function restoreSavedTab(id) {
+  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const tab = deferred.find(t => t.id === id);
+  if (!tab) return;
+  await chrome.tabs.create({ url: tab.url, active: false });
+  tab.dismissed = true;
+  await chrome.storage.local.set({ deferred });
+}
+
 
 /* ----------------------------------------------------------------
    UI HELPERS
@@ -296,6 +387,8 @@ async function dismissSavedTab(id) {
  * A filtered noise sweep that descends in pitch, like air moving.
  */
 function playCloseSound() {
+  if (!isSoundEnabled()) return;
+  
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const t = ctx.currentTime;
@@ -345,6 +438,8 @@ function playCloseSound() {
  * Pure CSS + JS, no libraries.
  */
 function shootConfetti(x, y) {
+  if (!isConfettiEnabled()) return;
+  
   const colors = [
     '#c8713a', // amber
     '#e8a070', // amber light
@@ -831,7 +926,8 @@ function renderDomainCard(group) {
     if (!seen.has(tab.url)) { seen.add(tab.url); uniqueTabs.push(tab); }
   }
 
-  const visibleTabs = uniqueTabs.slice(0, 8);
+  const tabsPerGroup = getTabsPerGroup();
+  const visibleTabs = uniqueTabs.slice(0, tabsPerGroup);
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
   const pageChips = visibleTabs.map(tab => {
@@ -981,6 +1077,9 @@ function renderDeferredItem(item) {
           <span>${ago}</span>
         </div>
       </div>
+      <button class="deferred-restore" data-action="restore-saved" data-deferred-id="${item.id}" title="Restore to open tabs">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+      </button>
       <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
@@ -995,11 +1094,17 @@ function renderDeferredItem(item) {
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
   return `
-    <div class="archive-item">
+    <div class="archive-item" data-deferred-id="${item.id}">
       <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
         ${item.title || item.url}
       </a>
       <span class="archive-item-date">${ago}</span>
+      <button class="archive-item-restore" data-action="restore-saved" data-deferred-id="${item.id}" title="Restore to open tabs">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+      </button>
+      <button class="archive-item-dismiss" data-action="dismiss-archived" data-deferred-id="${item.id}" title="Delete">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
     </div>`;
 }
 
@@ -1149,8 +1254,10 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
+    const lang = getLanguage();
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const domainText = domainGroups.length !== 1 ? t('domains') : t('domain');
+    openTabsSectionCount.innerHTML = `${domainGroups.length} ${domainText} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} ${t('close_all')} ${realTabs.length} ${t('tabs')}</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1198,7 +1305,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast(t('closed_extra_tabout'));
     return;
   }
 
@@ -1260,7 +1367,7 @@ document.addEventListener('click', async (e) => {
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
 
-    showToast('Tab closed');
+    showToast(t('tab_closed'));
     return;
   }
 
@@ -1276,7 +1383,7 @@ document.addEventListener('click', async (e) => {
       await saveTabForLater({ url: tabUrl, title: tabTitle });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
+      showToast(t('failed_to_save'));
       return;
     }
 
@@ -1295,8 +1402,32 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
+    showToast(t('saved_for_later'));
     await renderDeferredColumn();
+    return;
+  }
+
+  // ---- Restore a saved/archived tab back to open tabs ----
+  if (action === 'restore-saved') {
+    const id = actionEl.dataset.deferredId;
+    if (!id) return;
+
+    await restoreSavedTab(id);
+
+    const item = actionEl.closest('.deferred-item') || actionEl.closest('.archive-item');
+    if (item) {
+      item.style.transition = 'opacity 0.2s, transform 0.2s';
+      item.style.opacity = '0';
+      item.style.transform = 'translateX(10px)';
+      setTimeout(async () => {
+        item.remove();
+        await renderStaticDashboard();
+      }, 200);
+    } else {
+      await renderStaticDashboard();
+    }
+
+    showToast(t('restored'));
     return;
   }
 
@@ -1340,6 +1471,25 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Delete an archived item ----
+  if (action === 'dismiss-archived') {
+    const id = actionEl.dataset.deferredId;
+    if (!id) return;
+
+    await dismissSavedTab(id);
+
+    const item = actionEl.closest('.archive-item');
+    if (item) {
+      item.style.transition = 'opacity 0.2s, max-height 0.2s';
+      item.style.opacity = '0';
+      setTimeout(() => {
+        item.remove();
+        renderDeferredColumn();
+      }, 200);
+    }
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1369,7 +1519,8 @@ document.addEventListener('click', async (e) => {
     if (idx !== -1) domainGroups.splice(idx, 1);
 
     const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    const tabText = urls.length !== 1 ? t('tabs') : t('tab');
+    showToast(t('closed_n_tabs', urls.length, tabText, groupLabel));
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
@@ -1408,7 +1559,7 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
-    showToast('Closed duplicates, kept one copy each');
+    showToast(t('keep_one'));
     return;
   }
 
@@ -1428,7 +1579,7 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    showToast(t('closed_all'));
     return;
   }
 });
@@ -1477,6 +1628,543 @@ document.addEventListener('input', async (e) => {
 
 
 /* ----------------------------------------------------------------
+   SEARCH FUNCTIONALITY
+   ---------------------------------------------------------------- */
+
+let currentSearchQuery = '';
+
+function renderSearchResults(results) {
+  const searchContainer = document.getElementById('searchResults');
+  if (!searchContainer) return;
+
+  if (!currentSearchQuery) {
+    searchContainer.style.display = 'none';
+    return;
+  }
+
+  searchContainer.style.display = 'block';
+
+  if (results.length === 0) {
+    searchContainer.innerHTML = `
+      <div class="search-no-results">
+        No tabs found matching "${currentSearchQuery}"
+      </div>
+    `;
+    return;
+  }
+
+  const resultsHtml = results.map(tab => {
+    const title = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
+    let domain = '';
+    try { domain = new URL(tab.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl = (tab.url || '').replace(/"/g, '&quot;');
+    
+    return `
+      <div class="search-result-item" data-action="focus-tab" data-tab-url="${safeUrl}">
+        ${faviconUrl ? `<img class="search-result-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+        <span class="search-result-title">${title || tab.url}</span>
+        <span class="search-result-domain">${domain}</span>
+      </div>
+    `;
+  }).join('');
+
+  searchContainer.innerHTML = `
+    <div class="search-results-header">
+      <span class="search-results-count">${results.length} result${results.length !== 1 ? 's' : ''}</span>
+      <span class="search-results-clear" id="clearSearch">Clear</span>
+    </div>
+    ${resultsHtml}
+  `;
+}
+
+function handleSearch(query) {
+  currentSearchQuery = query.trim().toLowerCase();
+  
+  const openTabsSection = document.getElementById('openTabsSection');
+  const deferredColumn = document.getElementById('deferredColumn');
+  
+  if (!currentSearchQuery) {
+    // Show everything
+    if (openTabsSection) openTabsSection.style.display = 'block';
+    if (deferredColumn) deferredColumn.style.display = 'block';
+    renderSearchResults([]);
+    return;
+  }
+
+  // Hide normal content
+  if (openTabsSection) openTabsSection.style.display = 'none';
+  if (deferredColumn) deferredColumn.style.display = 'none';
+
+  // Filter tabs
+  const realTabs = getRealTabs();
+  const results = realTabs.filter(tab => {
+    const title = (tab.title || '').toLowerCase();
+    const url = (tab.url || '').toLowerCase();
+    return title.includes(currentSearchQuery) || url.includes(currentSearchQuery);
+  });
+
+  renderSearchResults(results);
+}
+
+/* ----------------------------------------------------------------
+   KEYBOARD SHORTCUTS
+   ---------------------------------------------------------------- */
+
+function handleKeydown(e) {
+  if (!currentConfig.enableKeyboardShortcuts) return;
+
+  // Search focus: / key
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !isInputFocused()) {
+    e.preventDefault();
+    const searchInput = document.getElementById('tabSearch');
+    if (searchInput) searchInput.focus();
+    return;
+  }
+
+  // Escape: clear search / close modals
+  if (e.key === 'Escape') {
+    const searchInput = document.getElementById('tabSearch');
+    const settingsModal = document.getElementById('settingsModal');
+    
+    if (currentSearchQuery) {
+      clearSearch();
+    } else if (settingsModal?.classList.contains('open')) {
+      closeSettingsModal();
+    } else if (searchInput === document.activeElement) {
+      searchInput.blur();
+    }
+    return;
+  }
+
+  // Ctrl/Cmd + K: Search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    const searchInput = document.getElementById('tabSearch');
+    if (searchInput) searchInput.focus();
+    return;
+  }
+
+  // Ctrl/Cmd + D: Toggle dark mode
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    e.preventDefault();
+    const newTheme = currentConfig.theme === 'light' ? 'dark' : 'light';
+    saveConfig({ theme: newTheme });
+    return;
+  }
+}
+
+function isInputFocused() {
+  const active = document.activeElement;
+  return active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
+}
+
+function clearSearch() {
+  currentSearchQuery = '';
+  const searchInput = document.getElementById('tabSearch');
+  const searchClear = document.getElementById('searchClear');
+  if (searchInput) searchInput.value = '';
+  if (searchClear) searchClear.style.display = 'none';
+  handleSearch('');
+  
+  // Refresh dashboard to show original content
+  renderDashboard();
+}
+
+/* ----------------------------------------------------------------
+   SETTINGS MODAL
+   ---------------------------------------------------------------- */
+
+function renderSettingsModal() {
+  const modal = `
+    <div class="settings-modal" id="settingsModal">
+      <div class="settings-modal-content">
+        <div class="settings-modal-header">
+          <span class="settings-modal-title">${t('settings')}</span>
+          <button class="settings-modal-close" id="settingsModalClose">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div class="settings-section">
+          <div class="settings-section-title">Appearance</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('theme')}</div>
+              <div class="settings-description">Light or dark mode</div>
+            </div>
+            <select class="settings-select" id="themeSelect">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('language')}</div>
+              <div class="settings-description">Interface language</div>
+            </div>
+            <select class="settings-select" id="languageSelect">
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="settings-section">
+          <div class="settings-section-title">Preferences</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('sound_effects')}</div>
+              <div class="settings-description">Play swoosh sound when closing tabs</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="soundToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('animations')}</div>
+              <div class="settings-description">Enable confetti and fade effects</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="animationsToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('keyboard_shortcuts')}</div>
+              <div class="settings-description">Enable /, Ctrl+K, Ctrl+D shortcuts</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="shortcutsToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">${t('tabs_per_group')}</div>
+              <div class="settings-description">Number of tabs shown before "+N more"</div>
+            </div>
+            <select class="settings-select" id="tabsPerGroupSelect">
+              <option value="4">4</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+              <option value="12">12</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="settings-section">
+          <div class="settings-section-title">${t('data_management')}</div>
+          <div class="settings-actions">
+            <button class="settings-action-btn" id="exportData">${t('export_data')}</button>
+            <button class="settings-action-btn primary" id="importData">${t('import_data')}</button>
+          </div>
+          <input type="file" id="importFileInput" accept=".json" style="display:none">
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modal);
+  
+  // Initialize values
+  document.getElementById('themeSelect').value = currentConfig.theme;
+  document.getElementById('languageSelect').value = currentConfig.language;
+  document.getElementById('soundToggle').checked = currentConfig.enableSound;
+  document.getElementById('animationsToggle').checked = currentConfig.enableAnimations;
+  document.getElementById('shortcutsToggle').checked = currentConfig.enableKeyboardShortcuts;
+  document.getElementById('tabsPerGroupSelect').value = currentConfig.tabsPerGroup;
+}
+
+function openSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) modal.classList.add('open');
+}
+
+function closeSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) modal.classList.remove('open');
+}
+
+/* ----------------------------------------------------------------
+   DATA EXPORT/IMPORT
+   ---------------------------------------------------------------- */
+
+async function exportData() {
+  try {
+    const { deferred = [] } = await chrome.storage.local.get('deferred');
+    const { config = {} } = await chrome.storage.local.get('config');
+    
+    const data = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      deferred,
+      config
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tab-out-backup-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast(t('export_success'));
+  } catch (err) {
+    console.error('[tab-out] Export failed:', err);
+    showToast(t('export_failed'));
+  }
+}
+
+async function importData(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    if (!data.deferred && !data.config) {
+      showToast(t('import_invalid'));
+      return;
+    }
+    
+    if (data.deferred) {
+      await chrome.storage.local.set({ deferred: data.deferred });
+    }
+    if (data.config) {
+      await chrome.storage.local.set({ config: data.config });
+      await loadConfig();
+    }
+    
+    showToast('Data imported successfully');
+    closeSettingsModal();
+    renderDashboard();
+  } catch (err) {
+    console.error('[tab-out] Import failed:', err);
+    showToast(t('import_failed'));
+  }
+}
+
+/* ----------------------------------------------------------------
+   LOCALIZATION / INTERNATIONALIZATION
+   ---------------------------------------------------------------- */
+
+const LOCALIZED_STRINGS = {
+  en: {
+    greeting_morning: 'Good morning',
+    greeting_afternoon: 'Good afternoon',
+    greeting_evening: 'Good evening',
+    search_placeholder: 'Search tabs...',
+    close_extra_tabs: 'Close extras',
+    close_all: 'Close all',
+    tabs: 'tabs',
+    tab: 'tab',
+    domain: 'domain',
+    domains: 'domains',
+    saved_for_later: 'Saved for later',
+    nothing_saved: 'Nothing saved. Living in the moment.',
+    archive: 'Archive',
+    restore: 'Restore',
+    dismiss: 'Dismiss',
+    check: 'Check off',
+    close_duplicates: 'Close duplicates',
+    keep_one: 'Close duplicates, keep one copy each',
+    inbox_zero: 'Inbox zero, but for tabs.',
+    youre_free: 'You are free.',
+    tab_closed: 'Tab closed',
+    saved_for_later: 'Saved for later',
+    restored: 'Restored to open tabs',
+    closed_all: 'All tabs closed. Fresh start.',
+    settings: 'Settings',
+    theme: 'Theme',
+    language: 'Language',
+    sound_effects: 'Sound effects',
+    animations: 'Animations',
+    keyboard_shortcuts: 'Keyboard shortcuts',
+    tabs_per_group: 'Tabs per group',
+    data_management: 'Data Management',
+    export_data: 'Export Data',
+    import_data: 'Import Data',
+    no_results: 'No tabs found matching',
+    closed_extra_tabout: 'Closed extra Tab Out tabs',
+    failed_to_save: 'Failed to save tab',
+    closed_n_tabs: 'Closed {0} {1} from {2}',
+    export_success: 'Data exported successfully',
+    export_failed: 'Export failed',
+    import_invalid: 'Invalid backup file',
+    import_success: 'Data imported successfully',
+    import_failed: 'Import failed - invalid file',
+  },
+  zh: {
+    greeting_morning: '早上好',
+    greeting_afternoon: '下午好',
+    greeting_evening: '晚上好',
+    search_placeholder: '搜索标签页...',
+    close_extra_tabs: '关闭多余标签',
+    close_all: '全部关闭',
+    tabs: '标签页',
+    tab: '标签页',
+    domain: '域名',
+    domains: '域名',
+    saved_for_later: '稍后阅读',
+    nothing_saved: '暂无保存。活在当下。',
+    archive: '归档',
+    restore: '恢复',
+    dismiss: '删除',
+    check: '完成',
+    close_duplicates: '关闭重复',
+    keep_one: '关闭重复，保留一份',
+    inbox_zero: '标签页清零。',
+    youre_free: '你自由了。',
+    tab_closed: '标签页已关闭',
+    saved_for_later: '已保存',
+    restored: '已恢复到打开的标签页',
+    closed_all: '所有标签页已关闭。重新开始。',
+    settings: '设置',
+    theme: '主题',
+    language: '语言',
+    sound_effects: '音效',
+    animations: '动画',
+    keyboard_shortcuts: '键盘快捷键',
+    tabs_per_group: '每组标签数',
+    data_management: '数据管理',
+    export_data: '导出数据',
+    import_data: '导入数据',
+    no_results: '未找到匹配的标签页',
+    closed_extra_tabout: '已关闭多余的 Tab Out 标签页',
+    failed_to_save: '保存标签页失败',
+    closed_n_tabs: '已关闭 {2} 的 {0} 个 {1}',
+    export_success: '数据导出成功',
+    export_failed: '导出失败',
+    import_invalid: '无效的备份文件',
+    import_success: '数据导入成功',
+    import_failed: '导入失败 - 无效文件',
+  }
+};
+
+function t(key, ...args) {
+  const lang = getLanguage();
+  const strings = LOCALIZED_STRINGS[lang] || LOCALIZED_STRINGS.en;
+  let str = strings[key] || key;
+  
+  // Replace placeholders
+  args.forEach((arg, i) => {
+    str = str.replace(`{${i}}`, arg);
+  });
+  
+  return str;
+}
+
+function getLocalizedGreeting() {
+  const hour = new Date().getHours();
+  const lang = getLanguage();
+  
+  if (hour < 12) return LOCALIZED_STRINGS[lang].greeting_morning;
+  if (hour < 17) return LOCALIZED_STRINGS[lang].greeting_afternoon;
+  return LOCALIZED_STRINGS[lang].greeting_evening;
+}
+
+/* ----------------------------------------------------------------
+   EVENT LISTENERS FOR NEW FEATURES
+   ---------------------------------------------------------------- */
+
+async function initNewFeatures() {
+  // Load config first
+  await loadConfig();
+  
+  // Render settings modal
+  renderSettingsModal();
+  
+  // Search input handler
+  const searchInput = document.getElementById('tabSearch');
+  if (searchInput) {
+    searchInput.placeholder = t('search_placeholder');
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value;
+      document.getElementById('searchClear').style.display = query ? 'flex' : 'none';
+      handleSearch(query);
+    });
+  }
+  
+  // Clear search button
+  document.getElementById('searchClear')?.addEventListener('click', clearSearch);
+  
+  // Settings button
+  const settingsBtn = document.getElementById('settingsBtn');
+  if (settingsBtn) {
+    settingsBtn.title = t('settings');
+    settingsBtn.addEventListener('click', openSettingsModal);
+  }
+  
+  // Settings modal close
+  document.getElementById('settingsModalClose')?.addEventListener('click', closeSettingsModal);
+  
+  // Click outside modal to close
+  document.getElementById('settingsModal')?.addEventListener('click', (e) => {
+    if (e.target.classList.contains('settings-modal')) {
+      closeSettingsModal();
+    }
+  });
+  
+  // Settings changes
+  document.getElementById('themeSelect')?.addEventListener('change', (e) => {
+    saveConfig({ theme: e.target.value });
+  });
+  
+  document.getElementById('languageSelect')?.addEventListener('change', (e) => {
+    saveConfig({ language: e.target.value });
+    renderDashboard();
+  });
+  
+  document.getElementById('soundToggle')?.addEventListener('change', (e) => {
+    saveConfig({ enableSound: e.target.checked });
+  });
+  
+  document.getElementById('animationsToggle')?.addEventListener('change', (e) => {
+    saveConfig({ enableAnimations: e.target.checked });
+  });
+  
+  document.getElementById('shortcutsToggle')?.addEventListener('change', (e) => {
+    saveConfig({ enableKeyboardShortcuts: e.target.checked });
+  });
+  
+  document.getElementById('tabsPerGroupSelect')?.addEventListener('change', (e) => {
+    saveConfig({ tabsPerGroup: parseInt(e.target.value) });
+    renderDashboard();
+  });
+  
+  // Export/Import
+  document.getElementById('exportData')?.addEventListener('click', exportData);
+  document.getElementById('importData')?.addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+  });
+  document.getElementById('importFileInput')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) importData(file);
+    e.target.value = ''; // Reset
+  });
+  
+  // Keyboard shortcuts
+  document.addEventListener('keydown', handleKeydown);
+  
+  // Clear search button in search results
+  document.addEventListener('click', (e) => {
+    if (e.target.id === 'clearSearch') {
+      clearSearch();
+    }
+  });
+}
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+
+// Initialize new features first, then render dashboard
+initNewFeatures().then(renderDashboard);

@@ -1,4 +1,22 @@
 # Tab Out
+## 对比原版变化
+
+新增全局配置系统，支持主题、音效、动画等自定义设置
+
+页面头部添加搜索框与设置按钮，支持快捷键快速唤起搜索
+
+实现标签页搜索功能，可按标题/URL过滤标签页
+
+新增深色主题样式与主题切换支持
+
+新增设置弹窗，支持配置各项功能与数据导入导出
+
+新增多语言支持，内置中英双语界面
+
+优化部分提示文案，新增国际化文案系统
+
+支持按配置动态调整每组显示的标签页数量
+
 
 **Keep tabs on your tabs.**
 
@@ -82,10 +100,15 @@ Everything runs inside the Chrome extension. No external server, no API calls, n
 
 ---
 
-## License
+## Credit & License
 
-MIT
+This project is a fork of **[Tab Out](https://github.com/zarazhangrui/tab-out)**
+by [Zara Zhang](https://x.com/zarazhangrui), used under the MIT License.
 
----
+- All original design, tab-grouping logic, animations, and sound © Zara
+- Pinned bar, suggestion engine, and related UI added by [Bella](https://github.com/)
 
-Built by [Zara](https://x.com/zarazhangrui)
+The upstream repo is the canonical source for Tab Out's core experience —
+if you like this fork, please also star and credit the original.
+
+Licensed under the [MIT License](./LICENSE).
