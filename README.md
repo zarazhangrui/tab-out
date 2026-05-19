@@ -2,6 +2,9 @@
 
 **Keep tabs on your tabs.**
 
+> **My contributions** (forked from [zarazhangrui/tab-out](https://github.com/zarazhangrui/tab-out)):
+> Privacy Mode · Real-time search (`/` · `Cmd+K`) · Localhost port grouping · Auto-dedup · Save for later
+
 Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
 
 No server. No account. No external API calls. Just a Chrome extension.
@@ -30,6 +33,11 @@ The agent will walk you through it. Takes about 1 minute.
 - **Save for later** bookmark tabs to a checklist before closing them
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
+- **Dark mode** toggle in the header, with system preference detection and persistent setting
+- **Search tabs** filter all open tabs in real-time by title or URL — press `/` or `Cmd/Ctrl+K` to focus, `Esc` to clear
+- **Privacy mode** one-click screen-sharing overlay with clock and Google search — toggle via lock icon or `Esc`
+- **Quick Access** curated shortcuts card at the top, with compact bar and card layouts
+- **Dedup** auto-closes duplicate Tab Out tabs so you only ever have one
 - **100% local** your data never leaves your machine
 - **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
 
@@ -88,4 +96,4 @@ MIT
 
 ---
 
-Built by [Zara](https://x.com/zarazhangrui)
+Forked from [zarazhangrui/tab-out](https://github.com/zarazhangrui/tab-out). Extended & maintained by [pintaste](https://github.com/pintaste).

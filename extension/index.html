@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tab Out</title>
 
-  <!-- Google Fonts: Newsreader (for headings/numbers) + DM Sans (for body text) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300;1,6..72,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -26,7 +22,63 @@
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
     </div>
+
+    <div class="header-search">
+      <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+      <input type="text" id="tabSearchInput" placeholder="Search tabs..." autocomplete="off" spellcheck="false">
+      <button class="search-clear" id="tabSearchClear" type="button" style="display:none" aria-label="Clear search">&times;</button>
+    </div>
+
+    <div class="header-right">
+      <button class="refresh-btn" id="refreshBtn" data-action="refresh" title="Refresh tab list">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+      </button>
+      <button class="auto-refresh-toggle" id="autoRefreshToggle" data-action="toggle-auto-refresh" title="Auto-refresh on">
+        <svg class="auto-refresh-on" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+        <svg class="auto-refresh-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" /></svg>
+      </button>
+      <button class="privacy-toggle" id="privacyToggle" title="Toggle privacy mode">
+        <svg class="privacy-icon-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+        <svg class="privacy-icon-on" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+      </button>
+      <button class="theme-toggle" id="themeToggle" data-action="toggle-theme" title="Toggle dark mode">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+        </svg>
+      </button>
+    </div>
   </header>
+
+  <!-- ================================================================
+       PRIVACY SCREEN — clock + search overlay
+       Hidden by default; shown when privacy mode is active
+       ================================================================ -->
+  <div class="privacy-screen" id="privacyScreen" style="display:none">
+    <div class="privacy-time" id="privacyTime"></div>
+    <div class="privacy-date" id="privacyDate"></div>
+    <div class="privacy-motto" id="privacyMotto"></div>
+    <form class="privacy-search" id="privacySearch" onsubmit="return false">
+      <input type="text" class="privacy-search-input" id="privacySearchInput" placeholder="Search Google...">
+    </form>
+    <div class="privacy-hint">Press <kbd>Esc</kbd> to return</div>
+    <button class="privacy-settings-btn" id="privacySettingsBtn" title="Customize privacy screen">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.397-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+    </button>
+    <div class="privacy-settings" id="privacySettings" style="display:none">
+      <div class="privacy-settings-title">Customize</div>
+      <label class="privacy-setting-row"><input type="checkbox" id="psClock" checked> Show clock</label>
+      <label class="privacy-setting-row"><input type="checkbox" id="psDate" checked> Show date</label>
+      <label class="privacy-setting-row"><input type="checkbox" id="psMotto" checked> Show motto</label>
+      <div class="privacy-setting-sub" id="psMottoEdit">
+        <input type="text" id="psMottoInput" class="privacy-setting-input" placeholder="Your motto text...">
+      </div>
+      <label class="privacy-setting-row"><input type="checkbox" id="psSearch" checked> Show search</label>
+    </div>
+  </div>
 
   <!-- ================================================================
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
@@ -46,6 +98,8 @@
     <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
   </div>
 
+  <div id="quickAccessContainer" style="display:none"></div>
+
   <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
        Left: open tabs (domain/mission cards)
@@ -62,6 +116,16 @@
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
       <div class="missions" id="openTabsMissions"></div>
+
+      <!-- Other devices — synced via Chrome Sync -->
+      <div class="active-section" id="otherDevicesSection" style="display:none; margin-top:32px;">
+        <div class="section-header">
+          <h2>On your other devices</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="otherDevicesSectionCount"></div>
+        </div>
+        <div class="missions" id="otherDevicesMissions"></div>
+      </div>
     </div>
 
     <!-- RIGHT COLUMN: Saved for Later checklist -->
@@ -92,6 +156,16 @@
           <div class="archive-list" id="archiveList"></div>
         </div>
       </div>
+
+      <!-- Bookmarks section -->
+      <div class="bookmarks-section" id="bookmarksSection" style="display:none; margin-top: 32px;">
+        <div class="section-header">
+          <h2>Bookmarks</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="bookmarksCount"></div>
+        </div>
+        <div class="bookmarks-list" id="bookmarksList"></div>
+      </div>
     </div>
 
   </div><!-- end .dashboard-columns -->
@@ -105,9 +179,14 @@
         <div class="stat-num" id="statTabs">—</div>
         <div class="stat-label">Open tabs</div>
       </div>
+      <div class="stat">
+        <div class="stat-num" id="statWindows">—</div>
+        <div class="stat-label">Windows</div>
+      </div>
     </div>
     <div class="last-refresh">
       <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> by <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
+      <span id="bingCredit" class="bing-credit"></span>
     </div>
   </footer>
 
@@ -123,6 +202,7 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
   </svg>
   <span id="toastText"></span>
+  <button class="toast-undo" id="toastUndo" style="display:none">Undo</button>
 </div>
 
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
