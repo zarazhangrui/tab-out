@@ -20,7 +20,7 @@
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
-   Since this page IS the extension's new tab page, it has full
+   Since this page is loaded directly from the extension, it has full
    access to chrome.tabs and chrome.storage. No middleman needed.
    ---------------------------------------------------------------- */
 
@@ -30,6 +30,7 @@ let dashboardRenderTimer = null;
 let dashboardRenderPromise = null;
 let hasRenderedDashboard = false;
 let hasLoadedLocalConfig = false;
+let lastPointerActivityAt = 0;
 
 // Theme preference is mirrored to localStorage so theme.js can apply it
 // before the stylesheet paints on future new-tab loads.
@@ -321,7 +322,7 @@ function setupBrokenImageHandler() {
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
+    // newtab.html is only a trampoline; the dashboard lives at index.html.
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
@@ -1416,14 +1417,21 @@ async function renderDashboard() {
   await renderStaticDashboard();
 }
 
-function scheduleDashboardRender() {
+function scheduleDashboardRender(delay = 100) {
   clearTimeout(dashboardRenderTimer);
+
   dashboardRenderTimer = setTimeout(() => {
+    const pointerQuietFor = Date.now() - lastPointerActivityAt;
+    if (pointerQuietFor < 250) {
+      scheduleDashboardRender(250 - pointerQuietFor);
+      return;
+    }
+
     dashboardRenderPromise = (dashboardRenderPromise || Promise.resolve())
       .then(renderDashboard)
       .catch(err => console.warn('[tab-out] Dashboard refresh failed:', err))
       .finally(() => { dashboardRenderPromise = null; });
-  }, 100);
+  }, delay);
 }
 
 
@@ -1734,24 +1742,31 @@ document.addEventListener('input', async (e) => {
    ---------------------------------------------------------------- */
 initTheme();
 setupBrokenImageHandler();
-loadLocalConfig().finally(renderDashboard);
+document.addEventListener('pointerdown', () => { lastPointerActivityAt = Date.now(); }, true);
+document.addEventListener('pointerup', () => { lastPointerActivityAt = Date.now(); }, true);
+document.addEventListener('pointercancel', () => { lastPointerActivityAt = Date.now(); }, true);
+
+dashboardRenderPromise = loadLocalConfig()
+  .then(renderDashboard)
+  .catch(err => console.warn('[tab-out] Initial dashboard render failed:', err))
+  .finally(() => { dashboardRenderPromise = null; });
 window.addEventListener('resize', () => {
   updateBookmarksOverflow();
   closeBookmarkFolders();
 });
 
-chrome.tabs.onCreated.addListener(scheduleDashboardRender);
-chrome.tabs.onRemoved.addListener(scheduleDashboardRender);
-chrome.tabs.onUpdated.addListener(scheduleDashboardRender);
-chrome.tabs.onMoved.addListener(scheduleDashboardRender);
-chrome.tabs.onAttached.addListener(scheduleDashboardRender);
-chrome.tabs.onDetached.addListener(scheduleDashboardRender);
-chrome.tabs.onReplaced.addListener(scheduleDashboardRender);
-chrome.windows.onFocusChanged.addListener(scheduleDashboardRender);
+chrome.tabs.onCreated.addListener(() => scheduleDashboardRender());
+chrome.tabs.onRemoved.addListener(() => scheduleDashboardRender());
+chrome.tabs.onUpdated.addListener(() => scheduleDashboardRender());
+chrome.tabs.onMoved.addListener(() => scheduleDashboardRender());
+chrome.tabs.onAttached.addListener(() => scheduleDashboardRender());
+chrome.tabs.onDetached.addListener(() => scheduleDashboardRender());
+chrome.tabs.onReplaced.addListener(() => scheduleDashboardRender());
+chrome.windows.onFocusChanged.addListener(() => scheduleDashboardRender());
 
-chrome.bookmarks.onCreated.addListener(scheduleDashboardRender);
-chrome.bookmarks.onRemoved.addListener(scheduleDashboardRender);
-chrome.bookmarks.onChanged.addListener(scheduleDashboardRender);
-chrome.bookmarks.onMoved.addListener(scheduleDashboardRender);
-chrome.bookmarks.onChildrenReordered.addListener(scheduleDashboardRender);
-chrome.bookmarks.onImportEnded.addListener(scheduleDashboardRender);
+chrome.bookmarks.onCreated.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onRemoved.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onChanged.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onMoved.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onChildrenReordered.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onImportEnded.addListener(() => scheduleDashboardRender());
