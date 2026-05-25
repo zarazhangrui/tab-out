@@ -26,30 +26,69 @@
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
-/**
- * fetchOpenTabs()
- *
- * Reads all currently open browser tabs directly from Chrome.
- * Sets the extensionId flag so we can identify Tab Out's own pages.
- */
+// Bookmarked URLs cache — loaded once, refreshed on bookmark changes
+let bookmarkUrlSet = new Set();
+
+async function loadBookmarks(forceRefresh = false) {
+  if (!forceRefresh) {
+    const { bookmarkUrlCache } = await chrome.storage.local.get('bookmarkUrlCache');
+    if (bookmarkUrlCache) { bookmarkUrlSet = new Set(bookmarkUrlCache); return; }
+  }
+  const tree = await chrome.bookmarks.getTree();
+  const urls = [];
+  (function walk(nodes) {
+    for (const n of nodes) {
+      if (n.url) urls.push(n.url);
+      if (n.children) walk(n.children);
+    }
+  })(tree);
+  bookmarkUrlSet = new Set(urls);
+  await chrome.storage.local.set({ bookmarkUrlCache: urls });
+}
+
+chrome.bookmarks.onCreated.addListener(() => loadBookmarks(true));
+chrome.bookmarks.onRemoved.addListener(() => loadBookmarks(true));
+chrome.bookmarks.onChanged.addListener(() => loadBookmarks(true));
+
+function extractSuspendedUrl(url) {
+  if (!url || !url.startsWith('chrome-extension://')) return null;
+  try {
+    const parsed = new URL(url);
+    for (const key of ['url', 'uri']) {
+      const val = parsed.searchParams.get(key);
+      if (val && (val.startsWith('http://') || val.startsWith('https://') || val.startsWith('file://'))) return val;
+    }
+    const hash = parsed.hash.slice(1);
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      for (const key of ['uri', 'url']) {
+        const val = params.get(key);
+        if (val && (val.startsWith('http://') || val.startsWith('https://') || val.startsWith('file://'))) return val;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
-    openTabs = tabs.map(t => ({
-      id:       t.id,
-      url:      t.url,
-      title:    t.title,
-      windowId: t.windowId,
-      active:   t.active,
-      // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
-    }));
+    openTabs = tabs.map(t => {
+      const suspendedOriginal = extractSuspendedUrl(t.url);
+      return {
+        id:        t.id,
+        url:       suspendedOriginal || t.url,
+        title:     t.title,
+        windowId:  t.windowId,
+        active:    t.active,
+        suspended: !!suspendedOriginal,
+        isTabOut:  t.url === newtabUrl || t.url === 'chrome://newtab/',
+      };
+    });
   } catch {
-    // chrome.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
   }
 }
@@ -81,7 +120,7 @@ async function closeTabsByUrls(urls) {
   const allTabs = await chrome.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
-      const tabUrl = tab.url || '';
+      const tabUrl = extractSuspendedUrl(tab.url) || tab.url || '';
       if (tabUrl.startsWith('file://') && exactUrls.has(tabUrl)) return true;
       try {
         const tabHostname = new URL(tabUrl).hostname;
@@ -104,7 +143,7 @@ async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
   const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
+  const toClose = allTabs.filter(t => urlSet.has(t.url) || urlSet.has(extractSuspendedUrl(t.url))).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
 }
@@ -120,15 +159,16 @@ async function focusTab(url) {
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
 
-  // Try exact URL match first
-  let matches = allTabs.filter(t => t.url === url);
+  // Try exact URL match (including suspended tab original URL)
+  let matches = allTabs.filter(t => t.url === url || extractSuspendedUrl(t.url) === url);
 
   // Fall back to hostname match
   if (matches.length === 0) {
     try {
       const targetHost = new URL(url).hostname;
       matches = allTabs.filter(t => {
-        try { return new URL(t.url).hostname === targetHost; }
+        const effective = extractSuspendedUrl(t.url) || t.url;
+        try { return new URL(effective).hostname === targetHost; }
         catch { return false; }
       });
     } catch {}
@@ -154,7 +194,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
   const toClose = [];
 
   for (const url of urls) {
-    const matching = allTabs.filter(t => t.url === url);
+    const matching = allTabs.filter(t => t.url === url || extractSuspendedUrl(t.url) === url);
     if (keepOne) {
       const keep = matching.find(t => t.active) || matching[0];
       for (const tab of matching) {
@@ -442,6 +482,26 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('visible'), 2500);
 }
 
+function showConfirm(message) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirmOverlay');
+    document.getElementById('confirmMsg').textContent = message;
+    overlay.classList.add('visible');
+    const cleanup = (result) => {
+      overlay.classList.remove('visible');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const okBtn = document.getElementById('confirmOk');
+    const cancelBtn = document.getElementById('confirmCancel');
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+
 /**
  * checkAndShowEmptyState()
  *
@@ -511,6 +571,106 @@ function getDateDisplay() {
     month:   'long',
     day:     'numeric',
   });
+}
+
+
+/* ----------------------------------------------------------------
+   AI SUGGESTION BANNERS
+   ---------------------------------------------------------------- */
+
+let pendingSuggestions = [];
+
+/**
+ * renderSuggestionBanners(suggestions)
+ *
+ * Takes an array of AI grouping suggestions and renders one banner at a time.
+ * Each suggestion: { groupLabel, tabIndices, reasoning }
+ */
+function renderSuggestionBanners(suggestions) {
+  pendingSuggestions = suggestions || [];
+  renderNextSuggestionBanner();
+}
+
+function renderNextSuggestionBanner() {
+  const container = document.getElementById('openTabsMissions');
+  if (!container) return;
+
+  // Remove any existing banner
+  const existing = container.querySelector('.ai-suggestion-banner');
+  if (existing) existing.remove();
+
+  if (pendingSuggestions.length === 0) return;
+
+  const suggestion = pendingSuggestions[0];
+  const tabCount = suggestion.tabIndices ? suggestion.tabIndices.length : 0;
+
+  function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  const bannerHtml = `<div class="ai-suggestion-banner" data-suggestion-index="0">
+  <span class="suggestion-icon">✨</span>
+  <div class="suggestion-content">
+    <div class="suggestion-label">合并为一组？[${esc(suggestion.groupLabel)}] — ${tabCount} 个标签</div>
+    <div class="suggestion-meta">${esc(suggestion.reasoning)}</div>
+  </div>
+  <div class="suggestion-actions">
+    <button class="btn-accept" data-action="accept-suggestion">接受</button>
+    <button class="btn-dismiss" data-action="dismiss-suggestion">忽略</button>
+  </div>
+</div>`;
+
+  const firstCard = container.querySelector('.mission-card');
+  if (firstCard) {
+    firstCard.insertAdjacentHTML('beforebegin', bannerHtml);
+  } else {
+    container.insertAdjacentHTML('afterbegin', bannerHtml);
+  }
+}
+
+
+/* ----------------------------------------------------------------
+   AI CLOSE SUGGESTION BANNERS
+   ---------------------------------------------------------------- */
+
+let pendingCloseSuggestions = [];
+
+function renderCloseSuggestions(suggestions) {
+  pendingCloseSuggestions = suggestions || [];
+  renderNextCloseBanner();
+}
+
+function renderNextCloseBanner() {
+  const container = document.getElementById('openTabsMissions');
+  if (!container) return;
+
+  const existing = container.querySelector('.ai-close-banner');
+  if (existing) existing.remove();
+
+  if (pendingCloseSuggestions.length === 0) return;
+  if (pendingSuggestions.length > 0) return;
+
+  const suggestion = pendingCloseSuggestions[0];
+  const tabCount = suggestion.tabIndices ? suggestion.tabIndices.length : 0;
+
+  function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  const bannerHtml = `<div class="ai-close-banner">
+  <span class="suggestion-icon">🧹</span>
+  <div class="suggestion-content">
+    <div class="suggestion-label">可以关掉？— ${tabCount} 个标签</div>
+    <div class="suggestion-meta">${esc(suggestion.reasoning)}</div>
+  </div>
+  <div class="suggestion-actions">
+    <button class="btn-close-accept" data-action="accept-close-suggestion">关闭</button>
+    <button class="btn-dismiss" data-action="dismiss-close-suggestion">保留</button>
+  </div>
+</div>`;
+
+  const firstCard = container.querySelector('.mission-card');
+  if (firstCard) {
+    firstCard.insertAdjacentHTML('beforebegin', bannerHtml);
+  } else {
+    container.insertAdjacentHTML('afterbegin', bannerHtml);
+  }
 }
 
 
@@ -770,7 +930,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      ${bookmarkUrlSet.has(tab.url) ? '<span class="chip-bookmark">⭐</span>' : ''}<span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -851,7 +1011,7 @@ function renderDomainCard(group) {
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      ${bookmarkUrlSet.has(tab.url) ? '<span class="chip-bookmark">⭐</span>' : ''}<span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -1028,6 +1188,7 @@ async function renderStaticDashboard() {
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
+  await loadBookmarks();
   const realTabs = getRealTabs();
 
   // --- Group tabs by domain ---
@@ -1070,6 +1231,15 @@ async function renderStaticDashboard() {
   // Custom group rules from config.local.js (if any)
   const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
 
+  // AI-learned group rules from chrome.storage.local
+  let learnedGroups = [];
+  try {
+    const stored = await new Promise(resolve =>
+      chrome.storage.local.get('ai_learned_groups', r => resolve(r.ai_learned_groups))
+    );
+    learnedGroups = stored || [];
+  } catch { /* ignore */ }
+
   // Check if a URL matches a custom group rule; returns the rule or null
   function matchCustomGroup(url) {
     try {
@@ -1087,6 +1257,15 @@ async function renderStaticDashboard() {
     } catch { return null; }
   }
 
+  function matchLearnedGroup(url) {
+    try {
+      const parsed = new URL(url);
+      return learnedGroups.find(r =>
+        r.rule && r.rule.hostnames && r.rule.hostnames.includes(parsed.hostname)
+      ) || null;
+    } catch { return null; }
+  }
+
   for (const tab of realTabs) {
     try {
       if (isLandingPage(tab.url)) {
@@ -1099,6 +1278,15 @@ async function renderStaticDashboard() {
       if (customRule) {
         const key = customRule.groupKey;
         if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
+        groupMap[key].tabs.push(tab);
+        continue;
+      }
+
+      // Check AI-learned group rules (lower priority than custom groups)
+      const learnedRule = matchLearnedGroup(tab.url);
+      if (learnedRule) {
+        const key = learnedRule.groupKey;
+        if (!groupMap[key]) groupMap[key] = { domain: key, label: learnedRule.groupLabel, tabs: [] };
         groupMap[key].tabs.push(tab);
         continue;
       }
@@ -1150,9 +1338,18 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button> <button class="action-btn ai-trigger-btn" data-action="trigger-ai" style="font-size:11px;padding:3px 10px;" title="AI 分组建议">✨</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
+
+    // Render AI search input if not already present
+    if (!document.getElementById('aiSearchInput')) {
+      const searchHtml = `<div class="ai-search-container">
+        <input type="text" id="aiSearchInput" class="ai-search-input" placeholder="描述你要找的标签...">
+        <span id="aiSearchStatus" class="ai-search-status"></span>
+      </div>`;
+      openTabsMissionsEl.insertAdjacentHTML('beforebegin', searchHtml);
+    }
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
   }
@@ -1168,8 +1365,333 @@ async function renderStaticDashboard() {
   await renderDeferredColumn();
 }
 
+async function renderFrequentSites() {
+  const { frequentSites, frequentBlacklist = [] } = await chrome.storage.local.get(['frequentSites', 'frequentBlacklist']);
+  const container = document.getElementById('frequentSitesSection');
+  if (!container) return;
+  if (!frequentSites || frequentSites.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  const blacklistSet = new Set(frequentBlacklist);
+  const visible = frequentSites.filter(s => !blacklistSet.has(s.hostname));
+  if (visible.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'block';
+  const listEl = document.getElementById('frequentSitesList');
+  listEl.innerHTML = visible.map(s => {
+    const favicon = `https://www.google.com/s2/favicons?domain=${s.hostname}&sz=32`;
+    const label = s.title.length > 24 ? s.title.slice(0, 22) + '…' : s.title;
+    return `<a class="freq-chip" href="${s.url}" data-freq-url="${s.url}" data-freq-host="${s.hostname}" title="${s.title}">
+      <img class="freq-favicon" src="${favicon}" width="16" height="16" alt="">
+      <span class="freq-label">${label}</span>
+      <button class="freq-dismiss" data-action="dismiss-freq" title="不再显示">×</button>
+    </a>`;
+  }).join('');
+}
+
+document.addEventListener('click', async e => {
+  if (e.target.closest('[data-action="dismiss-freq"]')) {
+    e.preventDefault();
+    e.stopPropagation();
+    const chip = e.target.closest('.freq-chip');
+    if (!chip) return;
+    const host = chip.dataset.freqHost;
+    if (!host) return;
+    const { frequentBlacklist = [] } = await chrome.storage.local.get('frequentBlacklist');
+    if (!frequentBlacklist.includes(host)) {
+      frequentBlacklist.push(host);
+      await chrome.storage.local.set({ frequentBlacklist });
+    }
+    chip.style.transition = 'opacity 0.2s, transform 0.2s';
+    chip.style.opacity = '0';
+    chip.style.transform = 'scale(0.9)';
+    setTimeout(() => { chip.remove(); renderFrequentSites(); }, 200);
+    if (typeof showToast === 'function') showToast(`已屏蔽 ${host}`);
+    return;
+  }
+  const chip = e.target.closest('.freq-chip');
+  if (!chip) return;
+  e.preventDefault();
+  const url = chip.dataset.freqUrl;
+  focusOrOpen(url);
+});
+
+async function focusOrOpen(url) {
+  const allTabs = await chrome.tabs.query({});
+  let hostname;
+  try { hostname = new URL(url).hostname; } catch { return; }
+  const match = allTabs.find(t => {
+    try { return new URL(t.url).hostname === hostname; } catch { return false; }
+  });
+  if (match) {
+    await chrome.tabs.update(match.id, { active: true });
+    await chrome.windows.update(match.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url });
+  }
+}
+
 async function renderDashboard() {
   await renderStaticDashboard();
+  await renderFrequentSites();
+  if (!skipNextAiCall) triggerAiSuggestions();
+  skipNextAiCall = false;
+}
+
+let skipNextAiCall = false;
+let aiAbortController = null;
+
+async function enrichTabsWithMeta(realTabs, tabData) {
+  if (!chrome.scripting?.executeScript) return tabData;
+  const results = await Promise.allSettled(
+    realTabs.map(t => {
+      if (!t.id || t.url.startsWith('file://')) return Promise.resolve(null);
+      return chrome.scripting.executeScript({
+        target: { tabId: t.id },
+        func: () => document.querySelector('meta[name="description"]')?.content || '',
+      }).then(r => r?.[0]?.result || '').catch(() => '');
+    })
+  );
+  return tabData.map((td, i) => {
+    const desc = results[i]?.status === 'fulfilled' ? results[i].value : '';
+    return desc ? { ...td, description: desc.slice(0, 150) } : td;
+  });
+}
+
+async function triggerAiSuggestions() {
+  try {
+    if (aiAbortController) {
+      aiAbortController.abort();
+      aiAbortController = null;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    aiAbortController = new AbortController();
+
+    const settings = await new Promise(resolve =>
+      chrome.storage.local.get('ai_settings', r => resolve(r.ai_settings))
+    );
+    if (!settings || !settings.baseUrl || !settings.apiKey || !settings.model) return;
+
+    const realTabs = openTabs.filter(t => !t.isTabOut && t.url && !t.url.startsWith('chrome'));
+    if (realTabs.length < 3) return;
+
+    const { ai_learned_groups: learnedGroups = [] } = await chrome.storage.local.get('ai_learned_groups');
+    let tabData = realTabs.map(t => ({ title: t.title, url: t.url }));
+    if (settings.metaDesc) {
+      tabData = await enrichTabsWithMeta(realTabs, tabData);
+    }
+    const { suggestions, renames, closeSuggestions } = await fetchGroupingSuggestions(tabData, settings, aiAbortController.signal, learnedGroups);
+
+    const filteredSuggestions = suggestions.filter(s => {
+      if (!s.tabIndices || s.tabIndices.length < 2) return false;
+      const groups = new Set(s.tabIndices.map(idx => {
+        const tab = realTabs[idx - 1];
+        if (!tab) return null;
+        return domainGroups.findIndex(g => g.tabs.some(gt => gt.url === tab.url));
+      }));
+      return groups.size > 1 || groups.has(-1);
+    });
+
+    if (filteredSuggestions.length > 0) renderSuggestionBanners(filteredSuggestions);
+    if (renames && renames.length > 0) applyAiRenames(renames);
+    if (closeSuggestions && closeSuggestions.length > 0) renderCloseSuggestions(closeSuggestions);
+    if (settings.debug) renderDebugPanel();
+  } catch (e) {
+    console.debug('AI suggestions skipped:', e.message);
+  }
+}
+
+function applyAiRenames(renames) {
+  for (const r of renames) {
+    const cards = document.querySelectorAll('.mission-card');
+    for (const card of cards) {
+      const nameEl = card.querySelector('.mission-name');
+      if (nameEl && nameEl.textContent.trim().toLowerCase() === r.original_domain.toLowerCase()) {
+        nameEl.title = nameEl.textContent;
+        nameEl.textContent = r.suggested_name + ' ✨';
+      }
+    }
+  }
+}
+
+function renderDebugPanel() {
+  let panel = document.getElementById('aiDebugPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'aiDebugPanel';
+    panel.className = 'ai-debug-panel';
+    document.body.appendChild(panel);
+  }
+
+  const entries = window.__aiDebug || [];
+  const triggerBtns = '<span class="debug-triggers">' +
+    '<button data-action="debug-trigger-ai" data-ai-only="grouping">Grouping</button>' +
+    '<button data-action="debug-trigger-ai" data-ai-only="rename">Rename</button>' +
+    '<button data-action="debug-trigger-ai" data-ai-only="close">Close</button></span>';
+
+  if (entries.length === 0) {
+    panel.innerHTML = '<div class="debug-header">AI Debug ' + triggerBtns + '<button id="debugClose" class="debug-close">✕</button></div><div class="debug-empty">No AI calls yet</div>';
+  } else {
+    panel.innerHTML = '<div class="debug-header">AI Debug (' + entries.length + ' calls) ' + triggerBtns + '<button id="debugClose" class="debug-close">✕</button></div>' +
+      entries.map((e, i) => `<details class="debug-entry">
+        <summary>[${e.type}] ${e.duration}ms — ${new Date(e.timestamp).toLocaleTimeString()}${e.query ? ' — "' + e.query + '"' : ''}</summary>
+        <div class="debug-section"><strong>Prompt:</strong><pre>${JSON.stringify(e.prompt, null, 2).replace(/</g, '&lt;')}</pre></div>
+        <div class="debug-section"><strong>Response:</strong><pre>${(typeof e.response === 'string' ? e.response : JSON.stringify(e.response, null, 2)).replace(/</g, '&lt;')}</pre></div>
+        <div class="debug-section"><strong>Parsed:</strong><pre>${JSON.stringify(e.parsed, null, 2)}</pre></div>
+      </details>`).join('');
+  }
+  panel.style.display = 'block';
+  panel.querySelector('#debugClose')?.addEventListener('click', () => { panel.style.display = 'none'; });
+}
+
+async function triggerAiOnly(mode) {
+  try {
+    if (aiAbortController) {
+      aiAbortController.abort();
+      aiAbortController = null;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    aiAbortController = new AbortController();
+
+    const settings = await new Promise(resolve =>
+      chrome.storage.local.get('ai_settings', r => resolve(r.ai_settings))
+    );
+    if (!settings || !settings.baseUrl || !settings.apiKey || !settings.model) return;
+
+    const realTabs = openTabs.filter(t => !t.isTabOut && t.url && !t.url.startsWith('chrome'));
+    if (realTabs.length < 3) return;
+
+    let tabData = realTabs.map(t => ({ title: t.title, url: t.url }));
+    if (settings.metaDesc) {
+      tabData = await enrichTabsWithMeta(realTabs, tabData);
+    }
+    const { suggestions, renames, closeSuggestions } = await fetchGroupingSuggestions(tabData, settings, aiAbortController.signal);
+
+    if (mode === 'grouping' && suggestions && suggestions.length > 0) {
+      const filtered = suggestions.filter(s => {
+        if (!s.tabIndices || s.tabIndices.length < 2) return false;
+        const groups = new Set(s.tabIndices.map(idx => {
+          const tab = realTabs[idx - 1];
+          if (!tab) return null;
+          return domainGroups.findIndex(g => g.tabs.some(gt => gt.url === tab.url));
+        }));
+        return groups.size > 1 || groups.has(-1);
+      });
+      if (filtered.length > 0) renderSuggestionBanners(filtered);
+    }
+    if (mode === 'rename' && renames && renames.length > 0) applyAiRenames(renames);
+    if (mode === 'close' && closeSuggestions && closeSuggestions.length > 0) renderCloseSuggestions(closeSuggestions);
+
+    renderDebugPanel();
+  } catch (e) {
+    console.debug('AI trigger (' + mode + ') failed:', e.message);
+  }
+}
+
+let searchAbortController = null;
+
+async function searchTabsWithAi(query) {
+  if (!query || query.trim().length < 2) { clearSearchHighlights(); clearHistoryResults(); return; }
+
+  const settings = await new Promise(resolve =>
+    chrome.storage.local.get('ai_settings', r => resolve(r.ai_settings))
+  );
+  if (!settings || !settings.baseUrl || !settings.apiKey) return;
+
+  if (searchAbortController) searchAbortController.abort();
+  searchAbortController = new AbortController();
+
+  const realTabs = openTabs.filter(t => !t.isTabOut && t.url && !t.url.startsWith('chrome'));
+  const tabData = realTabs.map(t => ({ title: t.title, url: t.url }));
+
+  const searchArea = document.getElementById('aiSearchStatus');
+  if (searchArea) searchArea.textContent = '搜索中...';
+
+  const openUrls = new Set(realTabs.map(t => t.url));
+  let historyData = [];
+  try {
+    const historyRaw = await chrome.history.search({ text: query, maxResults: 30 });
+    const historyDeduped = (historyRaw || []).filter(h => {
+      if (!h.url) return false;
+      if (h.url.startsWith('chrome-extension://') || h.url.startsWith('chrome://')) return false;
+      return !openUrls.has(h.url);
+    });
+    historyData = historyDeduped.slice(0, 20).map(h => ({ title: h.title || h.url, url: h.url }));
+  } catch (e) {
+    console.warn('[Tab Out] chrome.history.search failed:', e);
+  }
+
+  const { openMatches, historyMatches } = await fetchTabSearch(query, tabData, historyData, settings, searchAbortController.signal);
+  if (searchArea) searchArea.textContent = '';
+
+  if (openMatches.length === 0 && historyMatches.length === 0) {
+    if (searchArea) searchArea.textContent = '未找到匹配';
+    setTimeout(() => { if (searchArea) searchArea.textContent = ''; }, 2000);
+    clearHistoryResults();
+    return;
+  }
+
+  highlightMatchedTabs(openMatches, realTabs);
+  renderHistoryResults(historyMatches, historyData);
+  if (settings && settings.debug) renderDebugPanel();
+}
+
+function highlightMatchedTabs(indices, realTabs) {
+  clearSearchHighlights();
+  const matchedUrls = new Set(indices.map(i => realTabs[i - 1]?.url).filter(Boolean));
+
+  document.querySelectorAll('.page-chip[data-tab-url]').forEach(row => {
+    if (matchedUrls.has(row.dataset.tabUrl)) {
+      row.classList.add('tab-highlighted');
+    } else {
+      row.classList.add('tab-dimmed');
+    }
+  });
+}
+
+function clearSearchHighlights() {
+  document.querySelectorAll('.tab-highlighted').forEach(el => el.classList.remove('tab-highlighted'));
+  document.querySelectorAll('.tab-dimmed').forEach(el => el.classList.remove('tab-dimmed'));
+}
+
+function renderHistoryResults(indices, historyData) {
+  clearHistoryResults();
+  if (!indices || indices.length === 0) return;
+
+  const items = indices
+    .map(i => historyData[i - 1])
+    .filter(Boolean)
+    .map(h => {
+      const hostname = new URL(h.url).hostname.replace('www.', '');
+      return `<div class="history-result-item" data-url="${h.url.replace(/"/g, '&quot;')}">
+        <img class="chip-favicon" src="https://www.google.com/s2/favicons?domain=${hostname}&sz=32" alt="">
+        <span class="history-result-title">${h.title || hostname}</span>
+        <span class="history-result-host">${hostname}</span>
+      </div>`;
+    }).join('');
+
+  const html = `<div class="history-results-section" id="historyResultsSection">
+    <div class="section-header"><h2>History</h2><div class="section-line"></div></div>
+    ${items}
+  </div>`;
+
+  const topRow = document.getElementById('topRow');
+  if (topRow) {
+    topRow.insertAdjacentHTML('beforeend', html);
+  }
+
+  document.getElementById('historyResultsSection').addEventListener('click', (e) => {
+    const item = e.target.closest('.history-result-item');
+    if (item) chrome.tabs.create({ url: item.dataset.url });
+  });
+}
+
+function clearHistoryResults() {
+  const el = document.getElementById('historyResultsSection');
+  if (el) el.remove();
 }
 
 
@@ -1187,6 +1709,18 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  // ---- Trigger AI suggestions manually ----
+  if (action === 'trigger-ai') {
+    triggerAiSuggestions();
+    return;
+  }
+
+  // ---- Debug: trigger single AI capability ----
+  if (action === 'debug-trigger-ai') {
+    triggerAiOnly(actionEl.dataset.aiOnly);
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1229,7 +1763,7 @@ document.addEventListener('click', async (e) => {
 
     // Close the tab in Chrome directly
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
+    const match = allTabs.find(t => t.url === tabUrl || extractSuspendedUrl(t.url) === tabUrl);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
@@ -1412,11 +1946,109 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Accept AI suggestion ----
+  if (action === 'accept-suggestion') {
+    const banner = actionEl.closest('.ai-suggestion-banner');
+    if (banner && pendingSuggestions.length > 0) {
+      const suggestion = pendingSuggestions[0];
+      const realTabs = openTabs.filter(t => !t.isTabOut && t.url && !t.url.startsWith('chrome'));
+      const hostnames = [...new Set(
+        suggestion.tabIndices
+          .map(i => realTabs[i - 1])
+          .filter(Boolean)
+          .map(t => { try { return new URL(t.url).hostname; } catch { return null; } })
+          .filter(Boolean)
+      )];
+
+      const rule = {
+        groupKey: 'ai_' + suggestion.groupLabel.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        groupLabel: suggestion.groupLabel,
+        rule: { hostnames },
+        createdAt: Date.now()
+      };
+
+      const { ai_learned_groups: groups = [] } = await chrome.storage.local.get('ai_learned_groups');
+      groups.push(rule);
+      await chrome.storage.local.set({ ai_learned_groups: groups });
+
+      banner.classList.add('hiding');
+      setTimeout(() => {
+        banner.remove();
+        pendingSuggestions.shift();
+        renderNextSuggestionBanner();
+        if (pendingSuggestions.length === 0) renderNextCloseBanner();
+        skipNextAiCall = true;
+        renderDashboard();
+      }, 300);
+      showToast(`已添加分组规则：${suggestion.groupLabel}`);
+    }
+    return;
+  }
+
+  // ---- Dismiss AI suggestion ----
+  if (action === 'dismiss-suggestion') {
+    const banner = actionEl.closest('.ai-suggestion-banner');
+    if (banner) {
+      banner.classList.add('hiding');
+      setTimeout(() => {
+        banner.remove();
+        pendingSuggestions.shift();
+        renderNextSuggestionBanner();
+        if (pendingSuggestions.length === 0) renderNextCloseBanner();
+      }, 300);
+    }
+    return;
+  }
+
+  // ---- Accept close suggestion ----
+  if (action === 'accept-close-suggestion') {
+    const banner = actionEl.closest('.ai-close-banner');
+    if (banner && pendingCloseSuggestions.length > 0) {
+      const suggestion = pendingCloseSuggestions[0];
+      const realTabs = openTabs.filter(t => !t.isTabOut && t.url && !t.url.startsWith('chrome'));
+      const urlsToClose = suggestion.tabIndices
+        .map(i => realTabs[i - 1])
+        .filter(Boolean)
+        .map(t => t.url);
+
+      await closeTabsExact(urlsToClose);
+      playCloseSound();
+
+      banner.classList.add('hiding');
+      setTimeout(() => {
+        banner.remove();
+        pendingCloseSuggestions.shift();
+        renderNextCloseBanner();
+        skipNextAiCall = true;
+        renderDashboard();
+      }, 300);
+      showToast(`已关闭 ${urlsToClose.length} 个标签`);
+    }
+    return;
+  }
+
+  // ---- Dismiss close suggestion ----
+  if (action === 'dismiss-close-suggestion') {
+    const banner = actionEl.closest('.ai-close-banner');
+    if (banner) {
+      banner.classList.add('hiding');
+      setTimeout(() => {
+        banner.remove();
+        pendingCloseSuggestions.shift();
+        renderNextCloseBanner();
+      }, 300);
+    }
+    return;
+  }
+
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
     const allUrls = openTabs
       .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
       .map(t => t.url);
+    const count = allUrls.length;
+    const confirmed = await showConfirm(`This will close all ${count} tab${count !== 1 ? 's' : ''}. Are you sure?`);
+    if (!confirmed) return;
     await closeTabsByUrls(allUrls);
     playCloseSound();
 
@@ -1479,4 +2111,16 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'aiSearchInput') return;
+  clearTimeout(e.target._debounce);
+  e.target._debounce = setTimeout(() => searchTabsWithAi(e.target.value), 500);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.id !== 'aiSearchInput') return;
+  if (e.key === 'Enter') { clearTimeout(e.target._debounce); searchTabsWithAi(e.target.value); }
+  if (e.key === 'Escape') { e.target.value = ''; clearSearchHighlights(); clearHistoryResults(); }
+});
+
 renderDashboard();

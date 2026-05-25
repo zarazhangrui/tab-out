@@ -17,18 +17,6 @@
 
 
   <!-- ================================================================
-       HEADER — greeting on the left
-       ================================================================ -->
-  <header>
-    <div class="header-left">
-      <!-- "Good afternoon" — written by getGreeting() in app.js -->
-      <h1 id="greeting"></h1>
-      <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
-      <div class="date" id="dateDisplay"></div>
-    </div>
-  </header>
-
-  <!-- ================================================================
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
        Hidden by default; app.js shows it when dupeTabOutCount > 1
        ================================================================ -->
@@ -52,6 +40,18 @@
        Right: saved for later checklist
        The right column only renders when it has items (JS controls this)
        ================================================================ -->
+  <!-- Top row: Might open next + History (side by side) -->
+  <div class="top-row" id="topRow">
+    <div class="frequent-section" id="frequentSitesSection" style="display:none">
+      <div class="section-header">
+        <h2>Might open next</h2>
+        <div class="section-line"></div>
+      </div>
+      <div class="frequent-list" id="frequentSitesList"></div>
+    </div>
+  </div>
+
+  <!-- Bottom row: Open tabs + Saved for later (side by side) -->
   <div class="dashboard-columns" id="dashboardColumns">
 
     <!-- LEFT COLUMN: Open tabs -->
@@ -108,10 +108,29 @@
     </div>
     <div class="last-refresh">
       <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> by <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
+      <button class="settings-btn" id="settingsBtn" title="Settings" style="margin-left: 12px;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.248a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+        </svg>
+      </button>
     </div>
   </footer>
 
 </div><!-- end .container -->
+
+<!-- ================================================================
+     CONFIRM MODAL — for dangerous operations (close all tabs, etc.)
+     ================================================================ -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog">
+    <p class="confirm-msg" id="confirmMsg"></p>
+    <div class="confirm-actions">
+      <button class="confirm-btn confirm-cancel" id="confirmCancel">Cancel</button>
+      <button class="confirm-btn confirm-danger" id="confirmOk">Close All</button>
+    </div>
+  </div>
+</div>
 
 <!-- ================================================================
      TOAST — floats above everything, used for action confirmations
@@ -129,6 +148,8 @@
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
 
+<script src="settings.js"></script>
+<script src="ai-api.js"></script>
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
 </body>

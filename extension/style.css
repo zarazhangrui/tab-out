@@ -384,6 +384,11 @@ header {
   border-radius: 2px;
 }
 
+.chip-bookmark {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
 /* Title text — wraps naturally, no truncation */
 .chip-text {
   flex: 1;
@@ -889,16 +894,23 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
    ================================================================ */
 
 /* ---- Two-column layout ---- */
+.top-row {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+  margin-bottom: 32px;
+}
+
 .dashboard-columns {
   display: flex;
   gap: 32px;
   align-items: flex-start;
 }
 
-/* Open tabs column keeps the grid layout */
+/* Open tabs column */
 .dashboard-columns .active-section {
   flex: 1;
-  min-width: 600px;
+  min-width: 0;
 }
 
 /* Saved for later column — fixed width on the right, scrolls independently */
@@ -1155,4 +1167,653 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+
+/* ================================================================
+   AI SUGGESTION BANNER
+   Appears above domain cards when AI suggests grouping tabs together.
+   Sage/green gradient to differentiate from the amber tab-cleanup banner.
+   ================================================================ */
+
+.ai-suggestion-banner {
+  background: linear-gradient(135deg, #f0f5f0 0%, #e8f0e8 100%);
+  border: 1px solid #c8d8c8;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: fadeUp 0.4s ease;
+  column-span: all;
+}
+
+.ai-suggestion-banner .suggestion-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ai-suggestion-banner .suggestion-content {
+  flex: 1;
+}
+
+.ai-suggestion-banner .suggestion-label {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.ai-suggestion-banner .suggestion-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.ai-suggestion-banner .suggestion-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-suggestion-banner .suggestion-actions button {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.ai-suggestion-banner .btn-accept {
+  background: #3d6b3d;
+  color: white;
+}
+
+.ai-suggestion-banner .btn-dismiss {
+  background: var(--warm-gray);
+  color: var(--muted);
+}
+
+.ai-suggestion-banner .suggestion-actions button:hover {
+  opacity: 0.8;
+}
+
+.ai-suggestion-banner.hiding {
+  animation: fadeOut 0.3s ease forwards;
+}
+
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ================================================================
+   SETTINGS PANEL
+   ================================================================ */
+
+.settings-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--ink);
+  opacity: 0.4;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.settings-btn:hover {
+  opacity: 1;
+  background: rgba(26, 22, 19, 0.04);
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 22, 19, 0.3);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.settings-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 16px 48px rgba(26, 22, 19, 0.15);
+  animation: panelUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes panelUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.settings-title {
+  font-family: 'Newsreader', serif;
+  font-weight: 400;
+  font-size: 20px;
+  color: var(--ink);
+  margin-bottom: 24px;
+}
+
+.settings-panel label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+
+.settings-panel label:first-of-type {
+  margin-top: 0;
+}
+
+.settings-panel input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card-bg);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.settings-panel input:focus {
+  border-color: var(--accent-amber);
+}
+
+.settings-panel input::placeholder {
+  color: var(--muted);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 28px;
+  justify-content: flex-end;
+}
+
+.settings-cancel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 20px;
+  border-radius: 6px;
+  border: 1px solid var(--warm-gray);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settings-cancel:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.settings-save {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 20px;
+  border-radius: 6px;
+  border: none;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.settings-save:hover {
+  opacity: 0.85;
+}
+
+/* ================================================================
+   AI CLOSE SUGGESTION BANNER
+   Appears when AI recommends closing stale/unnecessary tabs.
+   Rose/red gradient to signal cleanup action.
+   ================================================================ */
+
+.ai-close-banner {
+  background: linear-gradient(135deg, rgba(179, 90, 90, 0.04), rgba(179, 90, 90, 0.08));
+  border: 1px solid rgba(179, 90, 90, 0.15);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: fadeUp 0.4s ease;
+  column-span: all;
+}
+
+.ai-close-banner .suggestion-content { flex: 1; }
+.ai-close-banner .suggestion-label { font-weight: 600; color: var(--ink); font-size: 14px; }
+.ai-close-banner .suggestion-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.ai-close-banner .suggestion-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ai-close-banner .suggestion-actions button {
+  border: none; border-radius: 6px; padding: 6px 14px;
+  font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity 0.2s;
+}
+.ai-close-banner .btn-close-accept { background: var(--accent-rose); color: white; }
+.ai-close-banner .btn-dismiss { background: var(--warm-gray); color: var(--muted); }
+.ai-close-banner .suggestion-actions button:hover { opacity: 0.8; }
+.ai-close-banner.hiding { animation: fadeOut 0.3s ease forwards; }
+
+/* AI Search */
+.ai-search-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  column-span: all;
+}
+
+.ai-search-input {
+  flex: 1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  padding: 10px 14px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.ai-search-input:focus {
+  border-color: var(--accent-sage);
+}
+
+.ai-search-input::placeholder {
+  color: var(--muted);
+}
+
+.ai-search-status {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.page-chip.tab-highlighted {
+  background: rgba(90, 122, 98, 0.08);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--accent-sage);
+}
+
+.page-chip.tab-dimmed {
+  opacity: 0.3;
+  transition: opacity 0.3s;
+}
+
+/* History search results */
+.history-results-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-results-header {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.history-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(154, 145, 138, 0.1);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.history-result-item:last-child {
+  border-bottom: none;
+}
+
+.history-result-item:hover {
+  background: rgba(90, 122, 98, 0.06);
+}
+
+.history-result-title {
+  font-size: 13px;
+  color: var(--ink);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-result-host {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* AI Debug Panel */
+.ai-debug-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  z-index: 9999;
+  border-top: 2px solid var(--accent-amber);
+  display: none;
+}
+
+.ai-debug-panel .debug-header {
+  position: sticky;
+  top: 0;
+  background: #222;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #333;
+}
+
+.ai-debug-panel .debug-triggers {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 12px;
+}
+
+.ai-debug-panel .debug-triggers button {
+  background: #333;
+  border: 1px solid #555;
+  color: #ccc;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ai-debug-panel .debug-triggers button:hover {
+  background: var(--accent-amber);
+  color: #000;
+  border-color: var(--accent-amber);
+}
+
+.ai-debug-panel .debug-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.ai-debug-panel .debug-close:hover { color: #fff; }
+
+.ai-debug-panel .debug-empty {
+  padding: 16px;
+  color: #666;
+  text-align: center;
+}
+
+.ai-debug-panel .debug-entry {
+  border-bottom: 1px solid #2a2a2a;
+  padding: 0;
+}
+
+.ai-debug-panel .debug-entry summary {
+  padding: 8px 16px;
+  cursor: pointer;
+  color: #aaa;
+}
+
+.ai-debug-panel .debug-entry summary:hover { background: #252525; }
+
+.ai-debug-panel .debug-entry[open] summary { color: var(--accent-amber); }
+
+.ai-debug-panel .debug-section {
+  padding: 4px 16px 8px 32px;
+}
+
+.ai-debug-panel .debug-section strong {
+  color: #8ab4f8;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.ai-debug-panel .debug-section pre {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  background: #111;
+  padding: 8px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.settings-debug-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-test-ai {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px;
+  background: #333;
+  border: 1px solid #555;
+  color: #ccc;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-test-ai:hover {
+  background: var(--accent-amber);
+  color: #000;
+  border-color: var(--accent-amber);
+}
+
+/* ---- Confirm Dialog ---- */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 22, 19, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s;
+}
+.confirm-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.confirm-dialog {
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 12px;
+  padding: 24px 28px;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(26, 22, 19, 0.18);
+  transform: scale(0.95);
+  transition: transform .2s;
+}
+.confirm-overlay.visible .confirm-dialog {
+  transform: scale(1);
+}
+.confirm-msg {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  margin-bottom: 20px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.confirm-btn {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--warm-gray);
+  transition: background .15s, border-color .15s;
+}
+.confirm-cancel {
+  background: var(--paper);
+  color: var(--ink);
+}
+.confirm-cancel:hover {
+  background: var(--warm-gray);
+}
+.confirm-danger {
+  background: var(--accent-rose);
+  color: #fff;
+  border-color: var(--accent-rose);
+}
+.confirm-danger:hover {
+  background: #9a4444;
+  border-color: #9a4444;
+}
+
+/* ─── Frequent Sites (Prediction) ─────────────────────────────── */
+.frequent-section {
+  flex: 1;
+  min-width: 0;
+}
+.frequent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.freq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 20px;
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 13px;
+  transition: border-color .15s, box-shadow .15s;
+  cursor: pointer;
+}
+.freq-chip:hover {
+  border-color: var(--accent-amber);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.freq-favicon {
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.freq-label {
+  white-space: nowrap;
+}
+.freq-dismiss {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: rgba(26, 22, 19, 0.08);
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  margin-left: -2px;
+  transition: background 0.15s, color 0.15s;
+}
+.freq-chip:hover .freq-dismiss {
+  display: inline-flex;
+}
+.freq-dismiss:hover {
+  background: var(--accent-rose);
+  color: #fff;
+}
+
+/* Blacklist in settings */
+.settings-blacklist-section {
+  margin-top: 20px;
+  border-top: 1px solid var(--warm-gray);
+  padding-top: 16px;
+}
+.blacklist-list {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.blacklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(26, 22, 19, 0.05);
+}
+.blacklist-host {
+  font-size: 13px;
+  color: var(--ink);
+}
+.blacklist-remove {
+  border: none;
+  background: none;
+  font-size: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+.blacklist-remove:hover {
+  background: rgba(26, 22, 19, 0.06);
+  color: var(--ink);
+}
+.blacklist-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
 }
