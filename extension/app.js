@@ -322,7 +322,7 @@ function setupBrokenImageHandler() {
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
-    // newtab.html is only a trampoline; the dashboard lives at index.html.
+    // The dashboard is the direct new-tab override so Chrome keeps the omnibox focused.
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});

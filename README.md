@@ -6,7 +6,7 @@ Tab Out is a Chrome extension that replaces your new tab page with a dashboard o
 
 No server. No account. No external API calls. Just a Chrome extension.
 
-Tab Out uses a tiny new-tab trampoline that immediately redirects to the dashboard. This avoids leaving the main dashboard in Chrome's special New Tab Page state, where bookmarks-bar visibility became unreliable in Chrome M148.
+Tab Out loads the dashboard directly as Chrome's new tab override, so the address bar stays highlighted after Cmd+T and you can start typing a search immediately.
 
 ---
 
@@ -65,8 +65,8 @@ You'll see Tab Out.
 
 ```
 You open a new tab
-  -> Chrome loads a tiny Tab Out trampoline page
-  -> The trampoline immediately replaces itself with the dashboard
+  -> Chrome loads the Tab Out dashboard directly
+  -> The address bar stays highlighted for immediate search
   -> Tab Out shows your open tabs grouped by domain
   -> Homepages (Gmail, X, etc.) get their own group at the top
   -> Click any tab title to jump to it
@@ -83,7 +83,7 @@ Everything runs inside the Chrome extension. No external server, no API calls, n
 | What | How |
 |------|-----|
 | Extension | Chrome Manifest V3 |
-| New tab handoff | `newtab.html` trampoline uses `location.replace()` to load `index.html` |
+| New tab handoff | `index.html` is loaded directly as Chrome's new tab override |
 | Storage | chrome.storage.local |
 | Bookmarks | chrome.bookmarks |
 | Favicons | Chrome extension favicon endpoint |
