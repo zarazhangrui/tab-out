@@ -18,6 +18,28 @@
   --status-abandoned: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --control-bg: #fffdf9;
+  --control-hover: rgba(154, 145, 138, 0.1);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ink: #f1ebe2;
+  --paper: #111311;
+  --warm-gray: #34322d;
+  --muted: #aaa29a;
+  --accent-amber: #e09a62;
+  --accent-sage: #8ab094;
+  --accent-slate: #9aacba;
+  --accent-rose: #df8d8d;
+  --status-active: #7fbe8d;
+  --status-cooling: #d5a84c;
+  --status-abandoned: #df8d8d;
+  --card-bg: #191b18;
+  --shadow: rgba(0, 0, 0, 0.28);
+  --control-bg: #20221e;
+  --control-hover: rgba(241, 235, 226, 0.08);
+  color-scheme: dark;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,6 +62,10 @@ body::before {
   z-index: 0;
 }
 
+:root[data-theme="dark"] body::before {
+  opacity: 0.45;
+}
+
 .container {
   position: relative;
   z-index: 1;
@@ -59,6 +85,7 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 24px;
   margin-bottom: 48px;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--warm-gray);
@@ -81,68 +108,231 @@ header {
   text-transform: uppercase;
 }
 
-/* ---- Tab cleanup banner ---- */
-.tab-cleanup-banner {
-  background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));
-  border: 1px solid rgba(200, 113, 58, 0.18);
-  border-radius: 8px;
-  padding: 16px 24px;
+.header-right {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
 }
 
-.tab-cleanup-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.tab-cleanup-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(200, 113, 58, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.tab-cleanup-icon svg {
-  width: 18px;
-  height: 18px;
-  color: var(--accent-amber);
-}
-
-.tab-cleanup-text {
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.5;
-}
-
-.tab-cleanup-text strong {
-  font-weight: 600;
-}
-
-.tab-cleanup-btn {
+.theme-toggle {
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
   font-weight: 600;
-  padding: 8px 20px;
+  color: var(--muted);
+  background: var(--control-bg);
+  border: 1px solid var(--warm-gray);
   border-radius: 6px;
-  border: none;
-  background: var(--accent-amber);
-  color: white;
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
 }
 
-.tab-cleanup-btn:hover {
-  opacity: 0.85;
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  background: var(--control-hover);
   transform: translateY(-1px);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: 3px;
+}
+
+.theme-toggle-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.theme-toggle-icon::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+:root[data-theme="dark"] .theme-toggle-icon::after {
+  inset: -1px -3px 1px 4px;
+  background: var(--control-bg);
+  opacity: 1;
+}
+
+/* ---- Bookmarks bar mirror ---- */
+.bookmarks-bar {
+  margin-top: -32px;
+  margin-bottom: 32px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--warm-gray);
+  position: relative;
+}
+
+.bookmarks-bar-scroll {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: visible;
+  padding: 2px 0 4px;
+}
+
+.bookmarks-bar.collapsed .bookmarks-bar-scroll {
+  max-height: 72px;
+  overflow: hidden;
+  padding-right: 82px;
+}
+
+.bookmarks-bar.expanded .bookmarks-bar-scroll {
+  max-height: none;
+  padding-right: 0;
+}
+
+.bookmarks-expand-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-amber);
+  background: var(--control-bg);
+  border: 1px solid rgba(200, 113, 58, 0.28);
+  border-radius: 6px;
+  min-height: 30px;
+  padding: 5px 12px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: -10px 0 18px var(--paper);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.bookmarks-expand-toggle:hover {
+  background: rgba(200, 113, 58, 0.08);
+  border-color: var(--accent-amber);
+}
+
+:root[data-theme="dark"] .bookmarks-expand-toggle {
+  border-color: rgba(224, 154, 98, 0.3);
+}
+
+:root[data-theme="dark"] .bookmarks-expand-toggle:hover {
+  background: rgba(224, 154, 98, 0.1);
+}
+
+.bookmark-link,
+.bookmark-menu-link {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 180px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.bookmark-link:hover,
+.bookmark-menu-link:hover {
+  background: var(--control-hover);
+  border-color: var(--warm-gray);
+  color: var(--ink);
+}
+
+.bookmark-link span,
+.bookmark-menu-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookmark-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.bookmark-folder {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.bookmark-folder summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.bookmark-folder summary::-webkit-details-marker {
+  display: none;
+}
+
+.bookmark-folder-icon {
+  width: 14px;
+  height: 10px;
+  border-radius: 3px 3px 2px 2px;
+  background: var(--accent-slate);
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.bookmark-folder-icon::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: -3px;
+  width: 7px;
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent-slate);
+}
+
+.bookmark-folder-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 48px));
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px var(--shadow);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bookmark-folder-menu::-webkit-scrollbar {
+  display: none;
+}
+
+.bookmark-folder.align-left .bookmark-folder-menu {
+  left: auto;
+  right: 0;
+}
+
+.bookmark-menu-link {
+  width: 100%;
+  max-width: none;
+  justify-content: flex-start;
 }
 
 /* ---- Nudge banner ---- */
@@ -337,6 +527,11 @@ header {
   border-radius: 3px;
 }
 
+.open-tabs-badge.duplicate-badge {
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.08);
+}
+
 .open-tabs-badge svg {
   width: 10px;
   height: 10px;
@@ -376,12 +571,23 @@ header {
   border-bottom: none;
 }
 
+.page-chips-overflow {
+  display: contents;
+}
+
 /* Favicon */
 .chip-favicon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   border-radius: 2px;
+}
+
+.deferred-favicon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 4px;
 }
 
 /* Title text — wraps naturally, no truncation */
@@ -438,7 +644,7 @@ header {
 
 .chip-action:hover {
   opacity: 1;
-  background: rgba(154, 145, 138, 0.1);
+  background: var(--control-hover);
 }
 
 .chip-save:hover {
@@ -598,59 +804,6 @@ header {
   color: var(--status-active);
 }
 
-/* ---- Footer ---- */
-footer {
-  margin-top: 48px;
-  padding-top: 20px;
-  border-top: 1px solid var(--warm-gray);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.footer-stats {
-  display: flex;
-  gap: 32px;
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-num {
-  font-family: 'Newsreader', serif;
-  font-size: 28px;
-  font-weight: 300;
-  color: var(--ink);
-  line-height: 1;
-  transition: all 0.3s;
-}
-
-.stat-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--muted);
-  margin-top: 4px;
-}
-
-.last-refresh {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.refresh-btn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--accent-amber);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 /* ---- Animations ---- */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(12px); }
@@ -658,7 +811,6 @@ footer {
 }
 
 header { animation: fadeUp 0.5s ease both; }
-.tab-cleanup-banner { animation: fadeUp 0.5s ease 0.1s both; }
 .nudge-banner { animation: fadeUp 0.5s ease 0.15s both; }
 .active-section .section-header { animation: fadeUp 0.5s ease 0.2s both; }
 .active-section .missions .mission-card:nth-child(1) { animation: fadeUp 0.4s ease 0.25s both; }
@@ -669,7 +821,6 @@ header { animation: fadeUp 0.5s ease both; }
 .abandoned-section .missions .mission-card:nth-child(1) { animation: fadeUp 0.4s ease 0.5s both; }
 .abandoned-section .missions .mission-card:nth-child(2) { animation: fadeUp 0.4s ease 0.55s both; }
 .abandoned-section .missions .mission-card:nth-child(3) { animation: fadeUp 0.4s ease 0.6s both; }
-footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .deferred-list .deferred-item:nth-child(1) { animation-delay: 0.05s; }
 .deferred-list .deferred-item:nth-child(2) { animation-delay: 0.1s; }
@@ -677,6 +828,22 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 .deferred-list .deferred-item:nth-child(4) { animation-delay: 0.2s; }
 .deferred-list .deferred-item:nth-child(5) { animation-delay: 0.25s; }
 .deferred-column .section-header { animation: fadeUp 0.5s ease 0.1s both; }
+
+body.has-rendered-dashboard header,
+body.has-rendered-dashboard .header-left h1,
+body.has-rendered-dashboard .header-left .date,
+body.has-rendered-dashboard .header-right,
+body.has-rendered-dashboard .theme-toggle,
+body.has-rendered-dashboard .bookmarks-bar,
+body.has-rendered-dashboard .nudge-banner,
+body.has-rendered-dashboard .section-header,
+body.has-rendered-dashboard .section-count,
+body.has-rendered-dashboard .active-section .missions .mission-card,
+body.has-rendered-dashboard .deferred-list .deferred-item,
+body.has-rendered-dashboard .missions-empty-state,
+body.has-rendered-dashboard .empty-checkmark {
+  animation: none !important;
+}
 
 
 /* ================================================================
@@ -874,7 +1041,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .update-banner-dismiss:hover {
-  background: rgba(26, 22, 19, 0.06);
+  background: var(--control-hover);
   color: var(--ink);
 }
 
@@ -913,13 +1080,72 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 /* On narrow screens, stack vertically */
 @media (max-width: 800px) {
+  header {
+    align-items: center;
+    margin-bottom: 36px;
+  }
+
+  .theme-toggle {
+    padding: 7px 10px;
+  }
+
+  .bookmarks-bar {
+    margin-top: -20px;
+    margin-bottom: 28px;
+  }
+
+  .bookmark-link {
+    max-width: 150px;
+  }
+
   .dashboard-columns {
     flex-direction: column;
   }
+
+  .dashboard-columns .active-section {
+    min-width: 0;
+    width: 100%;
+  }
+
   .deferred-column {
     width: 100%;
     position: static;
   }
+}
+
+:root[data-theme="dark"] .mission-card {
+  border-color: rgba(241, 235, 226, 0.11);
+}
+
+:root[data-theme="dark"] .mission-card:hover {
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+:root[data-theme="dark"] .page-chip,
+:root[data-theme="dark"] .deferred-item,
+:root[data-theme="dark"] .archive-item {
+  border-bottom-color: rgba(241, 235, 226, 0.08);
+}
+
+:root[data-theme="dark"] .page-chip.clickable:hover {
+  background: rgba(224, 154, 98, 0.08);
+}
+
+:root[data-theme="dark"] .chip-save:hover {
+  background: rgba(138, 176, 148, 0.1);
+}
+
+:root[data-theme="dark"] .chip-close:hover {
+  background: rgba(223, 141, 141, 0.1);
+}
+
+:root[data-theme="dark"] .update-banner {
+  background: linear-gradient(135deg, rgba(138, 176, 148, 0.08), rgba(138, 176, 148, 0.14));
+  border-color: rgba(138, 176, 148, 0.24);
+}
+
+:root[data-theme="dark"] .archive-search {
+  border-color: rgba(241, 235, 226, 0.13);
 }
 
 /* ---- Checklist items ---- */
@@ -1155,4 +1381,10 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+.archive-no-results {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
 }

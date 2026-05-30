@@ -91,6 +91,7 @@ Once the extension is loaded:
 ## Key Facts
 
 - Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
+- Chrome opens `index.html` directly as the new tab override so the address bar stays highlighted after Cmd+T for immediate searching.
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
 - 100% local. No data is sent to any external service.
 - To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.

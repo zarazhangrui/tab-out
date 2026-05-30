@@ -10,7 +10,8 @@
    2. Groups tabs by domain with a landing pages category
    3. Renders domain cards, banners, and stats
    4. Handles all user actions (close tabs, save for later, focus tab)
-   5. Stores "Saved for Later" tabs in chrome.storage.local (no server)
+   5. Mirrors the Bookmarks Bar folder inside the new-tab page
+   6. Stores "Saved for Later" tabs in chrome.storage.local (no server)
    ================================================================ */
 
 'use strict';
@@ -19,12 +20,298 @@
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
-   Since this page IS the extension's new tab page, it has full
+   Since this page is loaded directly from the extension, it has full
    access to chrome.tabs and chrome.storage. No middleman needed.
    ---------------------------------------------------------------- */
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+let dashboardRenderTimer = null;
+let dashboardRenderPromise = null;
+let hasRenderedDashboard = false;
+let hasLoadedLocalConfig = false;
+let lastPointerActivityAt = 0;
+
+// Theme preference is mirrored to localStorage so theme.js can apply it
+// before the stylesheet paints on future new-tab loads.
+const THEME_STORAGE_KEY = 'themePreference';
+const THEME_LOCAL_STORAGE_KEY = 'tabOutTheme';
+
+function normalizeTheme(theme) {
+  return theme === 'dark' || theme === 'light' ? theme : null;
+}
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function readLocalTheme() {
+  try { return normalizeTheme(localStorage.getItem(THEME_LOCAL_STORAGE_KEY)); }
+  catch { return null; }
+}
+
+function writeLocalTheme(theme) {
+  try { localStorage.setItem(THEME_LOCAL_STORAGE_KEY, theme); }
+  catch { /* localStorage unavailable; chrome.storage still persists */ }
+}
+
+function updateThemeToggle(theme) {
+  const toggle = document.getElementById('themeToggle');
+  const text = document.getElementById('themeToggleText');
+  if (!toggle || !text) return;
+
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+  toggle.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+  toggle.setAttribute('aria-label', `Switch to ${nextTheme} mode`);
+  text.textContent = nextTheme === 'dark' ? 'Dark' : 'Light';
+}
+
+function applyTheme(theme) {
+  const resolvedTheme = normalizeTheme(theme) || getSystemTheme();
+  document.documentElement.dataset.theme = resolvedTheme;
+  document.documentElement.style.colorScheme = resolvedTheme;
+  updateThemeToggle(resolvedTheme);
+}
+
+async function initTheme() {
+  let storedTheme = readLocalTheme();
+
+  try {
+    const result = await chrome.storage.local.get(THEME_STORAGE_KEY);
+    storedTheme = normalizeTheme(result[THEME_STORAGE_KEY]) || storedTheme;
+  } catch {
+    // Fall back to the local mirror or system preference.
+  }
+
+  if (storedTheme) writeLocalTheme(storedTheme);
+  applyTheme(storedTheme);
+
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  mediaQuery.addEventListener('change', () => {
+    if (!readLocalTheme()) applyTheme(null);
+  });
+}
+
+async function toggleTheme() {
+  const currentTheme = normalizeTheme(document.documentElement.dataset.theme) || getSystemTheme();
+  const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+  applyTheme(nextTheme);
+  writeLocalTheme(nextTheme);
+
+  try {
+    await chrome.storage.local.set({ [THEME_STORAGE_KEY]: nextTheme });
+  } catch (err) {
+    console.warn('[tab-out] Could not persist theme preference:', err);
+  }
+
+  showToast(`${nextTheme === 'dark' ? 'Dark' : 'Light'} mode`);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+function faviconUrlForPage(pageUrl, size = 16) {
+  if (!pageUrl || pageUrl.startsWith('javascript:')) return '';
+
+  try {
+    const url = new URL(chrome.runtime.getURL('/_favicon/'));
+    url.searchParams.set('pageUrl', pageUrl);
+    url.searchParams.set('size', String(size));
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function findBookmarksBarNode(tree) {
+  const root = tree?.[0];
+  const rootChildren = root?.children || [];
+  return rootChildren.find(node => node.id === '1') ||
+    rootChildren.find(node => /bookmarks bar/i.test(node.title || '')) ||
+    rootChildren[0] ||
+    null;
+}
+
+function collectBookmarkLinks(node, limit = 18, links = []) {
+  if (!node || links.length >= limit) return links;
+
+  if (node.url) {
+    if (!node.url.startsWith('javascript:')) links.push(node);
+    return links;
+  }
+
+  for (const child of node.children || []) {
+    collectBookmarkLinks(child, limit, links);
+    if (links.length >= limit) break;
+  }
+
+  return links;
+}
+
+function renderBookmarkLink(bookmark, className = 'bookmark-link') {
+  const title = bookmark.title || bookmark.url || 'Bookmark';
+  const faviconUrl = faviconUrlForPage(bookmark.url, 16);
+
+  return `
+    <a class="${className}" href="${escapeAttr(bookmark.url)}" target="_top" title="${escapeAttr(title)}">
+      ${faviconUrl ? `<img class="bookmark-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span>${escapeHtml(title)}</span>
+    </a>`;
+}
+
+function renderBookmarkItem(node) {
+  if (node.url) return renderBookmarkLink(node);
+
+  const links = collectBookmarkLinks(node);
+  if (links.length === 0) return '';
+
+  return `
+    <details class="bookmark-folder">
+      <summary class="bookmark-link bookmark-folder-summary">
+        <span class="bookmark-folder-icon" aria-hidden="true"></span>
+        <span>${escapeHtml(node.title || 'Folder')}</span>
+      </summary>
+      <div class="bookmark-folder-menu">
+        ${links.map(link => renderBookmarkLink(link, 'bookmark-menu-link')).join('')}
+      </div>
+    </details>`;
+}
+
+function closeBookmarkFolders(exceptFolder = null) {
+  document.querySelectorAll('.bookmark-folder[open]').forEach(folder => {
+    if (folder !== exceptFolder) {
+      folder.open = false;
+      folder.classList.remove('align-left');
+    }
+  });
+}
+
+function positionBookmarkFolderMenu(folder) {
+  if (!folder) return;
+
+  const menu = folder.querySelector('.bookmark-folder-menu');
+  if (!menu) return;
+
+  folder.classList.remove('align-left');
+
+  const folderRect = folder.getBoundingClientRect();
+  const menuWidth = Math.min(320, window.innerWidth - 48);
+  const wouldClipRight = folderRect.left + menuWidth > window.innerWidth - 24;
+  const isRightSide = folderRect.left > window.innerWidth * 0.58;
+
+  if (wouldClipRight || isRightSide) folder.classList.add('align-left');
+}
+
+function handleBookmarkFolderClick(summary) {
+  const folder = summary?.closest('.bookmark-folder');
+  if (!folder) return;
+
+  expandBookmarksBar();
+  closeBookmarkFolders(folder);
+
+  requestAnimationFrame(() => {
+    if (folder.open) positionBookmarkFolderMenu(folder);
+  });
+}
+
+function updateBookmarksOverflow() {
+  const bar = document.getElementById('bookmarksBar');
+  const list = document.getElementById('bookmarksBarList');
+  const toggle = document.getElementById('bookmarksExpandToggle');
+  if (!bar || !list || !toggle || bar.hidden) return;
+
+  const wasExpanded = bar.dataset.expanded === 'true';
+  const previousExpanded = bar.classList.contains('expanded');
+
+  bar.classList.remove('expanded');
+  bar.classList.add('collapsed');
+  const hasOverflow = list.scrollHeight > list.clientHeight + 2;
+
+  bar.classList.toggle('expanded', wasExpanded || previousExpanded);
+  bar.classList.toggle('collapsed', !(wasExpanded || previousExpanded));
+  toggle.hidden = !hasOverflow;
+  toggle.textContent = wasExpanded || previousExpanded ? 'Less' : 'More';
+  toggle.setAttribute('aria-expanded', wasExpanded || previousExpanded ? 'true' : 'false');
+}
+
+async function renderBookmarksBar() {
+  const bar = document.getElementById('bookmarksBar');
+  const list = document.getElementById('bookmarksBarList');
+  if (!bar || !list || !chrome.bookmarks) return;
+
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const bookmarksBar = findBookmarksBarNode(tree);
+    const items = (bookmarksBar?.children || [])
+      .map(renderBookmarkItem)
+      .filter(Boolean);
+
+    if (items.length === 0) {
+      bar.hidden = true;
+      list.innerHTML = '';
+      return;
+    }
+
+    list.innerHTML = items.join('');
+    bar.hidden = false;
+    const isExpanded = bar.dataset.expanded === 'true';
+    bar.classList.toggle('expanded', isExpanded);
+    bar.classList.toggle('collapsed', !isExpanded);
+    requestAnimationFrame(updateBookmarksOverflow);
+  } catch (err) {
+    console.warn('[tab-out] Could not render bookmarks bar:', err);
+    bar.hidden = true;
+  }
+}
+
+function toggleBookmarksBar() {
+  const bar = document.getElementById('bookmarksBar');
+  if (!bar) return;
+
+  const isExpanded = bar.dataset.expanded === 'true';
+  bar.dataset.expanded = isExpanded ? 'false' : 'true';
+  bar.classList.toggle('expanded', !isExpanded);
+  bar.classList.toggle('collapsed', isExpanded);
+  updateBookmarksOverflow();
+}
+
+function expandBookmarksBar() {
+  const bar = document.getElementById('bookmarksBar');
+  if (!bar) return;
+
+  bar.dataset.expanded = 'true';
+  bar.classList.add('expanded');
+  bar.classList.remove('collapsed');
+  updateBookmarksOverflow();
+}
+
+function loadLocalConfig() {
+  return new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = 'config.local.js';
+    script.onload = () => { hasLoadedLocalConfig = true; resolve(); };
+    script.onerror = () => resolve();
+    document.head.appendChild(script);
+  });
+}
+
+function setupBrokenImageHandler() {
+  document.addEventListener('error', (e) => {
+    if (e.target instanceof HTMLImageElement) e.target.hidden = true;
+  }, true);
+}
 
 /**
  * fetchOpenTabs()
@@ -35,7 +322,7 @@ let openTabs = [];
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
+    // The dashboard is the direct new-tab override so Chrome keeps the omnibox focused.
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
@@ -45,7 +332,7 @@ async function fetchOpenTabs() {
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
-      // Flag Tab Out's own pages so we can detect duplicate new tabs
+      // Flag Tab Out's own pages so we can group them like regular tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
   } catch {
@@ -168,35 +455,6 @@ async function closeDuplicateTabs(urls, keepOne = true) {
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
 }
-
-/**
- * closeTabOutDupes()
- *
- * Closes all duplicate Tab Out new-tab pages except the current one.
- */
-async function closeTabOutDupes() {
-  const extensionId = chrome.runtime.id;
-  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
-
-  const allTabs = await chrome.tabs.query({});
-  const currentWindow = await chrome.windows.getCurrent();
-  const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
-  );
-
-  if (tabOutTabs.length <= 1) return;
-
-  // Keep the active Tab Out tab in the CURRENT window — that's the one the
-  // user is looking at right now. Falls back to any active one, then the first.
-  const keep =
-    tabOutTabs.find(t => t.active && t.windowId === currentWindow.id) ||
-    tabOutTabs.find(t => t.active) ||
-    tabOutTabs[0];
-  const toClose = tabOutTabs.filter(t => t.id !== keep.id).map(t => t.id);
-  if (toClose.length > 0) await chrome.tabs.remove(toClose);
-  await fetchOpenTabs();
-}
-
 
 /* ----------------------------------------------------------------
    SAVED FOR LATER — chrome.storage.local
@@ -722,7 +980,7 @@ let domainGroups = [];
 function getRealTabs() {
   return openTabs.filter(t => {
     const url = t.url || '';
-    return (
+    return t.isTabOut || (
       !url.startsWith('chrome://') &&
       !url.startsWith('chrome-extension://') &&
       !url.startsWith('about:') &&
@@ -731,27 +989,6 @@ function getRealTabs() {
     );
   });
 }
-
-/**
- * checkTabOutDupes()
- *
- * Counts how many Tab Out pages are open. If more than 1,
- * shows a banner offering to close the extras.
- */
-function checkTabOutDupes() {
-  const tabOutTabs = openTabs.filter(t => t.isTabOut);
-  const banner  = document.getElementById('tabOutDupeBanner');
-  const countEl = document.getElementById('tabOutDupeCount');
-  if (!banner) return;
-
-  if (tabOutTabs.length > 1) {
-    if (countEl) countEl.textContent = tabOutTabs.length;
-    banner.style.display = 'flex';
-  } else {
-    banner.style.display = 'none';
-  }
-}
-
 
 /* ----------------------------------------------------------------
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
@@ -765,11 +1002,9 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = faviconUrlForPage(tab.url, 16);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -783,7 +1018,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   }).join('');
 
   return `
-    <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
+    <div class="page-chips-overflow" hidden>${hiddenChips}</div>
     <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
       <span class="chip-text">+${hiddenTabs.length} more</span>
     </div>`;
@@ -804,6 +1039,7 @@ function renderDomainCard(group) {
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
   const isLanding = group.domain === '__landing-pages__';
+  const isTabOutGroup = group.domain === '__tab-out__';
   const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
 
   // Count duplicates (exact URL match)
@@ -819,7 +1055,7 @@ function renderDomainCard(group) {
   </span>`;
 
   const dupeBadge = hasDupes
-    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
+    ? `<span class="open-tabs-badge duplicate-badge">
         ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
       </span>`
     : '';
@@ -846,11 +1082,9 @@ function renderDomainCard(group) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = faviconUrlForPage(tab.url, 16);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -882,7 +1116,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? 'Homepages' : isTabOutGroup ? 'Tab Out' : (group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -924,36 +1158,36 @@ async function renderDeferredColumn() {
 
     // Hide the entire column if there's nothing to show
     if (active.length === 0 && archived.length === 0) {
-      column.style.display = 'none';
+      column.hidden = true;
       return;
     }
 
-    column.style.display = 'block';
+    column.hidden = false;
 
     // Render active checklist items
     if (active.length > 0) {
       countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
       list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
-      list.style.display = 'block';
-      empty.style.display = 'none';
+      list.hidden = false;
+      empty.hidden = true;
     } else {
-      list.style.display = 'none';
+      list.hidden = true;
       countEl.textContent = '';
-      empty.style.display = 'block';
+      empty.hidden = false;
     }
 
     // Render archive section
     if (archived.length > 0) {
       archiveCountEl.textContent = `(${archived.length})`;
       archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      archiveEl.style.display = 'block';
+      archiveEl.hidden = false;
     } else {
-      archiveEl.style.display = 'none';
+      archiveEl.hidden = true;
     }
 
   } catch (err) {
     console.warn('[tab-out] Could not load saved tabs:', err);
-    column.style.display = 'none';
+    column.hidden = true;
   }
 }
 
@@ -966,7 +1200,7 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = faviconUrlForPage(item.url, 16);
   const ago = timeAgo(item.savedAt);
 
   return `
@@ -974,7 +1208,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          ${faviconUrl ? `<img class="deferred-favicon" src="${faviconUrl}" alt="">` : ''}${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1016,15 +1250,20 @@ function renderArchiveItem(item) {
  * 2. Fetches open tabs via chrome.tabs.query()
  * 3. Groups tabs by domain (with landing pages pulled out to their own group)
  * 4. Renders domain cards
- * 5. Updates footer stats
+ * 5. Renders the bookmarks bar mirror
  * 6. Renders the "Saved for Later" checklist
  */
 async function renderStaticDashboard() {
+  document.body.classList.toggle('has-rendered-dashboard', hasRenderedDashboard);
+
   // --- Header ---
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Bookmarks bar mirror ---
+  await renderBookmarksBar();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1089,6 +1328,12 @@ async function renderStaticDashboard() {
 
   for (const tab of realTabs) {
     try {
+      if (tab.isTabOut) {
+        if (!groupMap['__tab-out__']) groupMap['__tab-out__'] = { domain: '__tab-out__', tabs: [] };
+        groupMap['__tab-out__'].tabs.push(tab);
+        continue;
+      }
+
       if (isLandingPage(tab.url)) {
         landingTabs.push(tab);
         continue;
@@ -1135,6 +1380,10 @@ async function renderStaticDashboard() {
     const bIsLanding = b.domain === '__landing-pages__';
     if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
 
+    const aIsTabOut = a.domain === '__tab-out__';
+    const bIsTabOut = b.domain === '__tab-out__';
+    if (aIsTabOut !== bIsTabOut) return aIsTabOut ? -1 : 1;
+
     const aIsPriority = isLandingDomain(a.domain);
     const bIsPriority = isLandingDomain(b.domain);
     if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
@@ -1150,26 +1399,39 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs close-all-open-tabs" data-action="close-all-open-tabs">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
-    openTabsSection.style.display = 'block';
+    openTabsSection.hidden = false;
   } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
+    openTabsSection.hidden = true;
   }
-
-  // --- Footer stats ---
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
-
-  // --- Check for duplicate Tab Out tabs ---
-  checkTabOutDupes();
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+
+  hasRenderedDashboard = true;
+  document.body.classList.add('has-rendered-dashboard');
 }
 
 async function renderDashboard() {
   await renderStaticDashboard();
+}
+
+function scheduleDashboardRender(delay = 100) {
+  clearTimeout(dashboardRenderTimer);
+
+  dashboardRenderTimer = setTimeout(() => {
+    const pointerQuietFor = Date.now() - lastPointerActivityAt;
+    if (pointerQuietFor < 250) {
+      scheduleDashboardRender(250 - pointerQuietFor);
+      return;
+    }
+
+    dashboardRenderPromise = (dashboardRenderPromise || Promise.resolve())
+      .then(renderDashboard)
+      .catch(err => console.warn('[tab-out] Dashboard refresh failed:', err))
+      .finally(() => { dashboardRenderPromise = null; });
+  }, delay);
 }
 
 
@@ -1182,23 +1444,28 @@ async function renderDashboard() {
    ---------------------------------------------------------------- */
 
 document.addEventListener('click', async (e) => {
+  const bookmarkSummary = e.target.closest('.bookmark-folder-summary');
+  if (bookmarkSummary) {
+    handleBookmarkFolderClick(bookmarkSummary);
+  } else if (!e.target.closest('.bookmark-folder')) {
+    closeBookmarkFolders();
+  }
+
   // Walk up the DOM to find the nearest element with data-action
   const actionEl = e.target.closest('[data-action]');
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
 
-  // ---- Close duplicate Tab Out tabs ----
-  if (action === 'close-tabout-dupes') {
-    await closeTabOutDupes();
-    playCloseSound();
-    const banner = document.getElementById('tabOutDupeBanner');
-    if (banner) {
-      banner.style.transition = 'opacity 0.4s';
-      banner.style.opacity = '0';
-      setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
-    }
-    showToast('Closed extra Tab Out tabs');
+  // ---- Toggle dark/light mode ----
+  if (action === 'toggle-theme') {
+    await toggleTheme();
+    return;
+  }
+
+  // ---- Expand/collapse bookmarks bar mirror ----
+  if (action === 'toggle-bookmarks') {
+    toggleBookmarksBar();
     return;
   }
 
@@ -1208,7 +1475,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'expand-chips') {
     const overflowContainer = actionEl.parentElement.querySelector('.page-chips-overflow');
     if (overflowContainer) {
-      overflowContainer.style.display = 'contents';
+      overflowContainer.hidden = false;
       actionEl.remove();
     }
     return;
@@ -1255,10 +1522,6 @@ document.addEventListener('click', async (e) => {
         });
       }, 200);
     }
-
-    // Update footer
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
 
     showToast('Tab closed');
     return;
@@ -1351,7 +1614,7 @@ document.addEventListener('click', async (e) => {
     const urls      = group.tabs.map(t => t.url);
     // Landing pages and custom groups (whose domain key isn't a real hostname)
     // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
+    const useExact  = group.domain === '__landing-pages__' || group.domain === '__tab-out__' || !!group.label;
 
     if (useExact) {
       await closeTabsExact(urls);
@@ -1368,11 +1631,9 @@ document.addEventListener('click', async (e) => {
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : group.domain === '__tab-out__' ? 'Tab Out' : (group.label || friendlyDomain(group.domain));
     showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
     return;
   }
 
@@ -1441,7 +1702,7 @@ document.addEventListener('click', (e) => {
   toggle.classList.toggle('open');
   const body = document.getElementById('archiveBody');
   if (body) {
-    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    body.hidden = !body.hidden;
   }
 });
 
@@ -1469,7 +1730,7 @@ document.addEventListener('input', async (e) => {
     );
 
     archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+      || '<div class="archive-no-results">No results</div>';
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
@@ -1479,4 +1740,33 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+initTheme();
+setupBrokenImageHandler();
+document.addEventListener('pointerdown', () => { lastPointerActivityAt = Date.now(); }, true);
+document.addEventListener('pointerup', () => { lastPointerActivityAt = Date.now(); }, true);
+document.addEventListener('pointercancel', () => { lastPointerActivityAt = Date.now(); }, true);
+
+dashboardRenderPromise = loadLocalConfig()
+  .then(renderDashboard)
+  .catch(err => console.warn('[tab-out] Initial dashboard render failed:', err))
+  .finally(() => { dashboardRenderPromise = null; });
+window.addEventListener('resize', () => {
+  updateBookmarksOverflow();
+  closeBookmarkFolders();
+});
+
+chrome.tabs.onCreated.addListener(() => scheduleDashboardRender());
+chrome.tabs.onRemoved.addListener(() => scheduleDashboardRender());
+chrome.tabs.onUpdated.addListener(() => scheduleDashboardRender());
+chrome.tabs.onMoved.addListener(() => scheduleDashboardRender());
+chrome.tabs.onAttached.addListener(() => scheduleDashboardRender());
+chrome.tabs.onDetached.addListener(() => scheduleDashboardRender());
+chrome.tabs.onReplaced.addListener(() => scheduleDashboardRender());
+chrome.windows.onFocusChanged.addListener(() => scheduleDashboardRender());
+
+chrome.bookmarks.onCreated.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onRemoved.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onChanged.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onMoved.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onChildrenReordered.addListener(() => scheduleDashboardRender());
+chrome.bookmarks.onImportEnded.addListener(() => scheduleDashboardRender());
