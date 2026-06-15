@@ -25,11 +25,14 @@
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+// Map of chrome native groupId -> group object (with title, color, collapsed, windowId)
+let chromeGroupsMap = new Map();
 
 /**
  * fetchOpenTabs()
  *
- * Reads all currently open browser tabs directly from Chrome.
+ * Reads all currently open browser tabs directly from Chrome,
+ * and fetches any native Chrome Tab Groups.
  * Sets the extensionId flag so we can identify Tab Out's own pages.
  */
 async function fetchOpenTabs() {
@@ -38,19 +41,31 @@ async function fetchOpenTabs() {
     // The new URL for this page is now index.html (not newtab.html)
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
-    const tabs = await chrome.tabs.query({});
+    // Fetch both tabs and groups if permissions/API available
+    const [tabs, groups] = await Promise.all([
+      chrome.tabs.query({}),
+      chrome.tabGroups ? chrome.tabGroups.query({}) : Promise.resolve([])
+    ]);
+
+    chromeGroupsMap.clear();
+    for (const g of groups) {
+      chromeGroupsMap.set(g.id, g);
+    }
+
     openTabs = tabs.map(t => ({
       id:       t.id,
       url:      t.url,
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
+      groupId:  t.groupId,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
-  } catch {
-    // chrome.tabs API unavailable (shouldn't happen in an extension page)
+  } catch (err) {
+    console.error('[tab-out] Error fetching tabs/groups:', err);
     openTabs = [];
+    chromeGroupsMap.clear();
   }
 }
 
@@ -804,6 +819,7 @@ function renderDomainCard(group) {
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
   const isLanding = group.domain === '__landing-pages__';
+  const isChromeGroup = !!group.isChromeGroup;
   const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
 
   // Count duplicates (exact URL match)
@@ -817,6 +833,10 @@ function renderDomainCard(group) {
     ${ICONS.tabs}
     ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
   </span>`;
+
+  const chromeGroupBadge = isChromeGroup
+    ? `<span class="open-tabs-badge" style="color:var(--text);background:rgba(255,255,255,0.08);">Chrome Group</span>`
+    : '';
 
   const dupeBadge = hasDupes
     ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
@@ -835,7 +855,9 @@ function renderDomainCard(group) {
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
   const pageChips = visibleTabs.map(tab => {
-    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
+    let hostname = '';
+    try { hostname = new URL(tab.url).hostname; } catch {}
+    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), hostname);
     // For localhost tabs, prepend port number so you can tell projects apart
     try {
       const parsed = new URL(tab.url);
@@ -863,11 +885,26 @@ function renderDomainCard(group) {
     </div>`;
   }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
 
-  let actionsHtml = `
-    <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
-      ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
-    </button>`;
+  let actionsHtml = '';
+  if (isChromeGroup) {
+    actionsHtml = `
+      <button class="action-btn close-tabs" data-action="close-chrome-group" data-group-id="${group.groupId}">
+        ${ICONS.close}
+        Close group
+      </button>
+      <button class="action-btn" data-action="ungroup-chrome-group" data-group-id="${group.groupId}">
+        Ungroup group
+      </button>`;
+  } else {
+    actionsHtml = `
+      <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
+        ${ICONS.close}
+        Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+      </button>
+      <button class="action-btn" data-action="group-domain-tabs" data-domain-id="${stableId}">
+        Group tabs
+      </button>`;
+  }
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
@@ -877,12 +914,26 @@ function renderDomainCard(group) {
       </button>`;
   }
 
+  let groupTitle = '';
+  if (isChromeGroup) {
+    groupTitle = group.label || `Group ${group.groupId}`;
+  } else if (isLanding) {
+    groupTitle = 'Homepages';
+  } else {
+    groupTitle = group.label || friendlyDomain(group.domain);
+  }
+
+  const statusClass = isChromeGroup
+    ? `group-color-${group.groupColor || 'grey'}`
+    : (hasDupes ? 'has-amber-bar' : 'has-neutral-bar');
+
   return `
-    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+    <div class="mission-card domain-card ${statusClass}" data-domain-id="${stableId}">
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${groupTitle}</span>
+          ${chromeGroupBadge}
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -1089,6 +1140,26 @@ async function renderStaticDashboard() {
 
   for (const tab of realTabs) {
     try {
+      // First, check if the tab belongs to a native Chrome Tab Group
+      if (tab.groupId !== undefined && tab.groupId !== -1) {
+        const key = `chrome-group-${tab.groupId}`;
+        if (!groupMap[key]) {
+          const chromeGroup = chromeGroupsMap.get(tab.groupId);
+          groupMap[key] = {
+            domain: key,
+            label: chromeGroup ? (chromeGroup.title || `Group ${tab.groupId}`) : `Group ${tab.groupId}`,
+            tabs: [],
+            isChromeGroup: true,
+            groupColor: chromeGroup ? chromeGroup.color : 'grey',
+            collapsed: chromeGroup ? chromeGroup.collapsed : false,
+            groupId: tab.groupId,
+            windowId: tab.windowId
+          };
+        }
+        groupMap[key].tabs.push(tab);
+        continue;
+      }
+
       if (isLandingPage(tab.url)) {
         landingTabs.push(tab);
         continue;
@@ -1122,7 +1193,7 @@ async function renderStaticDashboard() {
     groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
   }
 
-  // Sort: landing pages first, then domains from landing page sites, then by tab count
+  // Sort: Chrome groups first, then landing pages, then domains by tab count
   // Collect exact hostnames and suffix patterns for priority sorting
   const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
   const landingSuffixes = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
@@ -1131,6 +1202,10 @@ async function renderStaticDashboard() {
     return landingSuffixes.some(s => domain.endsWith(s));
   }
   domainGroups = Object.values(groupMap).sort((a, b) => {
+    const aIsChrome = a.isChromeGroup;
+    const bIsChrome = b.isChromeGroup;
+    if (aIsChrome !== bIsChrome) return aIsChrome ? -1 : 1;
+
     const aIsLanding = a.domain === '__landing-pages__';
     const bIsLanding = b.domain === '__landing-pages__';
     if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
@@ -1336,6 +1411,98 @@ document.addEventListener('click', async (e) => {
         item.remove();
         renderDeferredColumn();
       }, 300);
+    }
+    return;
+  }
+
+  // ---- Close all tabs in a Chrome native group ----
+  if (action === 'close-chrome-group') {
+    const groupId = parseInt(actionEl.dataset.groupId, 10);
+    if (isNaN(groupId)) return;
+
+    const group = domainGroups.find(g => g.isChromeGroup && g.groupId === groupId);
+    if (!group) return;
+
+    const tabIds = group.tabs.map(t => t.id);
+    if (tabIds.length > 0) {
+      await chrome.tabs.remove(tabIds);
+    }
+    await fetchOpenTabs();
+
+    if (card) {
+      playCloseSound();
+      animateCardOut(card);
+    }
+
+    // Remove from in-memory groups
+    const idx = domainGroups.indexOf(group);
+    if (idx !== -1) domainGroups.splice(idx, 1);
+
+    showToast('Closed Chrome Group');
+    const statTabs = document.getElementById('statTabs');
+    if (statTabs) statTabs.textContent = openTabs.length;
+    return;
+  }
+
+  // ---- Ungroup all tabs in a Chrome native group ----
+  if (action === 'ungroup-chrome-group') {
+    const groupId = parseInt(actionEl.dataset.groupId, 10);
+    if (isNaN(groupId)) return;
+
+    const group = domainGroups.find(g => g.isChromeGroup && g.groupId === groupId);
+    if (!group) return;
+
+    const tabIds = group.tabs.map(t => t.id);
+    if (tabIds.length > 0) {
+      await chrome.tabs.ungroup(tabIds);
+    }
+    await fetchOpenTabs();
+
+    if (card) {
+      playCloseSound();
+      animateCardOut(card);
+      setTimeout(() => renderDashboard(), 300);
+    } else {
+      await renderDashboard();
+    }
+
+    showToast('Ungrouped Chrome Group');
+    return;
+  }
+
+  // ---- Convert a domain group card to a Chrome native group ----
+  if (action === 'group-domain-tabs') {
+    const domainId = actionEl.dataset.domainId;
+    const group = domainGroups.find(g => {
+      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId;
+    });
+    if (!group) return;
+
+    const tabIds = group.tabs.map(t => t.id);
+    if (tabIds.length === 0) return;
+
+    try {
+      const newGroupId = await chrome.tabs.group({ tabIds });
+      const title = group.label || friendlyDomain(group.domain);
+      const colors = ['blue', 'green', 'red', 'yellow', 'pink', 'purple', 'cyan', 'orange'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      
+      await chrome.tabGroups.update(newGroupId, { title, color: randomColor });
+      
+      await fetchOpenTabs();
+      
+      if (card) {
+        playCloseSound();
+        animateCardOut(card);
+        setTimeout(() => renderDashboard(), 300);
+      } else {
+        await renderDashboard();
+      }
+      
+      showToast(`Grouped tabs into Chrome Group: ${title}`);
+    } catch (err) {
+      console.error('[tab-out] Failed to group tabs:', err);
+      showToast('Failed to create Chrome Group');
     }
     return;
   }

@@ -1,0 +1,17 @@
+# Enforce LF line endings for all text files across different OS/environments
+* text=auto eol=lf
+
+# Explicitly declare web assets to use LF
+*.js text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+
+# Keep binary files as binary (no line ending normalization)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

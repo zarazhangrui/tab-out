@@ -254,6 +254,17 @@ header {
 .mission-card.has-amber-bar::before { background: var(--accent-amber); }
 .mission-card.has-neutral-bar::before { background: var(--warm-gray); }
 
+/* Chrome Tab Group Colors */
+.mission-card.group-color-grey::before   { background: var(--accent-slate); }
+.mission-card.group-color-blue::before   { background: #5a8ab5; }
+.mission-card.group-color-red::before    { background: var(--accent-rose); }
+.mission-card.group-color-yellow::before { background: var(--status-cooling); }
+.mission-card.group-color-green::before  { background: var(--accent-sage); }
+.mission-card.group-color-pink::before   { background: #c0809b; }
+.mission-card.group-color-purple::before { background: #8b80b0; }
+.mission-card.group-color-cyan::before   { background: #5a8e8f; }
+.mission-card.group-color-orange::before { background: var(--accent-amber); }
+
 .mission-card:hover {
   box-shadow: 0 4px 20px var(--shadow);
   transform: translateY(-1px);
