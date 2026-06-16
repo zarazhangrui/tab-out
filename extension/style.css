@@ -81,6 +81,80 @@ header {
   text-transform: uppercase;
 }
 
+.header-right {
+  flex-shrink: 0;
+}
+
+/* ---- Tab scope toggle (this window / all windows) ---- */
+.scope-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scope-toggle-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.2px;
+  transition: color 0.2s;
+  user-select: none;
+}
+
+.scope-toggle-label.active {
+  color: var(--ink);
+}
+
+.scope-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.scope-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.scope-switch-track {
+  display: block;
+  width: 40px;
+  height: 22px;
+  background: var(--warm-gray);
+  border-radius: 11px;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.scope-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: var(--card-bg);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(26, 22, 19, 0.15);
+  transition: transform 0.2s;
+}
+
+.scope-switch input:checked + .scope-switch-track {
+  background: var(--accent-sage);
+}
+
+.scope-switch input:checked + .scope-switch-track::after {
+  transform: translateX(18px);
+}
+
+.scope-switch input:focus-visible + .scope-switch-track {
+  outline: 2px solid var(--accent-sage);
+  outline-offset: 2px;
+}
+
 /* ---- Tab cleanup banner ---- */
 .tab-cleanup-banner {
   background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));
