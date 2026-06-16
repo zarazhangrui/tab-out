@@ -700,6 +700,7 @@ const ICONS = {
   close:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>`,
   archive: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>`,
   focus:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>`,
+  bookmark: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>`,
 };
 
 
@@ -1005,6 +1006,117 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
+   FAVORITES — Chrome bookmarks (chrome.bookmarks API)
+
+   Reads the user's bookmark tree and renders it as folder cards at
+   the top of the dashboard. Requires the "bookmarks" permission in
+   manifest.json. Read-only — Tab Out never modifies your bookmarks.
+   ---------------------------------------------------------------- */
+
+/**
+ * collectBookmarkFolders(node, path, out)
+ *
+ * Recursively walks a bookmark folder node. Every folder that directly
+ * contains bookmarks becomes one entry in `out`, labeled by its folder
+ * path (e.g. "Bookmarks Bar / News"). Nested folders recurse.
+ */
+function collectBookmarkFolders(node, path, out) {
+  const children = node.children || [];
+  const directLinks = children
+    .filter(c => c.url)
+    .map(c => ({ title: c.title, url: c.url }));
+
+  if (directLinks.length > 0) {
+    out.push({ title: path || node.title || 'Bookmarks', bookmarks: directLinks });
+  }
+
+  for (const child of children) {
+    if (!child.url && child.children) {
+      const childPath = path ? `${path} / ${child.title}` : child.title;
+      collectBookmarkFolders(child, childPath, out);
+    }
+  }
+}
+
+/**
+ * renderBookmarkCard(folder)
+ *
+ * Builds one folder card. Each bookmark is a favicon + title link that
+ * opens the site in the current tab (target="_top").
+ */
+function renderBookmarkCard(folder) {
+  const chips = folder.bookmarks.map(bm => {
+    const safeUrl = (bm.url || '').replace(/"/g, '&quot;');
+    const label   = (bm.title || bm.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeTitle = label.replace(/"/g, '&quot;');
+    let domain = '';
+    try { domain = new URL(bm.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    return `<a class="page-chip bookmark-chip clickable" href="${safeUrl}" target="_top" title="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      <span class="chip-text">${label || bm.url}</span>
+    </a>`;
+  }).join('');
+
+  const count = folder.bookmarks.length;
+  const safeFolder = (folder.title || 'Bookmarks').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  return `
+    <div class="mission-card bookmark-card has-neutral-bar">
+      <div class="status-bar"></div>
+      <div class="mission-content">
+        <div class="mission-top">
+          <span class="mission-name">${safeFolder}</span>
+          <span class="open-tabs-badge">${ICONS.bookmark} ${count} bookmark${count !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="mission-pages">${chips}</div>
+      </div>
+    </div>`;
+}
+
+/**
+ * renderBookmarksSection()
+ *
+ * Loads Chrome bookmarks and paints the Favorites section. Hides the
+ * section if there are no bookmarks or the API isn't available.
+ */
+async function renderBookmarksSection() {
+  const section = document.getElementById('bookmarksSection');
+  const grid    = document.getElementById('bookmarksGrid');
+  const countEl = document.getElementById('bookmarksSectionCount');
+  if (!section || !grid) return;
+
+  // chrome.bookmarks is only present if the "bookmarks" permission is granted
+  if (!chrome.bookmarks || !chrome.bookmarks.getTree) {
+    section.style.display = 'none';
+    return;
+  }
+
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const root = tree[0];
+    const folders = [];
+    for (const top of (root.children || [])) {
+      collectBookmarkFolders(top, top.title, folders);
+    }
+
+    const total = folders.reduce((sum, f) => sum + f.bookmarks.length, 0);
+    if (total === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    if (countEl) countEl.textContent = `${total} bookmark${total !== 1 ? 's' : ''}`;
+    grid.innerHTML = folders.map(renderBookmarkCard).join('');
+    section.style.display = 'block';
+  } catch (err) {
+    console.warn('[tab-out] Could not load bookmarks:', err);
+    section.style.display = 'none';
+  }
+}
+
+
+/* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
@@ -1163,6 +1275,9 @@ async function renderStaticDashboard() {
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
+
+  // --- Render Favorites (Chrome bookmarks) ---
+  await renderBookmarksSection();
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();

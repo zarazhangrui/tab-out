@@ -49,8 +49,8 @@
   <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
        Left: open tabs (domain/mission cards)
-       Right: saved for later checklist
-       The right column only renders when it has items (JS controls this)
+       Right rail: Favorites (bookmarks) + Saved for later checklist
+       Both right-rail sections only render when they have items (JS controls this)
        ================================================================ -->
   <div class="dashboard-columns" id="dashboardColumns">
 
@@ -64,7 +64,22 @@
       <div class="missions" id="openTabsMissions"></div>
     </div>
 
-    <!-- RIGHT COLUMN: Saved for Later checklist -->
+    <!-- RIGHT RAIL: Favorites (bookmarks) stacked above Saved for later -->
+    <div class="right-rail" id="rightRail">
+
+    <!-- FAVORITES — your Chrome bookmarks, grouped by folder
+         Hidden by default; app.js shows it via renderBookmarksSection()
+         when bookmarks exist (needs the "bookmarks" permission). -->
+    <div class="bookmarks-section" id="bookmarksSection" style="display:none">
+      <div class="section-header">
+        <h2>Favorites</h2>
+        <div class="section-line"></div>
+        <div class="section-count" id="bookmarksSectionCount"></div>
+      </div>
+      <div class="missions" id="bookmarksGrid"></div>
+    </div>
+
+    <!-- Saved for Later checklist -->
     <div class="deferred-column" id="deferredColumn" style="display:none">
       <div class="section-header">
         <h2>Saved for later</h2>
@@ -93,6 +108,8 @@
         </div>
       </div>
     </div>
+
+    </div><!-- end .right-rail -->
 
   </div><!-- end .dashboard-columns -->
 
