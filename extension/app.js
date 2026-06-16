@@ -26,6 +26,78 @@
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
+// Tab scope: 'current-window' (default) or 'all-windows'
+let tabScope = 'current-window';
+let currentWindowId = null;
+
+/**
+ * loadTabScope()
+ *
+ * Loads the saved tab scope preference from chrome.storage.local.
+ * Defaults to 'current-window' (only show tabs in this window).
+ */
+async function loadTabScope() {
+  const { tabScope: saved } = await chrome.storage.local.get('tabScope');
+  tabScope = saved === 'all-windows' ? 'all-windows' : 'current-window';
+}
+
+/**
+ * saveTabScope(scope)
+ *
+ * Persists the tab scope preference and updates the toggle UI.
+ */
+async function saveTabScope(scope) {
+  tabScope = scope;
+  await chrome.storage.local.set({ tabScope: scope });
+  updateScopeToggleUI();
+}
+
+/**
+ * updateScopeToggleUI()
+ *
+ * Syncs the header toggle and label styles with the current tabScope.
+ */
+function updateScopeToggleUI() {
+  const toggle = document.getElementById('tabScopeToggle');
+  const labelCurrent = document.getElementById('scopeLabelCurrent');
+  const labelAll = document.getElementById('scopeLabelAll');
+  if (!toggle) return;
+
+  const isAllWindows = tabScope === 'all-windows';
+  toggle.checked = isAllWindows;
+  if (labelCurrent) labelCurrent.classList.toggle('active', !isAllWindows);
+  if (labelAll) labelAll.classList.toggle('active', isAllWindows);
+}
+
+/**
+ * isCurrentWindowScope()
+ *
+ * Returns true when tab operations should be limited to the current window.
+ */
+function isCurrentWindowScope() {
+  return tabScope === 'current-window';
+}
+
+/**
+ * scopeTabs(tabs)
+ *
+ * Filters a tab list to the current window when in current-window mode.
+ */
+function scopeTabs(tabs) {
+  if (!isCurrentWindowScope() || currentWindowId == null) return tabs;
+  return tabs.filter(t => t.windowId === currentWindowId);
+}
+
+/**
+ * queryScopedTabs()
+ *
+ * Queries open tabs, optionally limited to the current window.
+ */
+async function queryScopedTabs() {
+  const tabs = await chrome.tabs.query({});
+  return scopeTabs(tabs);
+}
+
 /**
  * fetchOpenTabs()
  *
@@ -37,6 +109,9 @@ async function fetchOpenTabs() {
     const extensionId = chrome.runtime.id;
     // The new URL for this page is now index.html (not newtab.html)
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+
+    const currentWindow = await chrome.windows.getCurrent();
+    currentWindowId = currentWindow.id;
 
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
@@ -51,6 +126,7 @@ async function fetchOpenTabs() {
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
+    currentWindowId = null;
   }
 }
 
@@ -78,7 +154,7 @@ async function closeTabsByUrls(urls) {
     }
   }
 
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryScopedTabs();
   const toClose = allTabs
     .filter(tab => {
       const tabUrl = tab.url || '';
@@ -103,7 +179,7 @@ async function closeTabsByUrls(urls) {
 async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryScopedTabs();
   const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
@@ -150,7 +226,7 @@ async function focusTab(url) {
  * keepOne=false → close all copies.
  */
 async function closeDuplicateTabs(urls, keepOne = true) {
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryScopedTabs();
   const toClose = [];
 
   for (const url of urls) {
@@ -180,9 +256,9 @@ async function closeTabOutDupes() {
 
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
-  const tabOutTabs = allTabs.filter(t =>
+  const tabOutTabs = scopeTabs(allTabs.filter(t =>
     t.url === newtabUrl || t.url === 'chrome://newtab/'
-  );
+  ));
 
   if (tabOutTabs.length <= 1) return;
 
@@ -720,7 +796,7 @@ let domainGroups = [];
  * pages, about:blank, etc.
  */
 function getRealTabs() {
-  return openTabs.filter(t => {
+  return scopeTabs(openTabs.filter(t => {
     const url = t.url || '';
     return (
       !url.startsWith('chrome://') &&
@@ -729,7 +805,7 @@ function getRealTabs() {
       !url.startsWith('edge://') &&
       !url.startsWith('brave://')
     );
-  });
+  }));
 }
 
 /**
@@ -739,7 +815,7 @@ function getRealTabs() {
  * shows a banner offering to close the extras.
  */
 function checkTabOutDupes() {
-  const tabOutTabs = openTabs.filter(t => t.isTabOut);
+  const tabOutTabs = scopeTabs(openTabs.filter(t => t.isTabOut));
   const banner  = document.getElementById('tabOutDupeBanner');
   const countEl = document.getElementById('tabOutDupeCount');
   if (!banner) return;
@@ -769,7 +845,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -850,7 +926,7 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -974,7 +1050,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img class="chip-favicon" src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1149,7 +1225,8 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
+    const scopeLabel = isCurrentWindowScope() ? 'This window' : 'All windows';
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = `Open tabs · ${scopeLabel}`;
     openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
@@ -1159,7 +1236,11 @@ async function renderStaticDashboard() {
 
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
+  const statTabsLabel = document.getElementById('statTabsLabel');
+  if (statTabs) statTabs.textContent = getRealTabs().length;
+  if (statTabsLabel) {
+    statTabsLabel.textContent = isCurrentWindowScope() ? 'Tabs in this window' : 'Tabs in all windows';
+  }
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1227,8 +1308,8 @@ document.addEventListener('click', async (e) => {
     const tabUrl = actionEl.dataset.tabUrl;
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
-    const allTabs = await chrome.tabs.query({});
+    // Close the tab in Chrome directly (scoped to visible tabs)
+    const allTabs = await queryScopedTabs();
     const match   = allTabs.find(t => t.url === tabUrl);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
@@ -1258,7 +1339,7 @@ document.addEventListener('click', async (e) => {
 
     // Update footer
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
 
     showToast('Tab closed');
     return;
@@ -1280,8 +1361,8 @@ document.addEventListener('click', async (e) => {
       return;
     }
 
-    // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
+    // Close the tab in Chrome (scoped to visible tabs)
+    const allTabs = await queryScopedTabs();
     const match   = allTabs.find(t => t.url === tabUrl);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
@@ -1372,7 +1453,7 @@ document.addEventListener('click', async (e) => {
     showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
     return;
   }
 
@@ -1414,9 +1495,7 @@ document.addEventListener('click', async (e) => {
 
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
-    const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
-      .map(t => t.url);
+    const allUrls = getRealTabs().map(t => t.url);
     await closeTabsByUrls(allUrls);
     playCloseSound();
 
@@ -1477,6 +1556,46 @@ document.addEventListener('input', async (e) => {
 
 
 /* ----------------------------------------------------------------
+   TAB SCOPE TOGGLE
+   ---------------------------------------------------------------- */
+
+document.getElementById('tabScopeToggle')?.addEventListener('change', async (e) => {
+  const scope = e.target.checked ? 'all-windows' : 'current-window';
+  await saveTabScope(scope);
+  await renderDashboard();
+});
+
+
+/* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+
+/**
+ * loadLocalConfig()
+ *
+ * Optionally loads config.local.js (gitignored personal overrides).
+ * Silently skips if the file doesn't exist.
+ */
+function loadLocalConfig() {
+  return new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = 'config.local.js';
+    script.onload = resolve;
+    script.onerror = resolve;
+    document.head.appendChild(script);
+  });
+}
+
+// Hide broken favicons without inline event handlers (CSP-safe)
+document.addEventListener('error', (e) => {
+  if (e.target.matches('.chip-favicon')) {
+    e.target.style.display = 'none';
+  }
+}, true);
+
+(async function init() {
+  await loadLocalConfig();
+  await loadTabScope();
+  updateScopeToggleUI();
+  await renderDashboard();
+})();

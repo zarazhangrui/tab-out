@@ -26,6 +26,16 @@
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
     </div>
+    <div class="header-right">
+      <div class="scope-toggle" title="Choose which tabs to show and manage">
+        <span class="scope-toggle-label" id="scopeLabelCurrent">This window</span>
+        <label class="scope-switch">
+          <input type="checkbox" id="tabScopeToggle" aria-label="Show tabs from all windows">
+          <span class="scope-switch-track"></span>
+        </label>
+        <span class="scope-toggle-label" id="scopeLabelAll">All windows</span>
+      </div>
+    </div>
   </header>
 
   <!-- ================================================================
@@ -103,7 +113,7 @@
     <div class="footer-stats">
       <div class="stat">
         <div class="stat-num" id="statTabs">—</div>
-        <div class="stat-label">Open tabs</div>
+        <div class="stat-label" id="statTabsLabel">Open tabs</div>
       </div>
     </div>
     <div class="last-refresh">
@@ -125,10 +135,7 @@
   <span id="toastText"></span>
 </div>
 
-<!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
-<!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
-<script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
-
+<!-- Personal config (gitignored) — loaded by app.js if present -->
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
 </body>
