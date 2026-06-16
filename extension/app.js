@@ -770,8 +770,8 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -794,6 +794,23 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
 /* ----------------------------------------------------------------
    DOMAIN CARD RENDERER
    ---------------------------------------------------------------- */
+
+/**
+ * escapeHtml(str)
+ *
+ * Escapes text before it goes into an innerHTML template. Tab/bookmark
+ * titles are arbitrary strings — a title like `foo <img src=x onerror=…>`
+ * would otherwise inject markup, which both breaks the extension CSP
+ * (inline event handlers are forbidden) and is an XSS vector.
+ */
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /**
  * renderDomainCard(group, groupIndex)
@@ -851,8 +868,8 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -883,7 +900,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? 'Homepages' : escapeHtml(group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -975,7 +992,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img class="chip-favicon" src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${escapeHtml(item.title || item.url)}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -998,7 +1015,7 @@ function renderArchiveItem(item) {
   return `
     <div class="archive-item">
       <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
+        ${escapeHtml(item.title || item.url)}
       </a>
       <span class="archive-item-date">${ago}</span>
     </div>`;
@@ -1046,20 +1063,19 @@ function collectBookmarkFolders(node, path, out) {
  */
 function renderBookmarkCard(folder) {
   const chips = folder.bookmarks.map(bm => {
-    const safeUrl = (bm.url || '').replace(/"/g, '&quot;');
-    const label   = (bm.title || bm.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeTitle = label.replace(/"/g, '&quot;');
+    const safeUrl = escapeHtml(bm.url || '');
+    const label   = escapeHtml(bm.title || bm.url || '');
     let domain = '';
     try { domain = new URL(bm.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<a class="page-chip bookmark-chip clickable" href="${safeUrl}" target="_top" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label || bm.url}</span>
+    return `<a class="page-chip bookmark-chip clickable" href="${safeUrl}" target="_top" title="${label}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+      <span class="chip-text">${label}</span>
     </a>`;
   }).join('');
 
   const count = folder.bookmarks.length;
-  const safeFolder = (folder.title || 'Bookmarks').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeFolder = escapeHtml(folder.title || 'Bookmarks');
 
   return `
     <div class="mission-card bookmark-card has-neutral-bar">
@@ -1295,6 +1311,16 @@ async function renderDashboard() {
    Think of it as one security guard watching the whole building
    instead of one per door.
    ---------------------------------------------------------------- */
+
+// Favicons that 404 should quietly disappear. Inline onerror="" handlers
+// violate the extension CSP (no inline script), so we delegate instead.
+// Image error events don't bubble, hence the capture phase.
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img instanceof HTMLImageElement && img.classList.contains('chip-favicon')) {
+    img.style.display = 'none';
+  }
+}, true);
 
 document.addEventListener('click', async (e) => {
   // Walk up the DOM to find the nearest element with data-action
