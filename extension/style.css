@@ -467,6 +467,21 @@ header {
   padding: 6px 4px;
 }
 
+/* ---- Bookmark links (Favorites section) ---- */
+/* Reuses .page-chip layout, but each chip is an <a>, so reset link styles */
+.bookmark-chip {
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.bookmark-chip:hover {
+  background: rgba(90, 122, 98, 0.06);
+}
+
+.bookmark-chip .chip-text {
+  -webkit-line-clamp: 1;  /* bookmarks are single-line for a tidier list */
+}
+
 /* mission-meta hidden — see above */
 
 .mission-time {
@@ -901,14 +916,40 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   min-width: 600px;
 }
 
-/* Saved for later column — fixed width on the right, scrolls independently */
-.deferred-column {
-  width: 280px;
+/* Right rail — fixed width on the right, scrolls independently.
+   Holds Favorites (bookmarks) stacked above Saved for later. */
+.right-rail {
+  width: 300px;
   flex-shrink: 0;
   position: sticky;
   top: 32px;
   max-height: calc(100vh - 64px);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* Collapse the rail (no reserved 300px gap) when neither Favorites nor
+   Saved for later is visible. app.js toggles each section's inline
+   display between none/block, so a visible child has display:block. */
+.right-rail:not(:has(> [style*="block"])) {
+  display: none;
+}
+
+/* Inside the rail, sections fill the rail's width; the rail owns the
+   sticky/scroll behavior, so reset the nested column's own sizing. */
+.right-rail .deferred-column {
+  width: 100%;
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+
+/* Favorites cards stack in a single column inside the narrow rail */
+.right-rail .bookmarks-section .missions {
+  columns: auto;
+  margin-bottom: 0;
 }
 
 /* On narrow screens, stack vertically */
@@ -916,9 +957,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   .dashboard-columns {
     flex-direction: column;
   }
-  .deferred-column {
+  .right-rail {
     width: 100%;
     position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 
