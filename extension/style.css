@@ -56,6 +56,8 @@ body::before {
 
 /* ---- Header ---- */
 header {
+  position: relative;
+  z-index: 80;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -66,6 +68,8 @@ header {
 }
 
 .header-actions {
+  position: relative;
+  z-index: 81;
   display: flex;
   flex: 1;
   gap: 10px;
@@ -101,22 +105,56 @@ header {
 .more-menu {
   position: relative;
   flex-shrink: 0;
+  z-index: 40;
+}
+
+.more-menu-toggle {
+  gap: 6px;
+}
+
+.more-menu-chevron {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.18s ease;
+}
+
+.more-menu.open .more-menu-toggle {
+  border-color: rgba(90, 122, 98, 0.35);
+  color: var(--ink);
+  background: rgba(90, 122, 98, 0.06);
+}
+
+.more-menu.open .more-menu-chevron {
+  transform: rotate(180deg);
 }
 
 .more-menu-panel {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
-  min-width: 190px;
-  padding: 8px;
-  border: 1px solid var(--warm-gray);
-  border-radius: 10px;
-  background: rgba(255, 253, 249, 0.98);
-  box-shadow: 0 12px 28px rgba(26, 22, 19, 0.12);
+  min-width: 220px;
+  padding: 10px;
+  border: 1px solid rgba(232, 226, 218, 0.95);
+  border-radius: 12px;
+  background: rgba(255, 253, 249, 0.99);
+  box-shadow: 0 18px 40px rgba(26, 22, 19, 0.16);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  z-index: 20;
+  gap: 6px;
+  z-index: 120;
+}
+
+.more-menu-panel::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  right: 16px;
+  width: 14px;
+  height: 14px;
+  background: rgba(255, 253, 249, 0.99);
+  border-top: 1px solid rgba(232, 226, 218, 0.95);
+  border-left: 1px solid rgba(232, 226, 218, 0.95);
+  transform: rotate(45deg);
 }
 
 .more-menu-item {
@@ -1159,6 +1197,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
   .more-menu-panel {
     left: 0;
+    right: auto;
+  }
+
+  .more-menu-panel::before {
+    left: 16px;
     right: auto;
   }
 

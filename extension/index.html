@@ -39,7 +39,12 @@
       </div>
       <button class="action-btn" data-action="manual-refresh">Refresh</button>
       <div class="more-menu" id="moreMenu">
-        <button class="action-btn" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false" aria-haspopup="menu" aria-controls="moreMenuPanel">More</button>
+        <button class="action-btn more-menu-toggle" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false" aria-haspopup="menu" aria-controls="moreMenuPanel">
+          More
+          <svg class="more-menu-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
         <div class="more-menu-panel" id="moreMenuPanel" role="menu" aria-label="More actions" style="display:none">
           <button class="more-menu-item" id="autoRefreshToggle" data-action="toggle-auto-refresh" role="menuitem">Auto refresh: Off</button>
           <button class="more-menu-item" data-action="trigger-import-session" role="menuitem">Import file</button>

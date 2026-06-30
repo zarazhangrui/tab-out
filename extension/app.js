@@ -742,12 +742,14 @@ function focusMoreMenuItem(index) {
   items[safeIndex].focus();
 }
 
-function closeMoreMenu() {
+function closeMoreMenu({ restoreFocus = false } = {}) {
   if (!moreMenuOpen) return;
   moreMenuOpen = false;
   renderMoreMenu();
-  const toggle = document.getElementById('moreMenuToggle');
-  if (toggle) toggle.focus();
+  if (restoreFocus) {
+    const toggle = document.getElementById('moreMenuToggle');
+    if (toggle) toggle.focus();
+  }
 }
 
 function formatSessionDate(dateStr) {
@@ -2351,7 +2353,7 @@ document.addEventListener('input', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    closeMoreMenu();
+    closeMoreMenu({ restoreFocus: true });
     return;
   }
 
