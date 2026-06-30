@@ -1,14 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <!-- Rounded rectangle background in amber -->
-  <rect x="4" y="4" width="120" height="120" rx="24" ry="24" fill="#c8713a"/>
-  <!-- White "M" letter centered -->
-  <text
-    x="64"
-    y="90"
-    font-family="Georgia, serif"
-    font-size="80"
-    font-weight="bold"
-    fill="white"
-    text-anchor="middle"
-  >M</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Tab Out icon">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="12" x2="110" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7ec"/>
+      <stop offset="1" stop-color="#ead8c2"/>
+    </linearGradient>
+    <linearGradient id="frontTab" x1="34" y1="38" x2="96" y2="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f9efe1"/>
+      <stop offset="1" stop-color="#f0dcc2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#1a1613" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="none" stroke="#d9c8b4" stroke-width="2"/>
+
+  <g filter="url(#shadow)">
+    <path d="M30 34h40c4.4 0 8 3.6 8 8v42c0 4.4-3.6 8-8 8H30c-4.4 0-8-3.6-8-8V42c0-4.4 3.6-8 8-8Z" fill="#5a6b7a" opacity="0.95"/>
+    <path d="M40 26h42c4.4 0 8 3.6 8 8v48c0 4.4-3.6 8-8 8H40c-4.4 0-8-3.6-8-8V34c0-4.4 3.6-8 8-8Z" fill="#5a7a62"/>
+    <path d="M50 38h48c4.4 0 8 3.6 8 8v44c0 4.4-3.6 8-8 8H50c-4.4 0-8-3.6-8-8V46c0-4.4 3.6-8 8-8Z" fill="url(#frontTab)"/>
+  </g>
+
+  <path d="M55 52h28" stroke="#c8713a" stroke-width="6" stroke-linecap="round"/>
+  <path d="M55 66h38" stroke="#9a918a" stroke-width="5" stroke-linecap="round" opacity="0.72"/>
+  <path d="M55 79h24" stroke="#9a918a" stroke-width="5" stroke-linecap="round" opacity="0.58"/>
+
+  <circle cx="91" cy="87" r="19" fill="#1a1613"/>
+  <path d="M82.5 87.5 88.6 93.5 100 80.5" fill="none" stroke="#fff7ec" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

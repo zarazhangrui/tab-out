@@ -55,6 +55,42 @@ async function fetchOpenTabs() {
 }
 
 /**
+ * fetchBookmarksBar()
+ *
+ * Reads Chrome's bookmarks bar folder. Chrome usually assigns id "1" to
+ * it, but the tree lookup keeps this working across localized browsers.
+ */
+async function fetchBookmarksBar() {
+  if (!chrome.bookmarks) {
+    return {
+      status: 'missing-permission',
+      items: [],
+    };
+  }
+
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const rootChildren = tree[0]?.children || [];
+    const titleMatch = /^(bookmarks bar|书签栏|收藏夹栏|favorites bar)$/i;
+    const bar =
+      rootChildren.find(node => node.id === '1') ||
+      rootChildren.find(node => titleMatch.test(node.title || '')) ||
+      rootChildren[0];
+
+    return {
+      status: 'ok',
+      items: bar?.children || [],
+    };
+  } catch (err) {
+    console.warn('[tab-out] Could not read bookmarks bar:', err);
+    return {
+      status: 'read-error',
+      items: [],
+    };
+  }
+}
+
+/**
  * closeTabsByUrls(urls)
  *
  * Closes all open tabs whose hostname matches any of the given URLs.
@@ -442,6 +478,16 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('visible'), 2500);
 }
 
+function loadOptionalConfig() {
+  return new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = 'config.local.js';
+    script.addEventListener('load', resolve, { once: true });
+    script.addEventListener('error', resolve, { once: true });
+    document.head.appendChild(script);
+  });
+}
+
 /**
  * checkAndShowEmptyState()
  *
@@ -611,6 +657,15 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function stripTitleNoise(title) {
   if (!title) return '';
   // Strip leading notification count: "(2) Title"
@@ -769,7 +824,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon hide-on-error" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -850,7 +905,7 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon hide-on-error" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -974,7 +1029,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img class="deferred-favicon hide-on-error" src="${faviconUrl}" alt="">${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1001,6 +1056,89 @@ function renderArchiveItem(item) {
       </a>
       <span class="archive-item-date">${ago}</span>
     </div>`;
+}
+
+
+/* ----------------------------------------------------------------
+   BOOKMARKS BAR — Render Left Column
+   ---------------------------------------------------------------- */
+
+function countBookmarkLinks(nodes) {
+  return nodes.reduce((count, node) => {
+    if (node.url) return count + 1;
+    return count + countBookmarkLinks(node.children || []);
+  }, 0);
+}
+
+async function hydrateBookmarkFolders(nodes) {
+  return Promise.all(nodes.map(async node => {
+    if (node.url) return node;
+    try {
+      const children = await chrome.bookmarks.getChildren(node.id);
+      return {
+        ...node,
+        children: await hydrateBookmarkFolders(children),
+      };
+    } catch {
+      return { ...node, children: [] };
+    }
+  }));
+}
+
+function renderBookmarkNode(node, depth = 0) {
+  const title = escapeHtml(node.title || node.url || 'Untitled');
+
+  if (node.url) {
+    let domain = '';
+    try { domain = new URL(node.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=16` : '';
+    const safeUrl = escapeHtml(node.url);
+
+    return `
+      <a class="bookmark-item" href="${safeUrl}" target="_top" title="${title}">
+        ${faviconUrl ? `<img class="bookmark-favicon hide-on-error" src="${faviconUrl}" alt="">` : '<span class="bookmark-favicon-placeholder"></span>'}
+        <span class="bookmark-title">${title}</span>
+      </a>`;
+  }
+
+  const children = node.children || [];
+  return `
+    <details class="bookmark-folder" ${depth < 1 ? 'open' : ''}>
+      <summary>
+        <svg class="bookmark-folder-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V6.75A2.25 2.25 0 0 1 4.5 4.5h5.379c.596 0 1.168.237 1.591.659l1.061 1.061c.422.422.994.659 1.591.659H19.5a2.25 2.25 0 0 1 2.25 2.25v3.621M2.25 12.75v4.5A2.25 2.25 0 0 0 4.5 19.5h15a2.25 2.25 0 0 0 2.25-2.25v-4.5M2.25 12.75h19.5" /></svg>
+        <span class="bookmark-title">${title}</span>
+        <span class="bookmark-folder-count">${countBookmarkLinks(children)}</span>
+      </summary>
+      <div class="bookmark-folder-children">
+        ${children.length ? children.map(child => renderBookmarkNode(child, depth + 1)).join('') : '<div class="bookmark-empty-folder">Empty</div>'}
+      </div>
+    </details>`;
+}
+
+async function renderBookmarksColumn() {
+  const column = document.getElementById('bookmarksColumn');
+  const list = document.getElementById('bookmarksList');
+  const empty = document.getElementById('bookmarksEmpty');
+  const countEl = document.getElementById('bookmarksCount');
+  if (!column || !list || !empty) return;
+
+  const result = await fetchBookmarksBar();
+  const barItems = await hydrateBookmarkFolders(result.items);
+  const linkCount = countBookmarkLinks(barItems);
+
+  if (linkCount === 0) {
+    column.style.display = 'none';
+    list.style.display = 'none';
+    empty.style.display = 'none';
+    return;
+  }
+
+  column.style.display = 'block';
+  if (countEl) countEl.textContent = `${linkCount} link${linkCount !== 1 ? 's' : ''}`;
+
+  empty.style.display = 'none';
+  list.style.display = 'block';
+  list.innerHTML = barItems.map(node => renderBookmarkNode(node)).join('');
 }
 
 
@@ -1163,6 +1301,9 @@ async function renderStaticDashboard() {
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
+
+  // --- Render bookmarks bar column ---
+  await renderBookmarksColumn();
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
@@ -1479,4 +1620,18 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+document.addEventListener('error', e => {
+  if (e.target?.classList?.contains('hide-on-error')) {
+    e.target.style.display = 'none';
+  }
+}, true);
+
+loadOptionalConfig().then(renderDashboard);
+
+if (chrome.bookmarks) {
+  chrome.bookmarks.onCreated.addListener(renderBookmarksColumn);
+  chrome.bookmarks.onRemoved.addListener(renderBookmarksColumn);
+  chrome.bookmarks.onChanged.addListener(renderBookmarksColumn);
+  chrome.bookmarks.onMoved.addListener(renderBookmarksColumn);
+  chrome.bookmarks.onChildrenReordered.addListener(renderBookmarksColumn);
+}

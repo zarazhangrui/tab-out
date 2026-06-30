@@ -4,6 +4,8 @@
 
 Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
 
+This optimized fork adds a bookmarks bar sidebar and Chrome Manifest V3 CSP cleanup while preserving the original Tab Out experience.
+
 No server. No account. No external API calls. Just a Chrome extension.
 
 ---
@@ -27,6 +29,7 @@ The agent will walk you through it. Takes about 1 minute.
 - **Close tabs with style** with swoosh sound + confetti burst
 - **Duplicate detection** flags when you have the same page open twice, with one-click cleanup
 - **Click any tab to jump to it** across windows, no new tab opened
+- **Browse your bookmarks bar** from the left sidebar when bookmarks are available
 - **Save for later** bookmark tabs to a checklist before closing them
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
@@ -88,4 +91,6 @@ MIT
 
 ---
 
-Built by [Zara](https://x.com/zarazhangrui)
+Originally built by [Zara](https://x.com/zarazhangrui).
+
+Optimized by [wuxiangyu05](https://github.com/wuxiangyu05), with original authorship and license attribution preserved.

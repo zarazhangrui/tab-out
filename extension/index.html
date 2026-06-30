@@ -47,14 +47,28 @@
   </div>
 
   <!-- ================================================================
-       MAIN CONTENT AREA — two-column layout
-       Left: open tabs (domain/mission cards)
+       MAIN CONTENT AREA — three-column layout
+       Left: bookmarks bar
+       Center: open tabs (domain/mission cards)
        Right: saved for later checklist
        The right column only renders when it has items (JS controls this)
        ================================================================ -->
   <div class="dashboard-columns" id="dashboardColumns">
 
-    <!-- LEFT COLUMN: Open tabs -->
+    <!-- LEFT COLUMN: Bookmarks bar -->
+    <aside class="bookmarks-column" id="bookmarksColumn" style="display:none">
+      <div class="section-header">
+        <h2>Bookmarks bar</h2>
+        <div class="section-line"></div>
+        <div class="section-count" id="bookmarksCount"></div>
+      </div>
+      <div class="bookmarks-list" id="bookmarksList"></div>
+      <div class="bookmarks-empty" id="bookmarksEmpty" style="display:none">
+        No bookmarks on the bar.
+      </div>
+    </aside>
+
+    <!-- CENTER COLUMN: Open tabs -->
     <div class="active-section" id="openTabsSection" style="display:none">
       <div class="section-header">
         <h2 id="openTabsSectionTitle">Right now</h2>
@@ -127,7 +141,6 @@
 
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
-<script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
