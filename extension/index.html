@@ -37,9 +37,14 @@
           spellcheck="false">
       </div>
       <button class="action-btn" data-action="manual-refresh">Refresh</button>
-      <button class="action-btn" id="autoRefreshToggle" data-action="toggle-auto-refresh">Auto refresh: Off</button>
-      <button class="action-btn" data-action="trigger-import-session">Import file</button>
-      <button class="action-btn primary" data-action="export-all-groups">Export all</button>
+      <div class="more-menu" id="moreMenu">
+        <button class="action-btn" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false">More</button>
+        <div class="more-menu-panel" id="moreMenuPanel" style="display:none">
+          <button class="more-menu-item" id="autoRefreshToggle" data-action="toggle-auto-refresh">Auto refresh: Off</button>
+          <button class="more-menu-item" data-action="trigger-import-session">Import file</button>
+          <button class="more-menu-item" data-action="export-all-groups">Export all</button>
+        </div>
+      </div>
     </div>
   </header>
 

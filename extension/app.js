@@ -18,7 +18,9 @@
 const {
   createSessionExport: sessionCreateSessionExport,
   parseImportedSession: sessionParseImportedSession,
+  searchImportedSessionTabs: sessionSearchImportedSessionTabs,
   planRestoreTabs: sessionPlanRestoreTabs,
+  summarizeRestorePlan: sessionSummarizeRestorePlan,
 } = window.TabOutSessionUtils || {};
 
 
@@ -35,9 +37,134 @@ let importedSession = null;
 let dashboardRefreshTimer = null;
 let autoRefreshEnabled = false;
 let globalSearchQuery = '';
+let searchDebounceTimer = null;
+let moreMenuOpen = false;
+const STORAGE_DEFAULTS = {
+  deferred: [],
+  importedSession: null,
+  autoRefreshEnabled: false,
+};
+const RESTORE_CONFIRM_THRESHOLD = 15;
+const storageQueues = new Map();
 
 function getTabUrl(tab) {
   return (tab && (tab.pendingUrl || tab.url)) || '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function createStableId(prefix = 'item') {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function getStorageValue(key) {
+  const fallback = Object.prototype.hasOwnProperty.call(STORAGE_DEFAULTS, key)
+    ? STORAGE_DEFAULTS[key]
+    : null;
+  const result = await chrome.storage.local.get(key);
+  return Object.prototype.hasOwnProperty.call(result, key) ? result[key] : fallback;
+}
+
+function normalizeDeferredItems(items) {
+  const source = Array.isArray(items) ? items : [];
+  let changed = false;
+
+  const normalized = source.map(item => {
+    if (!item || typeof item !== 'object') {
+      changed = true;
+      return {
+        id: createStableId('later'),
+        url: '',
+        title: '',
+        savedAt: new Date().toISOString(),
+        completed: false,
+        dismissed: true,
+      };
+    }
+
+    if (item.id) return item;
+    changed = true;
+    return {
+      ...item,
+      id: createStableId('later'),
+    };
+  });
+
+  return { items: normalized, changed };
+}
+
+function normalizeImportedSessionData(session) {
+  if (!session) return { session: null, changed: false };
+  if (!sessionParseImportedSession) return { session, changed: false };
+
+  try {
+    const normalized = sessionParseImportedSession(session);
+    const changed = JSON.stringify(normalized) !== JSON.stringify(session);
+    return { session: normalized, changed };
+  } catch {
+    return { session: null, changed: true };
+  }
+}
+
+async function setStorageValue(key, value) {
+  await chrome.storage.local.set({ [key]: value });
+  return value;
+}
+
+function queueStorageUpdate(key, updater) {
+  const previous = storageQueues.get(key) || Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const currentValue = await getStorageValue(key);
+      const nextValue = await updater(currentValue);
+      if (typeof nextValue === 'undefined') return currentValue;
+      await setStorageValue(key, nextValue);
+      return nextValue;
+    });
+
+  storageQueues.set(key, next);
+  return next.finally(() => {
+    if (storageQueues.get(key) === next) {
+      storageQueues.delete(key);
+    }
+  });
+}
+
+function getRestorePreviewMessage(summary, scopeLabel) {
+  if (!summary) return '';
+
+  const scope = scopeLabel || 'session';
+  if (!summary.hasWork) {
+    return `${scope} is already open. ${summary.alreadyOpenCount} tab${summary.alreadyOpenCount !== 1 ? 's are' : ' is'} already open.`;
+  }
+
+  const parts = [`Open ${summary.toOpenCount} tab${summary.toOpenCount !== 1 ? 's' : ''}`];
+  if (summary.alreadyOpenCount > 0) {
+    parts.push(`skip ${summary.alreadyOpenCount} already open`);
+  }
+  parts.push(`from ${scope}?`);
+  return parts.join(', ').replace(', from', ' from');
+}
+
+async function confirmRestorePlan(summary, scopeLabel) {
+  const message = getRestorePreviewMessage(summary, scopeLabel);
+  if (!message) return false;
+  if (!summary.hasWork) return false;
+  if (summary.toOpenCount < RESTORE_CONFIRM_THRESHOLD) return window.confirm(message);
+
+  return window.confirm(`${message}\n\nThis is a large restore and may open many tabs at once.`);
 }
 
 /**
@@ -241,16 +368,19 @@ async function closeTabOutDupes() {
  * @param {{ url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  deferred.push({
-    id:        Date.now().toString(),
-    url:       tab.url,
-    title:     tab.title,
-    savedAt:   new Date().toISOString(),
-    completed: false,
-    dismissed: false,
+  await queueStorageUpdate('deferred', currentDeferred => {
+    const { items } = normalizeDeferredItems(currentDeferred);
+    const deferred = [...items];
+    deferred.push({
+      id:        createStableId('later'),
+      url:       tab.url,
+      title:     tab.title,
+      savedAt:   new Date().toISOString(),
+      completed: false,
+      dismissed: false,
+    });
+    return deferred;
   });
-  await chrome.storage.local.set({ deferred });
 }
 
 /**
@@ -261,7 +391,11 @@ async function saveTabForLater(tab) {
  * Splits into active (not completed) and archived (completed).
  */
 async function getSavedTabs() {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  const rawDeferred = await getStorageValue('deferred');
+  const { items: deferred, changed } = normalizeDeferredItems(rawDeferred);
+  if (changed) {
+    await setStorageValue('deferred', deferred);
+  }
   const visible = deferred.filter(t => !t.dismissed);
   return {
     active:   visible.filter(t => !t.completed),
@@ -275,13 +409,15 @@ async function getSavedTabs() {
  * Marks a saved tab as completed (checked off). It moves to the archive.
  */
 async function checkOffSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  const tab = deferred.find(t => t.id === id);
-  if (tab) {
+  await queueStorageUpdate('deferred', currentDeferred => {
+    const { items } = normalizeDeferredItems(currentDeferred);
+    const deferred = [...items];
+    const tab = deferred.find(t => t.id === id);
+    if (!tab) return deferred;
     tab.completed = true;
     tab.completedAt = new Date().toISOString();
-    await chrome.storage.local.set({ deferred });
-  }
+    return deferred;
+  });
 }
 
 /**
@@ -290,47 +426,57 @@ async function checkOffSavedTab(id) {
  * Marks a saved tab as dismissed (removed from all lists).
  */
 async function dismissSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  const tab = deferred.find(t => t.id === id);
-  if (tab) {
+  let removed = null;
+  await queueStorageUpdate('deferred', currentDeferred => {
+    const { items } = normalizeDeferredItems(currentDeferred);
+    const deferred = [...items];
+    const tab = deferred.find(t => t.id === id);
+    if (!tab) return deferred;
     tab.dismissed = true;
-    await chrome.storage.local.set({ deferred });
-  }
-  return tab || null;
+    removed = { ...tab };
+    return deferred;
+  });
+  return removed;
 }
 
 async function clearSavedTabsByState({ completed }) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
   let changed = 0;
+  await queueStorageUpdate('deferred', currentDeferred => {
+    const { items } = normalizeDeferredItems(currentDeferred);
+    const deferred = [...items];
 
-  for (const item of deferred) {
-    if (item.dismissed) continue;
-    if (!!item.completed !== !!completed) continue;
-    item.dismissed = true;
-    changed += 1;
-  }
+    for (const item of deferred) {
+      if (item.dismissed) continue;
+      if (!!item.completed !== !!completed) continue;
+      item.dismissed = true;
+      changed += 1;
+    }
 
-  if (changed > 0) {
-    await chrome.storage.local.set({ deferred });
-  }
+    return deferred;
+  });
 
   return changed;
 }
 
 async function getImportedSession() {
-  const { importedSession: stored = null } = await chrome.storage.local.get('importedSession');
-  importedSession = stored;
+  const rawImportedSession = await getStorageValue('importedSession');
+  const { session, changed } = normalizeImportedSessionData(rawImportedSession);
+  importedSession = session;
+  if (changed) {
+    await setStorageValue('importedSession', session);
+  }
   return importedSession;
 }
 
 async function setImportedSession(session) {
-  importedSession = session;
-  await chrome.storage.local.set({ importedSession: session });
+  const { session: normalized } = normalizeImportedSessionData(session);
+  importedSession = normalized;
+  await queueStorageUpdate('importedSession', () => importedSession);
 }
 
 async function clearImportedSession() {
   importedSession = null;
-  await chrome.storage.local.remove('importedSession');
+  await queueStorageUpdate('importedSession', () => null);
 }
 
 async function clearImportedSessionGroup(groupId) {
@@ -383,14 +529,13 @@ function mergeImportedSessions(existingSession, incomingSession) {
 }
 
 async function getAutoRefreshSetting() {
-  const { autoRefreshEnabled: stored = false } = await chrome.storage.local.get('autoRefreshEnabled');
-  autoRefreshEnabled = !!stored;
+  autoRefreshEnabled = !!(await getStorageValue('autoRefreshEnabled'));
   return autoRefreshEnabled;
 }
 
 async function setAutoRefreshSetting(enabled) {
   autoRefreshEnabled = !!enabled;
-  await chrome.storage.local.set({ autoRefreshEnabled: autoRefreshEnabled });
+  await setStorageValue('autoRefreshEnabled', autoRefreshEnabled);
 }
 
 
@@ -561,6 +706,23 @@ function renderAutoRefreshToggle() {
   toggle.classList.toggle('danger', !autoRefreshEnabled);
 }
 
+function renderMoreMenu() {
+  const menu = document.getElementById('moreMenu');
+  const toggle = document.getElementById('moreMenuToggle');
+  const panel = document.getElementById('moreMenuPanel');
+  if (!menu || !toggle || !panel) return;
+
+  menu.classList.toggle('open', moreMenuOpen);
+  toggle.setAttribute('aria-expanded', moreMenuOpen ? 'true' : 'false');
+  panel.style.display = moreMenuOpen ? 'flex' : 'none';
+}
+
+function closeMoreMenu() {
+  if (!moreMenuOpen) return;
+  moreMenuOpen = false;
+  renderMoreMenu();
+}
+
 function formatSessionDate(dateStr) {
   if (!dateStr) return '';
 
@@ -626,13 +788,22 @@ function searchTextMatches(query, ...parts) {
   return parts.some(part => normalizeSearchText(part).includes(needle));
 }
 
+async function syncImportedSessionSearchResults() {
+  if (!normalizeSearchText(globalSearchQuery)) return;
+  await renderSearchResults();
+}
+
 function buildSearchResultItem(item) {
-  const safeId = (item.id || '').replace(/"/g, '&quot;');
-  const safeUrl = (item.url || '').replace(/"/g, '&quot;');
-  const safeTitle = (item.title || item.url || '').replace(/"/g, '&quot;');
+  const safeId = escapeHtml(item.id || '');
+  const safeUrl = escapeHtml(item.url || '');
+  const safeTitle = escapeHtml(item.title || item.url || '');
+  const safeSourceLabel = escapeHtml(item.sourceLabel || '');
+  const safeDisplayTitle = escapeHtml(item.title || item.url || '');
+  const safeGroupLabel = escapeHtml(item.groupLabel || '');
   const sourceBadgeClass = item.source === 'imported' ? ' imported' : item.source === 'later' ? ' later' : '';
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
+  const safeDomain = escapeHtml(domain || item.groupLabel || 'Unknown source');
 
   let actions = '';
   if (item.source === 'open') {
@@ -642,9 +813,10 @@ function buildSearchResultItem(item) {
       <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">Later</button>
     `;
   } else if (item.source === 'imported') {
+    const safeTabId = escapeHtml(item.tabId || item.id || '');
     actions = `
-      <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${safeId}">Restore</button>
-      <button class="action-btn danger" data-action="clear-imported-group" data-imported-group-id="${safeId}">Clear</button>
+      <button class="action-btn save-tabs" data-action="restore-imported-tab" data-imported-group-id="${safeId}" data-imported-tab-id="${safeTabId}">Restore</button>
+      <button class="action-btn danger" data-action="clear-imported-tab" data-imported-group-id="${safeId}" data-imported-tab-id="${safeTabId}">Clear</button>
     `;
   } else {
     actions = item.isArchived
@@ -662,13 +834,13 @@ function buildSearchResultItem(item) {
   return `
     <div class="search-card">
       <div class="search-card-header">
-        <div class="search-card-title">${buildFaviconImg(domain)}${item.title || item.url}</div>
-        <span class="search-source-badge${sourceBadgeClass}">${item.sourceLabel}</span>
+        <div class="search-card-title">${buildFaviconImg(domain)}${safeDisplayTitle}</div>
+        <span class="search-source-badge${sourceBadgeClass}">${safeSourceLabel}</span>
       </div>
       <div class="search-card-meta">
-        <span>${domain || item.groupLabel || 'Unknown source'}</span>
-        ${item.groupLabel ? `<span>${item.groupLabel}</span>` : ''}
-        ${item.url ? `<span>${item.url}</span>` : ''}
+        <span>${safeDomain}</span>
+        ${item.groupLabel ? `<span>${safeGroupLabel}</span>` : ''}
+        ${item.url ? `<span>${safeUrl}</span>` : ''}
       </div>
       <div class="search-card-actions">${actions}</div>
     </div>`;
@@ -715,21 +887,18 @@ async function renderSearchResults() {
     }
   }
 
-  if (importedSession && Array.isArray(importedSession.groups)) {
-    for (const group of importedSession.groups) {
-      const matches = (group.tabs || []).some(tab =>
-        searchTextMatches(query, group.label, group.domain, tab.title, tab.url)
-      );
-      if (matches) {
-        results.push({
-          id: group.id,
-          title: group.label || friendlyDomain(group.domain),
-          url: (group.tabs && group.tabs[0] && group.tabs[0].url) || '',
-          source: 'imported',
-          sourceLabel: 'Imported',
-          groupLabel: `${(group.tabs || []).length} tab${(group.tabs || []).length !== 1 ? 's' : ''}`,
-        });
-      }
+  if (importedSession && Array.isArray(importedSession.groups) && sessionSearchImportedSessionTabs) {
+    const importedMatches = sessionSearchImportedSessionTabs(importedSession, query);
+    for (const match of importedMatches) {
+      results.push({
+        id: match.tabId,
+        tabId: match.tabId,
+        title: match.title,
+        url: match.url,
+        source: 'imported',
+        sourceLabel: 'Imported tab',
+        groupLabel: match.groupLabel || friendlyDomain(match.groupDomain),
+      });
     }
   }
 
@@ -785,6 +954,11 @@ function checkAndShowEmptyState() {
 
   const countEl = document.getElementById('openTabsSectionCount');
   if (countEl) countEl.textContent = '0 domains';
+}
+
+function renderOpenTabsSectionCount(domainCount, realTabCount) {
+  const domainLabel = `${domainCount} domain${domainCount !== 1 ? 's' : ''}`;
+  return `${escapeHtml(domainLabel)} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabCount} tabs</button>`;
 }
 
 /**
@@ -1096,13 +1270,13 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const ageTag   = shortTimeAgo(tab.lastAccessed);
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${buildFaviconImg(domain)}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -1178,13 +1352,13 @@ function renderDomainCard(group) {
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const ageTag   = shortTimeAgo(tab.lastAccessed);
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${buildFaviconImg(domain)}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -1219,7 +1393,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${escapeHtml(isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain)))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -1304,20 +1478,24 @@ function renderLaterItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
   const ago = timeAgo(item.savedAt);
+  const safeId = escapeHtml(item.id);
+  const safeUrl = escapeHtml(item.url);
+  const safeTitle = escapeHtml(item.title || item.url);
+  const safeDomain = escapeHtml(domain);
 
   return `
-    <div class="later-item" data-later-id="${item.id}">
-      <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${item.id}">
+    <div class="later-item" data-later-id="${safeId}">
+      <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${safeId}">
       <div class="later-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="later-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          ${buildFaviconImg(domain, 'deferred-favicon')}${item.title || item.url}
+        <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title" title="${safeTitle}">
+          ${buildFaviconImg(domain, 'deferred-favicon')}${safeTitle}
         </a>
         <div class="later-meta">
-          <span>${domain}</span>
-          <span>${ago}</span>
+          <span>${safeDomain}</span>
+          <span>${escapeHtml(ago)}</span>
         </div>
       </div>
-      <button class="later-dismiss" data-action="dismiss-later" data-later-id="${item.id}" title="Remove">
+      <button class="later-dismiss" data-action="dismiss-later" data-later-id="${safeId}" title="Remove">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -1330,17 +1508,19 @@ function renderLaterItem(item) {
  */
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+  const safeUrl = escapeHtml(item.url);
+  const safeTitle = escapeHtml(item.title || item.url);
   return `
     <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
+      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+        ${safeTitle}
       </a>
-      <span class="archive-item-date">${ago}</span>
+      <span class="archive-item-date">${escapeHtml(ago)}</span>
     </div>`;
 }
 
 function renderImportedSessionCard(group, openUrlSet) {
-  const groupId = (group.id || group.domain || '').replace(/"/g, '&quot;');
+  const groupId = escapeHtml(group.id || group.domain || '');
   const tabCount = Array.isArray(group.tabs) ? group.tabs.length : 0;
   const exportedTabs = (group.tabs || []).slice(0, 8);
   const extraCount = Math.max(0, tabCount - exportedTabs.length);
@@ -1350,12 +1530,12 @@ function renderImportedSessionCard(group, openUrlSet) {
     : '';
 
   const pageChips = exportedTabs.map(tab => {
-    const safeTitle = (tab.title || tab.url || '').replace(/"/g, '&quot;');
+    const safeTitle = escapeHtml(tab.title || tab.url || '');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip" title="${safeTitle}">
       ${buildFaviconImg(domain)}
-      <span class="chip-text">${tab.title || tab.url}</span>
+      <span class="chip-text">${safeTitle}</span>
     </div>`;
   }).join('') + (extraCount > 0 ? `
     <div class="page-chip page-chip-overflow">
@@ -1367,7 +1547,7 @@ function renderImportedSessionCard(group, openUrlSet) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${group.label || friendlyDomain(group.domain)}</span>
+          <span class="mission-name">${escapeHtml(group.label || friendlyDomain(group.domain))}</span>
           <span class="open-tabs-badge">${ICONS.tabs}${tabCount} tab${tabCount !== 1 ? 's' : ''}</span>
           ${statusBadge}
         </div>
@@ -1415,7 +1595,9 @@ async function restoreSessionGroups(groups) {
   if (safeGroups.length === 0) return { opened: 0, skipped: 0 };
 
   const currentTabs = await chrome.tabs.query({});
-  const plan = sessionPlanRestoreTabs(safeGroups, currentTabs);
+  const plan = sessionSummarizeRestorePlan
+    ? sessionSummarizeRestorePlan(safeGroups, currentTabs)
+    : sessionPlanRestoreTabs(safeGroups, currentTabs);
 
   for (const tab of plan.toOpen) {
     await chrome.tabs.create({ url: tab.url, active: false });
@@ -1427,6 +1609,65 @@ async function restoreSessionGroups(groups) {
     opened: plan.toOpen.length,
     skipped: plan.skipped.length,
   };
+}
+
+async function restoreImportedSessionTab(groupId, tabId) {
+  const found = getImportedSessionTab(groupId, tabId);
+  if (!found) {
+    return { opened: 0, skipped: 0 };
+  }
+  const { group, tab } = found;
+
+  return restoreSessionGroups([{ ...group, tabs: [tab] }]);
+}
+
+function getImportedSessionTab(groupId, tabId) {
+  if (!importedSession || !Array.isArray(importedSession.groups) || !groupId || !tabId) return null;
+  const group = importedSession.groups.find(item => item.id === groupId);
+  if (!group || !Array.isArray(group.tabs)) return null;
+  const tab = group.tabs.find(item => item && item.id === tabId);
+  if (!tab) return null;
+  return { group, tab };
+}
+
+async function clearImportedSessionTab(groupId, tabId) {
+  if (!importedSession || !Array.isArray(importedSession.groups) || !groupId || !tabId) return false;
+
+  const nextGroups = [];
+  let changed = false;
+
+  for (const group of importedSession.groups) {
+    if (group.id !== groupId) {
+      nextGroups.push(group);
+      continue;
+    }
+
+    const nextTabs = (group.tabs || []).filter(tab => {
+      const keep = !(tab && tab.id === tabId);
+      if (!keep) changed = true;
+      return keep;
+    });
+
+    if (nextTabs.length > 0) {
+      nextGroups.push({
+        ...group,
+        tabs: nextTabs,
+      });
+    }
+  }
+
+  if (!changed) return false;
+
+  if (nextGroups.length === 0) {
+    await clearImportedSession();
+    return true;
+  }
+
+  await setImportedSession({
+    ...importedSession,
+    groups: nextGroups,
+  });
+  return true;
 }
 
 
@@ -1456,6 +1697,7 @@ async function renderStaticDashboard() {
   if (dateEl)     dateEl.textContent     = getDateDisplay();
   if (searchInput && searchInput.value !== globalSearchQuery) searchInput.value = globalSearchQuery;
   renderAutoRefreshToggle();
+  renderMoreMenu();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1581,7 +1823,7 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(domainGroups.length, realTabs.length);
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1651,26 +1893,36 @@ document.addEventListener('click', async (e) => {
   const action = actionEl.dataset.action;
 
   if (action === 'manual-refresh') {
+    closeMoreMenu();
     await renderDashboard();
     showToast('Refreshed');
+    return;
+  }
+
+  if (action === 'toggle-more-menu') {
+    moreMenuOpen = !moreMenuOpen;
+    renderMoreMenu();
     return;
   }
 
   if (action === 'toggle-auto-refresh') {
     await setAutoRefreshSetting(!autoRefreshEnabled);
     renderAutoRefreshToggle();
+    closeMoreMenu();
     showToast(`Auto refresh ${autoRefreshEnabled ? 'enabled' : 'disabled'}`);
     return;
   }
 
   if (action === 'trigger-import-session') {
     const input = document.getElementById('sessionImportInput');
+    closeMoreMenu();
     if (input) input.click();
     return;
   }
 
   if (action === 'export-all-groups') {
     const payload = sessionCreateSessionExport(domainGroups);
+    closeMoreMenu();
     downloadJsonFile(buildSessionFilename('all-tabs'), payload);
     showToast(`Exported ${payload.groups.length} group${payload.groups.length !== 1 ? 's' : ''}`);
     return;
@@ -1679,12 +1931,17 @@ document.addEventListener('click', async (e) => {
   if (action === 'clear-imported-session') {
     await clearImportedSession();
     renderImportedSessionSection();
+    await syncImportedSessionSearchResults();
     showToast('Imported session cleared');
     return;
   }
 
   if (action === 'restore-imported-session') {
     if (!importedSession) return;
+    const preview = sessionSummarizeRestorePlan
+      ? sessionSummarizeRestorePlan(importedSession.groups, await chrome.tabs.query({}))
+      : null;
+    if (preview && !(await confirmRestorePlan(preview, 'imported session'))) return;
     const result = await restoreSessionGroups(importedSession.groups);
     showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
     await renderDashboard();
@@ -1762,7 +2019,26 @@ document.addEventListener('click', async (e) => {
       : null;
     if (!group) return;
 
+    const preview = sessionSummarizeRestorePlan
+      ? sessionSummarizeRestorePlan([group], await chrome.tabs.query({}))
+      : null;
+    if (preview && !(await confirmRestorePlan(preview, group.label || friendlyDomain(group.domain)))) return;
     const result = await restoreSessionGroups([group]);
+    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    await renderDashboard();
+    return;
+  }
+
+  if (action === 'restore-imported-tab') {
+    const groupId = actionEl.dataset.importedGroupId;
+    const tabId = actionEl.dataset.importedTabId;
+    const found = getImportedSessionTab(groupId, tabId);
+    if (!found) return;
+    const preview = sessionSummarizeRestorePlan
+      ? sessionSummarizeRestorePlan([{ ...found.group, tabs: [found.tab] }], await chrome.tabs.query({}))
+      : null;
+    if (preview && !(await confirmRestorePlan(preview, found.tab.title || found.tab.url))) return;
+    const result = await restoreImportedSessionTab(groupId, tabId);
     showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
     await renderDashboard();
     return;
@@ -1774,7 +2050,22 @@ document.addEventListener('click', async (e) => {
 
     await clearImportedSessionGroup(groupId);
     renderImportedSessionSection();
+    await syncImportedSessionSearchResults();
     showToast('Imported group cleared');
+    return;
+  }
+
+  if (action === 'clear-imported-tab') {
+    const groupId = actionEl.dataset.importedGroupId;
+    const tabId = actionEl.dataset.importedTabId;
+    if (!groupId || !tabId) return;
+
+    const changed = await clearImportedSessionTab(groupId, tabId);
+    if (!changed) return;
+
+    renderImportedSessionSection();
+    await syncImportedSessionSearchResults();
+    showToast('Imported tab cleared');
     return;
   }
 
@@ -1786,7 +2077,7 @@ document.addEventListener('click', async (e) => {
 
     // Close the tab in Chrome directly
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
+    const match   = allTabs.find(t => getTabUrl(t) === tabUrl);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
@@ -1821,7 +2112,7 @@ document.addEventListener('click', async (e) => {
 
     // Close the tab in Chrome
     const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
+    const match   = allTabs.find(t => getTabUrl(t) === tabUrl);
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
@@ -1976,6 +2267,7 @@ document.addEventListener('change', async (e) => {
 
     await setImportedSession(nextImportedSession);
     renderImportedSessionSection();
+    await syncImportedSessionSearchResults();
     showToast(`Imported ${importedGroupCount} group${importedGroupCount !== 1 ? 's' : ''}`);
   } catch (err) {
     console.error('[tab-out] Failed to import session:', err);
@@ -1988,13 +2280,22 @@ document.addEventListener('change', async (e) => {
 document.addEventListener('input', async (e) => {
   if (e.target.id === 'globalSearchInput') {
     globalSearchQuery = e.target.value || '';
-    await renderSearchResults();
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      renderSearchResults().catch(err => {
+        console.warn('[tab-out] Search render failed:', err);
+      });
+    }, 120);
     return;
   }
 });
 
 // ---- Archive toggle — expand/collapse the archive section ----
 document.addEventListener('click', (e) => {
+  if (!e.target.closest('#moreMenu')) {
+    closeMoreMenu();
+  }
+
   const toggle = e.target.closest('#archiveToggle');
   if (!toggle) return;
 

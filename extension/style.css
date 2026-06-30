@@ -98,6 +98,54 @@ header {
   max-width: 520px;
 }
 
+.more-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.more-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  padding: 8px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 10px;
+  background: rgba(255, 253, 249, 0.98);
+  box-shadow: 0 12px 28px rgba(26, 22, 19, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+}
+
+.more-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: 500 13px 'DM Sans', sans-serif;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.more-menu-item:hover {
+  background: rgba(154, 145, 138, 0.08);
+}
+
+.more-menu-item.save-tabs {
+  color: var(--accent-sage);
+  background: rgba(90, 122, 98, 0.04);
+}
+
+.more-menu-item.danger {
+  color: var(--status-abandoned);
+  background: rgba(179, 90, 90, 0.04);
+}
+
 .global-search-input {
   width: 100%;
   border: 1px solid var(--warm-gray);
@@ -1094,6 +1142,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
     max-width: none;
     min-width: 0;
     width: 100%;
+  }
+
+  .more-menu-panel {
+    left: 0;
+    right: auto;
   }
 
   .imported-session-toolbar {
