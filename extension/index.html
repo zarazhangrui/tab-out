@@ -26,7 +26,31 @@
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
     </div>
+    <div class="header-actions">
+      <div class="global-search-bar">
+        <input
+          type="search"
+          id="globalSearchInput"
+          class="global-search-input"
+          placeholder="Search open tabs, imported sessions, and later list..."
+          autocomplete="off"
+          spellcheck="false">
+      </div>
+      <button class="action-btn" data-action="manual-refresh">Refresh</button>
+      <button class="action-btn" id="autoRefreshToggle" data-action="toggle-auto-refresh">Auto refresh: Off</button>
+      <button class="action-btn" data-action="trigger-import-session">Import file</button>
+      <button class="action-btn primary" data-action="export-all-groups">Export all</button>
+    </div>
   </header>
+
+  <div class="search-section" id="searchSection" style="display:none">
+    <div class="section-header">
+      <h2>Search results</h2>
+      <div class="section-line"></div>
+      <div class="section-count" id="searchCount"></div>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+  </div>
 
   <!-- ================================================================
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
@@ -44,6 +68,24 @@
       </div>
     </div>
     <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
+  </div>
+
+  <input type="file" id="sessionImportInput" accept="application/json,.json" multiple hidden>
+
+  <div class="imported-session-section" id="importedSessionSection" style="display:none">
+    <div class="section-header">
+      <h2 id="importedSessionTitle">Imported session</h2>
+      <div class="section-line"></div>
+      <div class="section-count" id="importedSessionCount"></div>
+    </div>
+    <div class="imported-session-toolbar">
+      <div class="imported-session-meta" id="importedSessionMeta"></div>
+      <div class="imported-session-actions">
+        <button class="action-btn save-tabs" data-action="restore-imported-session">Restore all</button>
+        <button class="action-btn danger" data-action="clear-imported-session">Clear</button>
+      </div>
+    </div>
+    <div class="missions" id="importedSessionMissions"></div>
   </div>
 
   <!-- ================================================================
@@ -64,31 +106,34 @@
       <div class="missions" id="openTabsMissions"></div>
     </div>
 
-    <!-- RIGHT COLUMN: Saved for Later checklist -->
-    <div class="deferred-column" id="deferredColumn" style="display:none">
+    <!-- RIGHT COLUMN: Later list -->
+    <div class="later-column" id="laterColumn" style="display:none">
       <div class="section-header">
-        <h2>Saved for later</h2>
+        <h2>Later list</h2>
         <div class="section-line"></div>
-        <div class="section-count" id="deferredCount"></div>
+        <div class="section-count" id="laterCount"></div>
+        <button class="action-btn close-tabs" data-action="clear-later-list">Clear all</button>
       </div>
 
-      <!-- Active checklist items — injected by renderDeferredList() in app.js -->
-      <div class="deferred-list" id="deferredList"></div>
+      <!-- Active checklist items — injected by renderLaterListColumn() in app.js -->
+      <div class="later-list" id="laterList"></div>
 
-      <!-- Empty state — shown when no active deferred tabs -->
-      <div class="deferred-empty" id="deferredEmpty" style="display:none">
-        Nothing saved. Living in the moment.
+      <!-- Empty state — shown when no active later-list tabs -->
+      <div class="later-empty" id="laterEmpty" style="display:none">
+        Nothing in your later list.
       </div>
 
       <!-- Archive section — collapsed by default -->
-      <div class="deferred-archive" id="deferredArchive" style="display:none">
-        <button class="archive-toggle" id="archiveToggle">
-          <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-          Archive
-          <span class="archive-count" id="archiveCount"></span>
-        </button>
+      <div class="later-archive" id="laterArchive" style="display:none">
+        <div class="archive-header">
+          <button class="archive-toggle" id="archiveToggle">
+            <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            Archive
+            <span class="archive-count" id="archiveCount"></span>
+          </button>
+          <button class="action-btn close-tabs" data-action="clear-later-archive">Clear</button>
+        </div>
         <div class="archive-body" id="archiveBody" style="display:none">
-          <input type="text" class="archive-search" id="archiveSearch" placeholder="Search archived tabs...">
           <div class="archive-list" id="archiveList"></div>
         </div>
       </div>
@@ -127,7 +172,7 @@
 
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
-<script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
+<script src="session-utils.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>

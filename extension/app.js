@@ -15,6 +15,12 @@
 
 'use strict';
 
+const {
+  createSessionExport: sessionCreateSessionExport,
+  parseImportedSession: sessionParseImportedSession,
+  planRestoreTabs: sessionPlanRestoreTabs,
+} = window.TabOutSessionUtils || {};
+
 
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
@@ -25,6 +31,14 @@
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+let importedSession = null;
+let dashboardRefreshTimer = null;
+let autoRefreshEnabled = false;
+let globalSearchQuery = '';
+
+function getTabUrl(tab) {
+  return (tab && (tab.pendingUrl || tab.url)) || '';
+}
 
 /**
  * fetchOpenTabs()
@@ -41,12 +55,13 @@ async function fetchOpenTabs() {
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
       id:       t.id,
-      url:      t.url,
+      url:      getTabUrl(t),
       title:    t.title,
       windowId: t.windowId,
       active:   t.active,
+      lastAccessed: t.lastAccessed,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
+      isTabOut: getTabUrl(t) === newtabUrl || getTabUrl(t) === 'chrome://newtab/',
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -81,7 +96,7 @@ async function closeTabsByUrls(urls) {
   const allTabs = await chrome.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
-      const tabUrl = tab.url || '';
+      const tabUrl = getTabUrl(tab);
       if (tabUrl.startsWith('file://') && exactUrls.has(tabUrl)) return true;
       try {
         const tabHostname = new URL(tabUrl).hostname;
@@ -104,7 +119,7 @@ async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls);
   const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
+  const toClose = allTabs.filter(t => urlSet.has(getTabUrl(t))).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
 }
@@ -121,14 +136,14 @@ async function focusTab(url) {
   const currentWindow = await chrome.windows.getCurrent();
 
   // Try exact URL match first
-  let matches = allTabs.filter(t => t.url === url);
+  let matches = allTabs.filter(t => getTabUrl(t) === url);
 
   // Fall back to hostname match
   if (matches.length === 0) {
     try {
       const targetHost = new URL(url).hostname;
       matches = allTabs.filter(t => {
-        try { return new URL(t.url).hostname === targetHost; }
+        try { return new URL(getTabUrl(t)).hostname === targetHost; }
         catch { return false; }
       });
     } catch {}
@@ -154,7 +169,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
   const toClose = [];
 
   for (const url of urls) {
-    const matching = allTabs.filter(t => t.url === url);
+    const matching = allTabs.filter(t => getTabUrl(t) === url);
     if (keepOne) {
       const keep = matching.find(t => t.active) || matching[0];
       for (const tab of matching) {
@@ -181,7 +196,7 @@ async function closeTabOutDupes() {
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
+    getTabUrl(t) === newtabUrl || getTabUrl(t) === 'chrome://newtab/'
   );
 
   if (tabOutTabs.length <= 1) return;
@@ -281,6 +296,101 @@ async function dismissSavedTab(id) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
   }
+  return tab || null;
+}
+
+async function clearSavedTabsByState({ completed }) {
+  const { deferred = [] } = await chrome.storage.local.get('deferred');
+  let changed = 0;
+
+  for (const item of deferred) {
+    if (item.dismissed) continue;
+    if (!!item.completed !== !!completed) continue;
+    item.dismissed = true;
+    changed += 1;
+  }
+
+  if (changed > 0) {
+    await chrome.storage.local.set({ deferred });
+  }
+
+  return changed;
+}
+
+async function getImportedSession() {
+  const { importedSession: stored = null } = await chrome.storage.local.get('importedSession');
+  importedSession = stored;
+  return importedSession;
+}
+
+async function setImportedSession(session) {
+  importedSession = session;
+  await chrome.storage.local.set({ importedSession: session });
+}
+
+async function clearImportedSession() {
+  importedSession = null;
+  await chrome.storage.local.remove('importedSession');
+}
+
+async function clearImportedSessionGroup(groupId) {
+  if (!importedSession || !Array.isArray(importedSession.groups)) return;
+
+  const nextGroups = importedSession.groups.filter(group => group.id !== groupId);
+  if (nextGroups.length === 0) {
+    await clearImportedSession();
+    return;
+  }
+
+  await setImportedSession({
+    ...importedSession,
+    groups: nextGroups,
+  });
+}
+
+function mergeImportedSessions(existingSession, incomingSession) {
+  if (!existingSession || !Array.isArray(existingSession.groups) || existingSession.groups.length === 0) {
+    return incomingSession;
+  }
+
+  const existingGroups = existingSession.groups || [];
+  const existingIds = new Set(existingGroups.map(group => group.id));
+
+  const mergedGroups = [...existingGroups];
+
+  for (const group of incomingSession.groups || []) {
+    let nextId = group.id || group.domain || 'imported-group';
+    let suffix = 2;
+
+    while (existingIds.has(nextId)) {
+      nextId = `${group.id || group.domain || 'imported-group'}-${suffix}`;
+      suffix += 1;
+    }
+
+    existingIds.add(nextId);
+    mergedGroups.push({
+      ...group,
+      id: nextId,
+    });
+  }
+
+  return {
+    version: incomingSession.version || existingSession.version || 1,
+    source: 'tab-out',
+    exportedAt: incomingSession.exportedAt || existingSession.exportedAt || new Date().toISOString(),
+    groups: mergedGroups,
+  };
+}
+
+async function getAutoRefreshSetting() {
+  const { autoRefreshEnabled: stored = false } = await chrome.storage.local.get('autoRefreshEnabled');
+  autoRefreshEnabled = !!stored;
+  return autoRefreshEnabled;
+}
+
+async function setAutoRefreshSetting(enabled) {
+  autoRefreshEnabled = !!enabled;
+  await chrome.storage.local.set({ autoRefreshEnabled: autoRefreshEnabled });
 }
 
 
@@ -442,6 +552,213 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('visible'), 2500);
 }
 
+function renderAutoRefreshToggle() {
+  const toggle = document.getElementById('autoRefreshToggle');
+  if (!toggle) return;
+
+  toggle.textContent = `Auto refresh: ${autoRefreshEnabled ? 'On' : 'Off'}`;
+  toggle.classList.toggle('save-tabs', autoRefreshEnabled);
+  toggle.classList.toggle('danger', !autoRefreshEnabled);
+}
+
+function formatSessionDate(dateStr) {
+  if (!dateStr) return '';
+
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function downloadJsonFile(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildSessionFilename(scopeLabel) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeScope = scopeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+  return `tab-out-${safeScope}-${stamp}.json`;
+}
+
+function buildFaviconImg(domain, className = 'chip-favicon') {
+  if (!domain) return '';
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  return `<img class="${className}" src="${faviconUrl}" alt="">`;
+}
+
+function loadOptionalLocalConfig() {
+  return new Promise(resolve => {
+    const existing = document.querySelector('script[data-local-config="true"]');
+    if (existing) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'config.local.js';
+    script.dataset.localConfig = 'true';
+    script.onload = () => resolve();
+    script.onerror = () => resolve();
+    document.head.appendChild(script);
+  });
+}
+
+function normalizeSearchText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function searchTextMatches(query, ...parts) {
+  const needle = normalizeSearchText(query);
+  if (!needle) return true;
+  return parts.some(part => normalizeSearchText(part).includes(needle));
+}
+
+function buildSearchResultItem(item) {
+  const safeId = (item.id || '').replace(/"/g, '&quot;');
+  const safeUrl = (item.url || '').replace(/"/g, '&quot;');
+  const safeTitle = (item.title || item.url || '').replace(/"/g, '&quot;');
+  const sourceBadgeClass = item.source === 'imported' ? ' imported' : item.source === 'later' ? ' later' : '';
+  let domain = '';
+  try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
+
+  let actions = '';
+  if (item.source === 'open') {
+    actions = `
+      <button class="action-btn" data-action="focus-tab" data-tab-url="${safeUrl}">Focus</button>
+      <button class="action-btn close-tabs" data-action="close-single-tab" data-tab-url="${safeUrl}">Close</button>
+      <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">Later</button>
+    `;
+  } else if (item.source === 'imported') {
+    actions = `
+      <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${safeId}">Restore</button>
+      <button class="action-btn danger" data-action="clear-imported-group" data-imported-group-id="${safeId}">Clear</button>
+    `;
+  } else {
+    actions = item.isArchived
+      ? `
+        <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">Open</button>
+        <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">Remove</button>
+      `
+      : `
+        <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">Open</button>
+        <button class="action-btn save-tabs" data-action="check-later" data-later-id="${safeId}">Done</button>
+        <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">Remove</button>
+      `;
+  }
+
+  return `
+    <div class="search-card">
+      <div class="search-card-header">
+        <div class="search-card-title">${buildFaviconImg(domain)}${item.title || item.url}</div>
+        <span class="search-source-badge${sourceBadgeClass}">${item.sourceLabel}</span>
+      </div>
+      <div class="search-card-meta">
+        <span>${domain || item.groupLabel || 'Unknown source'}</span>
+        ${item.groupLabel ? `<span>${item.groupLabel}</span>` : ''}
+        ${item.url ? `<span>${item.url}</span>` : ''}
+      </div>
+      <div class="search-card-actions">${actions}</div>
+    </div>`;
+}
+
+async function renderSearchResults() {
+  const searchSection = document.getElementById('searchSection');
+  const searchCount = document.getElementById('searchCount');
+  const searchResults = document.getElementById('searchResults');
+  const openTabsSection = document.getElementById('openTabsSection');
+  const importedSessionSection = document.getElementById('importedSessionSection');
+  const laterColumn = document.getElementById('laterColumn');
+  const tabOutDupeBanner = document.getElementById('tabOutDupeBanner');
+
+  if (!searchSection || !searchCount || !searchResults) return false;
+
+  const query = normalizeSearchText(globalSearchQuery);
+  if (!query) {
+    searchSection.style.display = 'none';
+    if (openTabsSection) openTabsSection.style.display = domainGroups.length > 0 ? 'block' : 'none';
+    if (laterColumn) {
+      const { active, archived } = await getSavedTabs();
+      laterColumn.style.display = active.length === 0 && archived.length === 0 ? 'none' : 'block';
+    }
+    if (importedSessionSection && importedSession && Array.isArray(importedSession.groups) && importedSession.groups.length > 0) {
+      importedSessionSection.style.display = 'block';
+    }
+    if (tabOutDupeBanner) checkTabOutDupes();
+    return false;
+  }
+
+  const { active: laterActive, archived: laterArchived } = await getSavedTabs();
+  const results = [];
+
+  for (const tab of getRealTabs()) {
+    if (searchTextMatches(query, tab.title, tab.url)) {
+      results.push({
+        id: `open-${tab.id}`,
+        title: tab.title,
+        url: tab.url,
+        source: 'open',
+        sourceLabel: 'Open tab',
+      });
+    }
+  }
+
+  if (importedSession && Array.isArray(importedSession.groups)) {
+    for (const group of importedSession.groups) {
+      const matches = (group.tabs || []).some(tab =>
+        searchTextMatches(query, group.label, group.domain, tab.title, tab.url)
+      );
+      if (matches) {
+        results.push({
+          id: group.id,
+          title: group.label || friendlyDomain(group.domain),
+          url: (group.tabs && group.tabs[0] && group.tabs[0].url) || '',
+          source: 'imported',
+          sourceLabel: 'Imported',
+          groupLabel: `${(group.tabs || []).length} tab${(group.tabs || []).length !== 1 ? 's' : ''}`,
+        });
+      }
+    }
+  }
+
+  for (const item of [...laterActive, ...laterArchived]) {
+    if (searchTextMatches(query, item.title, item.url)) {
+      results.push({
+        id: item.id,
+        title: item.title,
+        url: item.url,
+        source: 'later',
+        isArchived: !!item.completed,
+        sourceLabel: item.completed ? 'Later archived' : 'Later list',
+      });
+    }
+  }
+
+  if (openTabsSection) openTabsSection.style.display = 'none';
+  if (importedSessionSection) importedSessionSection.style.display = 'none';
+  if (laterColumn) laterColumn.style.display = 'none';
+  if (tabOutDupeBanner) tabOutDupeBanner.style.display = 'none';
+
+  searchCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
+  searchResults.innerHTML = results.length > 0
+    ? results.map(buildSearchResultItem).join('')
+    : '<div class="search-empty">No matching tabs across open tabs, imported session, or later list.</div>';
+  searchSection.style.display = 'block';
+  return true;
+}
+
 /**
  * checkAndShowEmptyState()
  *
@@ -489,6 +806,21 @@ function timeAgo(dateStr) {
   if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
   if (diffDays === 1) return 'yesterday';
   return diffDays + ' days ago';
+}
+
+function shortTimeAgo(timestamp) {
+  if (!timestamp) return '';
+  const diffMs = Date.now() - Number(timestamp);
+  if (!Number.isFinite(diffMs) || diffMs < 0) return '';
+
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
 }
 
 /**
@@ -763,14 +1095,15 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const ageTag   = shortTimeAgo(tab.lastAccessed);
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${buildFaviconImg(domain)}
       <span class="chip-text">${label}</span>${dupeTag}
+      ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -844,14 +1177,15 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const ageTag   = shortTimeAgo(tab.lastAccessed);
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${buildFaviconImg(domain)}
       <span class="chip-text">${label}</span>${dupeTag}
+      ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -864,6 +1198,9 @@ function renderDomainCard(group) {
   }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
 
   let actionsHtml = `
+    <button class="action-btn" data-action="export-domain-group" data-domain-id="${stableId}">
+      Export
+    </button>
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
       Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
@@ -902,18 +1239,18 @@ function renderDomainCard(group) {
    ---------------------------------------------------------------- */
 
 /**
- * renderDeferredColumn()
+ * renderLaterListColumn()
  *
  * Reads saved tabs from chrome.storage.local and renders the right-side
- * "Saved for Later" checklist column. Shows active items as a checklist
+ * "Later list" column. Shows active items as a checklist
  * and completed items in a collapsible archive.
  */
-async function renderDeferredColumn() {
-  const column         = document.getElementById('deferredColumn');
-  const list           = document.getElementById('deferredList');
-  const empty          = document.getElementById('deferredEmpty');
-  const countEl        = document.getElementById('deferredCount');
-  const archiveEl      = document.getElementById('deferredArchive');
+async function renderLaterListColumn() {
+  const column         = document.getElementById('laterColumn');
+  const list           = document.getElementById('laterList');
+  const empty          = document.getElementById('laterEmpty');
+  const countEl        = document.getElementById('laterCount');
+  const archiveEl      = document.getElementById('laterArchive');
   const archiveCountEl = document.getElementById('archiveCount');
   const archiveList    = document.getElementById('archiveList');
 
@@ -933,7 +1270,7 @@ async function renderDeferredColumn() {
     // Render active checklist items
     if (active.length > 0) {
       countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
-      list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
+      list.innerHTML = active.map(item => renderLaterItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
     } else {
@@ -958,30 +1295,29 @@ async function renderDeferredColumn() {
 }
 
 /**
- * renderDeferredItem(item)
+ * renderLaterItem(item)
  *
  * Builds HTML for one active checklist item: checkbox, title link,
  * domain, time ago, dismiss button.
  */
-function renderDeferredItem(item) {
+function renderLaterItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
   const ago = timeAgo(item.savedAt);
 
   return `
-    <div class="deferred-item" data-deferred-id="${item.id}">
-      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
-      <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+    <div class="later-item" data-later-id="${item.id}">
+      <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${item.id}">
+      <div class="later-info">
+        <a href="${item.url}" target="_blank" rel="noopener" class="later-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
+          ${buildFaviconImg(domain, 'deferred-favicon')}${item.title || item.url}
         </a>
-        <div class="deferred-meta">
+        <div class="later-meta">
           <span>${domain}</span>
           <span>${ago}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="later-dismiss" data-action="dismiss-later" data-later-id="${item.id}" title="Remove">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -1003,6 +1339,96 @@ function renderArchiveItem(item) {
     </div>`;
 }
 
+function renderImportedSessionCard(group, openUrlSet) {
+  const groupId = (group.id || group.domain || '').replace(/"/g, '&quot;');
+  const tabCount = Array.isArray(group.tabs) ? group.tabs.length : 0;
+  const exportedTabs = (group.tabs || []).slice(0, 8);
+  const extraCount = Math.max(0, tabCount - exportedTabs.length);
+  const allOpen = tabCount > 0 && (group.tabs || []).every(tab => openUrlSet.has(tab.url));
+  const statusBadge = allOpen
+    ? `<span class="open-tabs-badge imported-status-badge">Opened</span>`
+    : '';
+
+  const pageChips = exportedTabs.map(tab => {
+    const safeTitle = (tab.title || tab.url || '').replace(/"/g, '&quot;');
+    let domain = '';
+    try { domain = new URL(tab.url).hostname; } catch {}
+    return `<div class="page-chip" title="${safeTitle}">
+      ${buildFaviconImg(domain)}
+      <span class="chip-text">${tab.title || tab.url}</span>
+    </div>`;
+  }).join('') + (extraCount > 0 ? `
+    <div class="page-chip page-chip-overflow">
+      <span class="chip-text">+${extraCount} more</span>
+    </div>` : '');
+
+  return `
+    <div class="mission-card domain-card has-active-bar" data-imported-group-id="${groupId}">
+      <div class="status-bar"></div>
+      <div class="mission-content">
+        <div class="mission-top">
+          <span class="mission-name">${group.label || friendlyDomain(group.domain)}</span>
+          <span class="open-tabs-badge">${ICONS.tabs}${tabCount} tab${tabCount !== 1 ? 's' : ''}</span>
+          ${statusBadge}
+        </div>
+        <div class="mission-pages">${pageChips}</div>
+        <div class="actions">
+          <button class="action-btn" data-action="export-imported-group" data-imported-group-id="${groupId}">Export</button>
+          <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${groupId}">Restore</button>
+          <button class="action-btn danger" data-action="clear-imported-group" data-imported-group-id="${groupId}">Clear</button>
+        </div>
+      </div>
+      <div class="mission-meta">
+        <div class="mission-page-count">${tabCount}</div>
+        <div class="mission-page-label">tabs</div>
+      </div>
+    </div>`;
+}
+
+function renderImportedSessionSection() {
+  const section = document.getElementById('importedSessionSection');
+  const countEl = document.getElementById('importedSessionCount');
+  const metaEl = document.getElementById('importedSessionMeta');
+  const missionsEl = document.getElementById('importedSessionMissions');
+
+  if (!section || !countEl || !metaEl || !missionsEl) return;
+
+  if (!importedSession || !Array.isArray(importedSession.groups) || importedSession.groups.length === 0) {
+    section.style.display = 'none';
+    missionsEl.innerHTML = '';
+    return;
+  }
+
+  const groupCount = importedSession.groups.length;
+  const tabCount = importedSession.groups.reduce((sum, group) => sum + ((group.tabs || []).length), 0);
+  const exportedAt = formatSessionDate(importedSession.exportedAt);
+  const openUrlSet = new Set(getRealTabs().map(tab => tab.url));
+
+  countEl.textContent = `${groupCount} group${groupCount !== 1 ? 's' : ''} · ${tabCount} tab${tabCount !== 1 ? 's' : ''}`;
+  metaEl.textContent = exportedAt ? `Imported from file exported ${exportedAt}` : 'Imported from file';
+  missionsEl.innerHTML = importedSession.groups.map(group => renderImportedSessionCard(group, openUrlSet)).join('');
+  section.style.display = 'block';
+}
+
+async function restoreSessionGroups(groups) {
+  const safeGroups = Array.isArray(groups) ? groups : [];
+  if (safeGroups.length === 0) return { opened: 0, skipped: 0 };
+
+  const currentTabs = await chrome.tabs.query({});
+  const plan = sessionPlanRestoreTabs(safeGroups, currentTabs);
+
+  for (const tab of plan.toOpen) {
+    await chrome.tabs.create({ url: tab.url, active: false });
+  }
+
+  await fetchOpenTabs();
+
+  return {
+    opened: plan.toOpen.length,
+    skipped: plan.skipped.length,
+  };
+}
+
 
 /* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
@@ -1020,11 +1446,16 @@ function renderArchiveItem(item) {
  * 6. Renders the "Saved for Later" checklist
  */
 async function renderStaticDashboard() {
+  await getAutoRefreshSetting();
+
   // --- Header ---
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
+  const searchInput = document.getElementById('globalSearchInput');
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+  if (searchInput && searchInput.value !== globalSearchQuery) searchInput.value = globalSearchQuery;
+  renderAutoRefreshToggle();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1159,18 +1590,49 @@ async function renderStaticDashboard() {
 
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
+  if (statTabs) statTabs.textContent = realTabs.length;
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
 
-  // --- Render "Saved for Later" column ---
-  await renderDeferredColumn();
+  // --- Imported session section ---
+  await getImportedSession();
+  renderImportedSessionSection();
+
+  // --- Render "Later list" column ---
+  await renderLaterListColumn();
+
+  // --- Search results overlay ---
+  await renderSearchResults();
 }
 
 async function renderDashboard() {
   await renderStaticDashboard();
 }
+
+function scheduleDashboardRefresh(delay = 120) {
+  if (!autoRefreshEnabled) return;
+  clearTimeout(dashboardRefreshTimer);
+  dashboardRefreshTimer = setTimeout(() => {
+    renderDashboard().catch(err => {
+      console.warn('[tab-out] Dashboard refresh failed:', err);
+    });
+  }, delay);
+}
+
+chrome.tabs.onCreated.addListener(() => {
+  scheduleDashboardRefresh();
+});
+
+chrome.tabs.onRemoved.addListener(() => {
+  scheduleDashboardRefresh();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    scheduleDashboardRefresh();
+  }
+});
 
 
 /* ----------------------------------------------------------------
@@ -1188,16 +1650,68 @@ document.addEventListener('click', async (e) => {
 
   const action = actionEl.dataset.action;
 
+  if (action === 'manual-refresh') {
+    await renderDashboard();
+    showToast('Refreshed');
+    return;
+  }
+
+  if (action === 'toggle-auto-refresh') {
+    await setAutoRefreshSetting(!autoRefreshEnabled);
+    renderAutoRefreshToggle();
+    showToast(`Auto refresh ${autoRefreshEnabled ? 'enabled' : 'disabled'}`);
+    return;
+  }
+
+  if (action === 'trigger-import-session') {
+    const input = document.getElementById('sessionImportInput');
+    if (input) input.click();
+    return;
+  }
+
+  if (action === 'export-all-groups') {
+    const payload = sessionCreateSessionExport(domainGroups);
+    downloadJsonFile(buildSessionFilename('all-tabs'), payload);
+    showToast(`Exported ${payload.groups.length} group${payload.groups.length !== 1 ? 's' : ''}`);
+    return;
+  }
+
+  if (action === 'clear-imported-session') {
+    await clearImportedSession();
+    renderImportedSessionSection();
+    showToast('Imported session cleared');
+    return;
+  }
+
+  if (action === 'restore-imported-session') {
+    if (!importedSession) return;
+    const result = await restoreSessionGroups(importedSession.groups);
+    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    await renderDashboard();
+    return;
+  }
+
+  if (action === 'clear-later-list') {
+    const cleared = await clearSavedTabsByState({ completed: false });
+    await renderLaterListColumn();
+    await renderSearchResults();
+    showToast(cleared > 0 ? `Cleared ${cleared} item${cleared !== 1 ? 's' : ''} from Later list` : 'Later list already empty');
+    return;
+  }
+
+  if (action === 'clear-later-archive') {
+    const cleared = await clearSavedTabsByState({ completed: true });
+    await renderLaterListColumn();
+    await renderSearchResults();
+    showToast(cleared > 0 ? `Cleared ${cleared} archived item${cleared !== 1 ? 's' : ''}` : 'Archive already empty');
+    return;
+  }
+
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
     await closeTabOutDupes();
     playCloseSound();
-    const banner = document.getElementById('tabOutDupeBanner');
-    if (banner) {
-      banner.style.transition = 'opacity 0.4s';
-      banner.style.opacity = '0';
-      setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
-    }
+    await renderDashboard();
     showToast('Closed extra Tab Out tabs');
     return;
   }
@@ -1221,6 +1735,49 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'open-later-item') {
+    const laterUrl = actionEl.dataset.laterUrl;
+    if (!laterUrl) return;
+    await chrome.tabs.create({ url: laterUrl, active: true });
+    return;
+  }
+
+  if (action === 'export-imported-group') {
+    const groupId = actionEl.dataset.importedGroupId;
+    const group = importedSession && Array.isArray(importedSession.groups)
+      ? importedSession.groups.find(item => item.id === groupId)
+      : null;
+    if (!group) return;
+
+    const payload = sessionCreateSessionExport([group]);
+    downloadJsonFile(buildSessionFilename(group.label || group.domain || 'group'), payload);
+    showToast(`Exported ${group.label || group.domain}`);
+    return;
+  }
+
+  if (action === 'restore-imported-group') {
+    const groupId = actionEl.dataset.importedGroupId;
+    const group = importedSession && Array.isArray(importedSession.groups)
+      ? importedSession.groups.find(item => item.id === groupId)
+      : null;
+    if (!group) return;
+
+    const result = await restoreSessionGroups([group]);
+    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    await renderDashboard();
+    return;
+  }
+
+  if (action === 'clear-imported-group') {
+    const groupId = actionEl.dataset.importedGroupId;
+    if (!groupId) return;
+
+    await clearImportedSessionGroup(groupId);
+    renderImportedSessionSection();
+    showToast('Imported group cleared');
+    return;
+  }
+
   // ---- Close a single tab ----
   if (action === 'close-single-tab') {
     e.stopPropagation(); // don't trigger parent chip's focus-tab
@@ -1235,31 +1792,13 @@ document.addEventListener('click', async (e) => {
 
     playCloseSound();
 
-    // Animate the chip row out
     const chip = actionEl.closest('.page-chip');
     if (chip) {
       const rect = chip.getBoundingClientRect();
       shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      chip.style.transition = 'opacity 0.2s, transform 0.2s';
-      chip.style.opacity    = '0';
-      chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => {
-        chip.remove();
-        // If the card now has no tabs, remove it too
-        const parentCard = document.querySelector('.mission-card:has(.mission-pages:empty)');
-        if (parentCard) animateCardOut(parentCard);
-        document.querySelectorAll('.mission-card').forEach(c => {
-          if (c.querySelectorAll('.page-chip[data-action="focus-tab"]').length === 0) {
-            animateCardOut(c);
-          }
-        });
-      }, 200);
     }
 
-    // Update footer
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
-
+    await renderDashboard();
     showToast('Tab closed');
     return;
   }
@@ -1286,57 +1825,57 @@ document.addEventListener('click', async (e) => {
     if (match) await chrome.tabs.remove(match.id);
     await fetchOpenTabs();
 
-    // Animate chip out
     const chip = actionEl.closest('.page-chip');
     if (chip) {
-      chip.style.transition = 'opacity 0.2s, transform 0.2s';
-      chip.style.opacity    = '0';
-      chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => chip.remove(), 200);
+      const rect = chip.getBoundingClientRect();
+      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
     }
 
-    showToast('Saved for later');
-    await renderDeferredColumn();
+    await renderDashboard();
+    showToast('Added to Later list');
     return;
   }
 
-  // ---- Check off a saved tab (moves it to archive) ----
-  if (action === 'check-deferred') {
-    const id = actionEl.dataset.deferredId;
+  // ---- Check off a later-list tab (moves it to archive) ----
+  if (action === 'check-later') {
+    const id = actionEl.dataset.laterId;
     if (!id) return;
 
     await checkOffSavedTab(id);
 
-    // Animate: strikethrough first, then slide out
-    const item = actionEl.closest('.deferred-item');
+    const item = actionEl.closest('.later-item');
     if (item) {
       item.classList.add('checked');
       setTimeout(() => {
         item.classList.add('removing');
         setTimeout(() => {
-          item.remove();
-          renderDeferredColumn(); // refresh counts and archive
+          renderDashboard();
         }, 300);
       }, 800);
+    } else {
+      await renderDashboard();
     }
+    showToast('Moved to Archive');
     return;
   }
 
-  // ---- Dismiss a saved tab (removes it entirely) ----
-  if (action === 'dismiss-deferred') {
-    const id = actionEl.dataset.deferredId;
+  // ---- Dismiss a later-list tab (removes it entirely) ----
+  if (action === 'dismiss-later') {
+    const id = actionEl.dataset.laterId;
     if (!id) return;
 
-    await dismissSavedTab(id);
+    const removedItem = await dismissSavedTab(id);
 
-    const item = actionEl.closest('.deferred-item');
+    const item = actionEl.closest('.later-item');
     if (item) {
       item.classList.add('removing');
       setTimeout(() => {
-        item.remove();
-        renderDeferredColumn();
+        renderDashboard();
       }, 300);
+    } else {
+      await renderDashboard();
     }
+    showToast(removedItem && removedItem.completed ? 'Removed from Archive' : 'Removed from Later list');
     return;
   }
 
@@ -1361,18 +1900,26 @@ document.addEventListener('click', async (e) => {
 
     if (card) {
       playCloseSound();
-      animateCardOut(card);
+      const rect = card.getBoundingClientRect();
+      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
     }
 
-    // Remove from in-memory groups
-    const idx = domainGroups.indexOf(group);
-    if (idx !== -1) domainGroups.splice(idx, 1);
-
     const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+    await renderDashboard();
     showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    return;
+  }
 
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+  if (action === 'export-domain-group') {
+    const domainId = actionEl.dataset.domainId;
+    const group = domainGroups.find(g => {
+      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId;
+    });
+    if (!group) return;
+
+    const payload = sessionCreateSessionExport([group]);
+    downloadJsonFile(buildSessionFilename(group.label || group.domain || 'group'), payload);
+    showToast(`Exported ${group.label || friendlyDomain(group.domain)}`);
     return;
   }
 
@@ -1384,30 +1931,7 @@ document.addEventListener('click', async (e) => {
 
     await closeDuplicateTabs(urls, true);
     playCloseSound();
-
-    // Hide the dedup button
-    actionEl.style.transition = 'opacity 0.2s';
-    actionEl.style.opacity    = '0';
-    setTimeout(() => actionEl.remove(), 200);
-
-    // Remove dupe badges from the card
-    if (card) {
-      card.querySelectorAll('.chip-dupe-badge').forEach(b => {
-        b.style.transition = 'opacity 0.2s';
-        b.style.opacity    = '0';
-        setTimeout(() => b.remove(), 200);
-      });
-      card.querySelectorAll('.open-tabs-badge').forEach(badge => {
-        if (badge.textContent.includes('duplicate')) {
-          badge.style.transition = 'opacity 0.2s';
-          badge.style.opacity    = '0';
-          setTimeout(() => badge.remove(), 200);
-        }
-      });
-      card.classList.remove('has-amber-bar');
-      card.classList.add('has-neutral-bar');
-    }
-
+    await renderDashboard();
     showToast('Closed duplicates, kept one copy each');
     return;
   }
@@ -1417,18 +1941,54 @@ document.addEventListener('click', async (e) => {
     const allUrls = openTabs
       .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
       .map(t => t.url);
-    await closeTabsByUrls(allUrls);
-    playCloseSound();
 
     document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
       shootConfetti(
         c.getBoundingClientRect().left + c.offsetWidth / 2,
         c.getBoundingClientRect().top  + c.offsetHeight / 2
       );
-      animateCardOut(c);
     });
 
+    await closeTabsByUrls(allUrls);
+    playCloseSound();
+    await renderDashboard();
     showToast('All tabs closed. Fresh start.');
+    return;
+  }
+});
+
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'sessionImportInput') return;
+
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+
+  try {
+    let nextImportedSession = importedSession;
+    let importedGroupCount = 0;
+
+    for (const file of files) {
+      const text = await file.text();
+      const parsed = sessionParseImportedSession(text);
+      nextImportedSession = mergeImportedSessions(nextImportedSession, parsed);
+      importedGroupCount += parsed.groups.length;
+    }
+
+    await setImportedSession(nextImportedSession);
+    renderImportedSessionSection();
+    showToast(`Imported ${importedGroupCount} group${importedGroupCount !== 1 ? 's' : ''}`);
+  } catch (err) {
+    console.error('[tab-out] Failed to import session:', err);
+    showToast(err && err.message ? err.message : 'Import failed');
+  } finally {
+    e.target.value = '';
+  }
+});
+
+document.addEventListener('input', async (e) => {
+  if (e.target.id === 'globalSearchInput') {
+    globalSearchQuery = e.target.value || '';
+    await renderSearchResults();
     return;
   }
 });
@@ -1445,38 +2005,9 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ---- Archive search — filter archived items as user types ----
-document.addEventListener('input', async (e) => {
-  if (e.target.id !== 'archiveSearch') return;
-
-  const q = e.target.value.trim().toLowerCase();
-  const archiveList = document.getElementById('archiveList');
-  if (!archiveList) return;
-
-  try {
-    const { archived } = await getSavedTabs();
-
-    if (q.length < 2) {
-      // Show all archived items
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      return;
-    }
-
-    // Filter by title or URL containing the query string
-    const results = archived.filter(item =>
-      (item.title || '').toLowerCase().includes(q) ||
-      (item.url  || '').toLowerCase().includes(q)
-    );
-
-    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
-  } catch (err) {
-    console.warn('[tab-out] Archive search failed:', err);
-  }
-});
-
-
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+loadOptionalLocalConfig().finally(() => {
+  renderDashboard();
+});
