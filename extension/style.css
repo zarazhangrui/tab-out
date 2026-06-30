@@ -136,6 +136,19 @@ header {
   background: rgba(154, 145, 138, 0.08);
 }
 
+.more-menu-item:focus-visible,
+.action-btn:focus-visible,
+.global-search-input:focus-visible,
+.chip-action:focus-visible,
+.later-dismiss:focus-visible,
+.archive-toggle:focus-visible,
+.later-checkbox:focus-visible,
+.later-title:focus-visible,
+.archive-item-title:focus-visible {
+  outline: 2px solid rgba(90, 122, 98, 0.45);
+  outline-offset: 2px;
+}
+
 .more-menu-item.save-tabs {
   color: var(--accent-sage);
   background: rgba(90, 122, 98, 0.04);

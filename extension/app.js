@@ -39,6 +39,7 @@ let autoRefreshEnabled = false;
 let globalSearchQuery = '';
 let searchDebounceTimer = null;
 let moreMenuOpen = false;
+let deferredItemsCache = [];
 const STORAGE_DEFAULTS = {
   deferred: [],
   importedSession: null,
@@ -115,6 +116,18 @@ function normalizeImportedSessionData(session) {
   } catch {
     return { session: null, changed: true };
   }
+}
+
+function setDeferredItemsCache(items) {
+  deferredItemsCache = Array.isArray(items) ? items : [];
+}
+
+function getSavedTabsFromCache() {
+  const visible = deferredItemsCache.filter(t => !t.dismissed);
+  return {
+    active: visible.filter(t => !t.completed),
+    archived: visible.filter(t => t.completed),
+  };
 }
 
 async function setStorageValue(key, value) {
@@ -379,6 +392,7 @@ async function saveTabForLater(tab) {
       completed: false,
       dismissed: false,
     });
+    setDeferredItemsCache(deferred);
     return deferred;
   });
 }
@@ -393,14 +407,11 @@ async function saveTabForLater(tab) {
 async function getSavedTabs() {
   const rawDeferred = await getStorageValue('deferred');
   const { items: deferred, changed } = normalizeDeferredItems(rawDeferred);
+  setDeferredItemsCache(deferred);
   if (changed) {
     await setStorageValue('deferred', deferred);
   }
-  const visible = deferred.filter(t => !t.dismissed);
-  return {
-    active:   visible.filter(t => !t.completed),
-    archived: visible.filter(t => t.completed),
-  };
+  return getSavedTabsFromCache();
 }
 
 /**
@@ -416,6 +427,7 @@ async function checkOffSavedTab(id) {
     if (!tab) return deferred;
     tab.completed = true;
     tab.completedAt = new Date().toISOString();
+    setDeferredItemsCache(deferred);
     return deferred;
   });
 }
@@ -434,6 +446,7 @@ async function dismissSavedTab(id) {
     if (!tab) return deferred;
     tab.dismissed = true;
     removed = { ...tab };
+    setDeferredItemsCache(deferred);
     return deferred;
   });
   return removed;
@@ -452,6 +465,7 @@ async function clearSavedTabsByState({ completed }) {
       changed += 1;
     }
 
+    setDeferredItemsCache(deferred);
     return deferred;
   });
 
@@ -717,10 +731,23 @@ function renderMoreMenu() {
   panel.style.display = moreMenuOpen ? 'flex' : 'none';
 }
 
+function getMoreMenuItems() {
+  return Array.from(document.querySelectorAll('#moreMenuPanel .more-menu-item'));
+}
+
+function focusMoreMenuItem(index) {
+  const items = getMoreMenuItems();
+  if (items.length === 0) return;
+  const safeIndex = Math.max(0, Math.min(index, items.length - 1));
+  items[safeIndex].focus();
+}
+
 function closeMoreMenu() {
   if (!moreMenuOpen) return;
   moreMenuOpen = false;
   renderMoreMenu();
+  const toggle = document.getElementById('moreMenuToggle');
+  if (toggle) toggle.focus();
 }
 
 function formatSessionDate(dateStr) {
@@ -1876,6 +1903,35 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+
+  let shouldRender = false;
+
+  if (changes.deferred) {
+    const { items } = normalizeDeferredItems(changes.deferred.newValue);
+    setDeferredItemsCache(items);
+    shouldRender = true;
+  }
+
+  if (changes.importedSession) {
+    const { session } = normalizeImportedSessionData(changes.importedSession.newValue);
+    importedSession = session;
+    shouldRender = true;
+  }
+
+  if (changes.autoRefreshEnabled) {
+    autoRefreshEnabled = !!changes.autoRefreshEnabled.newValue;
+    renderAutoRefreshToggle();
+  }
+
+  if (shouldRender) {
+    renderDashboard().catch(err => {
+      console.warn('[tab-out] Storage sync render failed:', err);
+    });
+  }
+});
+
 
 /* ----------------------------------------------------------------
    EVENT HANDLERS — using event delegation
@@ -1902,6 +1958,9 @@ document.addEventListener('click', async (e) => {
   if (action === 'toggle-more-menu') {
     moreMenuOpen = !moreMenuOpen;
     renderMoreMenu();
+    if (moreMenuOpen) {
+      setTimeout(() => focusMoreMenuItem(0), 0);
+    }
     return;
   }
 
@@ -2287,6 +2346,43 @@ document.addEventListener('input', async (e) => {
       });
     }, 120);
     return;
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeMoreMenu();
+    return;
+  }
+
+  const isToggle = e.target && e.target.id === 'moreMenuToggle';
+  const isMenuItem = !!(e.target && e.target.closest && e.target.closest('#moreMenuPanel .more-menu-item'));
+
+  if (!isToggle && !isMenuItem) return;
+
+  if (isToggle && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    moreMenuOpen = true;
+    renderMoreMenu();
+    setTimeout(() => focusMoreMenuItem(0), 0);
+    return;
+  }
+
+  if (!isMenuItem) return;
+
+  const items = getMoreMenuItems();
+  const currentIndex = items.indexOf(e.target);
+  if (currentIndex === -1) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    focusMoreMenuItem((currentIndex + 1) % items.length);
+    return;
+  }
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    focusMoreMenuItem((currentIndex - 1 + items.length) % items.length);
   }
 });
 

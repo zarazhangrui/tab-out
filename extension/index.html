@@ -32,17 +32,18 @@
           type="search"
           id="globalSearchInput"
           class="global-search-input"
+          aria-label="Search tabs across open tabs, imported sessions, and later list"
           placeholder="Search open tabs, imported sessions, and later list..."
           autocomplete="off"
           spellcheck="false">
       </div>
       <button class="action-btn" data-action="manual-refresh">Refresh</button>
       <div class="more-menu" id="moreMenu">
-        <button class="action-btn" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false">More</button>
-        <div class="more-menu-panel" id="moreMenuPanel" style="display:none">
-          <button class="more-menu-item" id="autoRefreshToggle" data-action="toggle-auto-refresh">Auto refresh: Off</button>
-          <button class="more-menu-item" data-action="trigger-import-session">Import file</button>
-          <button class="more-menu-item" data-action="export-all-groups">Export all</button>
+        <button class="action-btn" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false" aria-haspopup="menu" aria-controls="moreMenuPanel">More</button>
+        <div class="more-menu-panel" id="moreMenuPanel" role="menu" aria-label="More actions" style="display:none">
+          <button class="more-menu-item" id="autoRefreshToggle" data-action="toggle-auto-refresh" role="menuitem">Auto refresh: Off</button>
+          <button class="more-menu-item" data-action="trigger-import-session" role="menuitem">Import file</button>
+          <button class="more-menu-item" data-action="export-all-groups" role="menuitem">Export all</button>
         </div>
       </div>
     </div>
