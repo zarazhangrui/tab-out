@@ -45,7 +45,6 @@ const STORAGE_DEFAULTS = {
   importedSession: null,
   autoRefreshEnabled: false,
 };
-const RESTORE_CONFIRM_THRESHOLD = 15;
 const storageQueues = new Map();
 
 function getTabUrl(tab) {
@@ -153,31 +152,6 @@ function queueStorageUpdate(key, updater) {
       storageQueues.delete(key);
     }
   });
-}
-
-function getRestorePreviewMessage(summary, scopeLabel) {
-  if (!summary) return '';
-
-  const scope = scopeLabel || 'session';
-  if (!summary.hasWork) {
-    return `${scope} is already open. ${summary.alreadyOpenCount} tab${summary.alreadyOpenCount !== 1 ? 's are' : ' is'} already open.`;
-  }
-
-  const parts = [`Open ${summary.toOpenCount} tab${summary.toOpenCount !== 1 ? 's' : ''}`];
-  if (summary.alreadyOpenCount > 0) {
-    parts.push(`skip ${summary.alreadyOpenCount} already open`);
-  }
-  parts.push(`from ${scope}?`);
-  return parts.join(', ').replace(', from', ' from');
-}
-
-async function confirmRestorePlan(summary, scopeLabel) {
-  const message = getRestorePreviewMessage(summary, scopeLabel);
-  if (!message) return false;
-  if (!summary.hasWork) return false;
-  if (summary.toOpenCount < RESTORE_CONFIRM_THRESHOLD) return window.confirm(message);
-
-  return window.confirm(`${message}\n\nThis is a large restore and may open many tabs at once.`);
 }
 
 /**
@@ -295,6 +269,27 @@ async function focusTab(url) {
   const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
   await chrome.tabs.update(match.id, { active: true });
   await chrome.windows.update(match.windowId, { focused: true });
+}
+
+async function focusTabById(tabId) {
+  if (!tabId) return;
+  const allTabs = await chrome.tabs.query({});
+  const match = allTabs.find(tab => String(tab.id) === String(tabId));
+  if (!match) return;
+
+  await chrome.tabs.update(match.id, { active: true });
+  await chrome.windows.update(match.windowId, { focused: true });
+}
+
+async function focusExactTabByUrl(url) {
+  if (!url) return false;
+  const allTabs = await chrome.tabs.query({});
+  const match = allTabs.find(tab => getTabUrl(tab) === url);
+  if (!match) return false;
+
+  await chrome.tabs.update(match.id, { active: true });
+  await chrome.windows.update(match.windowId, { focused: true });
+  return true;
 }
 
 /**
@@ -824,6 +819,8 @@ async function syncImportedSessionSearchResults() {
 
 function buildSearchResultItem(item) {
   const safeId = escapeHtml(item.id || '');
+  const safeTabId = escapeHtml(item.tabId || '');
+  const safeGroupId = escapeHtml(item.groupId || '');
   const safeUrl = escapeHtml(item.url || '');
   const safeTitle = escapeHtml(item.title || item.url || '');
   const safeSourceLabel = escapeHtml(item.sourceLabel || '');
@@ -837,15 +834,15 @@ function buildSearchResultItem(item) {
   let actions = '';
   if (item.source === 'open') {
     actions = `
-      <button class="action-btn" data-action="focus-tab" data-tab-url="${safeUrl}">Focus</button>
-      <button class="action-btn close-tabs" data-action="close-single-tab" data-tab-url="${safeUrl}">Close</button>
-      <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">Later</button>
+      <button class="action-btn" data-action="focus-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">Focus</button>
+      <button class="action-btn close-tabs" data-action="close-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">Close</button>
+      <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">Later</button>
     `;
   } else if (item.source === 'imported') {
-    const safeTabId = escapeHtml(item.tabId || item.id || '');
+    const primaryLabel = item.isOpen ? 'Open' : 'Restore';
     actions = `
-      <button class="action-btn save-tabs" data-action="restore-imported-tab" data-imported-group-id="${safeId}" data-imported-tab-id="${safeTabId}">Restore</button>
-      <button class="action-btn danger" data-action="clear-imported-tab" data-imported-group-id="${safeId}" data-imported-tab-id="${safeTabId}">Clear</button>
+      <button class="action-btn save-tabs" data-action="restore-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" data-tab-url="${safeUrl}">${primaryLabel}</button>
+      <button class="action-btn danger" data-action="clear-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}">Clear</button>
     `;
   } else {
     actions = item.isArchived
@@ -903,11 +900,13 @@ async function renderSearchResults() {
 
   const { active: laterActive, archived: laterArchived } = await getSavedTabs();
   const results = [];
+  const openUrlSet = new Set(getRealTabs().map(tab => tab.url));
 
   for (const tab of getRealTabs()) {
     if (searchTextMatches(query, tab.title, tab.url)) {
       results.push({
         id: `open-${tab.id}`,
+        tabId: String(tab.id),
         title: tab.title,
         url: tab.url,
         source: 'open',
@@ -922,8 +921,10 @@ async function renderSearchResults() {
       results.push({
         id: match.tabId,
         tabId: match.tabId,
+        groupId: match.groupId,
         title: match.title,
         url: match.url,
+        isOpen: openUrlSet.has(match.url),
         source: 'imported',
         sourceLabel: 'Imported tab',
         groupLabel: match.groupLabel || friendlyDomain(match.groupDomain),
@@ -1548,26 +1549,55 @@ function renderArchiveItem(item) {
     </div>`;
 }
 
+function renderImportedSessionTabChip(tab, groupId, openUrlSet) {
+  const safeTitle = escapeHtml(tab.title || tab.url || '');
+  const safeGroupId = escapeHtml(groupId || '');
+  const safeTabId = escapeHtml(tab.id || '');
+  const safeUrl = escapeHtml(tab.url || '');
+  let domain = '';
+  try { domain = new URL(tab.url).hostname; } catch {}
+
+  const isOpen = openUrlSet.has(tab.url);
+  const statusBadge = isOpen
+    ? '<span class="chip-inline-status">Open</span>'
+    : '';
+  const primaryTitle = isOpen ? 'Open this tab' : 'Restore this tab';
+
+  return `<div class="page-chip" title="${safeTitle}">
+      ${buildFaviconImg(domain)}
+      <span class="chip-text">${safeTitle}</span>
+      ${statusBadge}
+      <div class="chip-actions">
+        <button class="chip-action chip-restore" data-action="restore-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" data-tab-url="${safeUrl}" title="${primaryTitle}">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+        </button>
+        <button class="chip-action chip-close" data-action="clear-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" title="Clear this imported tab">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
 function renderImportedSessionCard(group, openUrlSet) {
   const groupId = escapeHtml(group.id || group.domain || '');
   const tabCount = Array.isArray(group.tabs) ? group.tabs.length : 0;
   const exportedTabs = (group.tabs || []).slice(0, 8);
-  const extraCount = Math.max(0, tabCount - exportedTabs.length);
+  const hiddenTabs = (group.tabs || []).slice(8);
+  const extraCount = hiddenTabs.length;
   const allOpen = tabCount > 0 && (group.tabs || []).every(tab => openUrlSet.has(tab.url));
   const statusBadge = allOpen
     ? `<span class="open-tabs-badge imported-status-badge">Opened</span>`
     : '';
 
-  const pageChips = exportedTabs.map(tab => {
-    const safeTitle = escapeHtml(tab.title || tab.url || '');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    return `<div class="page-chip" title="${safeTitle}">
-      ${buildFaviconImg(domain)}
-      <span class="chip-text">${safeTitle}</span>
-    </div>`;
-  }).join('') + (extraCount > 0 ? `
-    <div class="page-chip page-chip-overflow">
+  const visibleChips = exportedTabs
+    .map(tab => renderImportedSessionTabChip(tab, group.id || group.domain || '', openUrlSet))
+    .join('');
+  const hiddenChips = hiddenTabs
+    .map(tab => renderImportedSessionTabChip(tab, group.id || group.domain || '', openUrlSet))
+    .join('');
+  const pageChips = visibleChips + (extraCount > 0 ? `
+    <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
+    <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
       <span class="chip-text">+${extraCount} more</span>
     </div>` : '');
 
@@ -1999,10 +2029,6 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'restore-imported-session') {
     if (!importedSession) return;
-    const preview = sessionSummarizeRestorePlan
-      ? sessionSummarizeRestorePlan(importedSession.groups, await chrome.tabs.query({}))
-      : null;
-    if (preview && !(await confirmRestorePlan(preview, 'imported session'))) return;
     const result = await restoreSessionGroups(importedSession.groups);
     showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
     await renderDashboard();
@@ -2048,7 +2074,12 @@ document.addEventListener('click', async (e) => {
 
   // ---- Focus a specific tab ----
   if (action === 'focus-tab') {
+    const tabId = actionEl.dataset.tabId;
     const tabUrl = actionEl.dataset.tabUrl;
+    if (tabId) {
+      await focusTabById(tabId);
+      return;
+    }
     if (tabUrl) await focusTab(tabUrl);
     return;
   }
@@ -2080,10 +2111,6 @@ document.addEventListener('click', async (e) => {
       : null;
     if (!group) return;
 
-    const preview = sessionSummarizeRestorePlan
-      ? sessionSummarizeRestorePlan([group], await chrome.tabs.query({}))
-      : null;
-    if (preview && !(await confirmRestorePlan(preview, group.label || friendlyDomain(group.domain)))) return;
     const result = await restoreSessionGroups([group]);
     showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
     await renderDashboard();
@@ -2093,14 +2120,17 @@ document.addEventListener('click', async (e) => {
   if (action === 'restore-imported-tab') {
     const groupId = actionEl.dataset.importedGroupId;
     const tabId = actionEl.dataset.importedTabId;
+    const tabUrl = actionEl.dataset.tabUrl;
     const found = getImportedSessionTab(groupId, tabId);
     if (!found) return;
-    const preview = sessionSummarizeRestorePlan
-      ? sessionSummarizeRestorePlan([{ ...found.group, tabs: [found.tab] }], await chrome.tabs.query({}))
-      : null;
-    if (preview && !(await confirmRestorePlan(preview, found.tab.title || found.tab.url))) return;
+    if (tabUrl && await focusExactTabByUrl(tabUrl)) {
+      showToast('Opened existing tab');
+      return;
+    }
     const result = await restoreImportedSessionTab(groupId, tabId);
-    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    showToast(result.opened > 0
+      ? `Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`
+      : 'Tab already open');
     await renderDashboard();
     return;
   }
@@ -2133,13 +2163,18 @@ document.addEventListener('click', async (e) => {
   // ---- Close a single tab ----
   if (action === 'close-single-tab') {
     e.stopPropagation(); // don't trigger parent chip's focus-tab
+    const tabId = actionEl.dataset.tabId;
     const tabUrl = actionEl.dataset.tabUrl;
-    if (!tabUrl) return;
+    if (!tabId && !tabUrl) return;
 
     // Close the tab in Chrome directly
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => getTabUrl(t) === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (tabId) {
+      await chrome.tabs.remove(Number(tabId));
+    } else {
+      const allTabs = await chrome.tabs.query({});
+      const match = allTabs.find(t => getTabUrl(t) === tabUrl);
+      if (match) await chrome.tabs.remove(match.id);
+    }
     await fetchOpenTabs();
 
     playCloseSound();
@@ -2158,6 +2193,7 @@ document.addEventListener('click', async (e) => {
   // ---- Save a single tab for later (then close it) ----
   if (action === 'defer-single-tab') {
     e.stopPropagation();
+    const tabId = actionEl.dataset.tabId;
     const tabUrl   = actionEl.dataset.tabUrl;
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
     if (!tabUrl) return;
@@ -2172,9 +2208,13 @@ document.addEventListener('click', async (e) => {
     }
 
     // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => getTabUrl(t) === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    if (tabId) {
+      await chrome.tabs.remove(Number(tabId));
+    } else {
+      const allTabs = await chrome.tabs.query({});
+      const match = allTabs.find(t => getTabUrl(t) === tabUrl);
+      if (match) await chrome.tabs.remove(match.id);
+    }
     await fetchOpenTabs();
 
     const chip = actionEl.closest('.page-chip');
