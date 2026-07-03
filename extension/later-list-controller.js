@@ -2,12 +2,17 @@
 
 (function initLaterListController() {
   function createLaterListController({
+    buildFaviconImg,
     createStableId,
+    escapeHtml,
     getState,
     getStorageValue,
     normalizeDeferredItems,
     queueStorageUpdate,
+    scheduleSearchAndWait,
     setStorageValue,
+    showToast,
+    timeAgo,
   }) {
     function setDeferredItemsCache(items) {
       getState().deferredItemsCache = Array.isArray(items) ? items : [];
@@ -96,12 +101,117 @@
       return changed;
     }
 
+    function renderLaterItem(item) {
+      let domain = '';
+      try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
+      const ago = timeAgo(item.savedAt);
+      const safeId = escapeHtml(item.id);
+      const safeUrl = escapeHtml(item.url);
+      const safeTitle = escapeHtml(item.title || item.url);
+      const safeDomain = escapeHtml(domain);
+
+      return `
+        <div class="later-item" data-later-id="${safeId}">
+          <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${safeId}">
+          <div class="later-info">
+            <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title" title="${safeTitle}">
+              ${buildFaviconImg(domain, 'deferred-favicon')}${safeTitle}
+            </a>
+            <div class="later-meta">
+              <span>${safeDomain}</span>
+              <span>${escapeHtml(ago)}</span>
+            </div>
+          </div>
+          <button class="later-dismiss" data-action="dismiss-later" data-later-id="${safeId}" title="Remove">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
+        </div>`;
+    }
+
+    function renderArchiveItem(item) {
+      const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+      const safeUrl = escapeHtml(item.url);
+      const safeTitle = escapeHtml(item.title || item.url);
+      return `
+        <div class="archive-item">
+          <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+            ${safeTitle}
+          </a>
+          <span class="archive-item-date">${escapeHtml(ago)}</span>
+        </div>`;
+    }
+
+    async function renderLaterListColumn() {
+      const column = document.getElementById('laterColumn');
+      const list = document.getElementById('laterList');
+      const empty = document.getElementById('laterEmpty');
+      const countEl = document.getElementById('laterCount');
+      const archiveEl = document.getElementById('laterArchive');
+      const archiveCountEl = document.getElementById('archiveCount');
+      const archiveList = document.getElementById('archiveList');
+
+      if (!column) return;
+
+      try {
+        const { active, archived } = await getSavedTabs();
+
+        if (active.length === 0 && archived.length === 0) {
+          column.style.display = 'none';
+          return;
+        }
+
+        column.style.display = 'block';
+
+        if (active.length > 0) {
+          countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+          list.innerHTML = active.map(item => renderLaterItem(item)).join('');
+          list.style.display = 'block';
+          empty.style.display = 'none';
+        } else {
+          list.style.display = 'none';
+          countEl.textContent = '';
+          empty.style.display = 'block';
+        }
+
+        if (archived.length > 0) {
+          archiveCountEl.textContent = `(${archived.length})`;
+          archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
+          archiveEl.style.display = 'block';
+        } else {
+          archiveEl.style.display = 'none';
+        }
+      } catch (err) {
+        console.warn('[tab-out] Could not load saved tabs:', err);
+        column.style.display = 'none';
+      }
+    }
+
+    async function handleClearSavedTabsByState({ completed }) {
+      const cleared = await clearSavedTabsByState({ completed });
+      await renderLaterListColumn();
+      if (typeof scheduleSearchAndWait === 'function') {
+        await scheduleSearchAndWait();
+      }
+      if (typeof showToast === 'function') {
+        if (completed) {
+          showToast(cleared > 0 ? `Cleared ${cleared} archived item${cleared !== 1 ? 's' : ''}` : 'Archive already empty');
+        } else {
+          showToast(cleared > 0 ? `Cleared ${cleared} item${cleared !== 1 ? 's' : ''} from Later list` : 'Later list already empty');
+        }
+      }
+      return cleared;
+    }
+
     return {
       checkOffSavedTab,
       clearSavedTabsByState,
       dismissSavedTab,
+      handleClearSavedTabsByState,
       getSavedTabs,
       getSavedTabsFromCache,
+      renderArchiveItem,
+      renderLaterItem,
+      renderLaterListColumn,
       saveTabForLater,
       setDeferredItemsCache,
     };

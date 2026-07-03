@@ -199,12 +199,17 @@ const openTabsController = typeof createOpenTabsController === 'function'
   : null;
 const laterListController = typeof createLaterListController === 'function'
   ? createLaterListController({
+      buildFaviconImg,
       createStableId,
+      escapeHtml,
       getState: () => state,
       getStorageValue,
       normalizeDeferredItems,
       queueStorageUpdate,
+      scheduleSearchAndWait,
       setStorageValue,
+      showToast,
+      timeAgo,
     })
   : null;
 const importedSessionController = typeof createImportedSessionController === 'function'
@@ -244,14 +249,7 @@ function setDeferredItemsCache(items) {
 }
 
 function getSavedTabsFromCache() {
-  if (laterListController && typeof laterListController.getSavedTabsFromCache === 'function') {
-    return laterListController.getSavedTabsFromCache();
-  }
-  const visible = state.deferredItemsCache.filter(t => !t.dismissed);
-  return {
-    active: visible.filter(t => !t.completed),
-    archived: visible.filter(t => t.completed),
-  };
+  return laterListController.getSavedTabsFromCache();
 }
 
 async function fetchOpenTabs() {
@@ -292,24 +290,7 @@ async function fetchOpenTabs() {
  * @param {{ url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  if (laterListController && typeof laterListController.saveTabForLater === 'function') {
-    return laterListController.saveTabForLater(tab);
-  }
-
-  await queueStorageUpdate('deferred', currentDeferred => {
-    const { items } = normalizeDeferredItems(currentDeferred);
-    const deferred = [...items];
-    deferred.push({
-      id:        createStableId('later'),
-      url:       tab.url,
-      title:     tab.title,
-      savedAt:   new Date().toISOString(),
-      completed: false,
-      dismissed: false,
-    });
-    setDeferredItemsCache(deferred);
-    return deferred;
-  });
+  return laterListController.saveTabForLater(tab);
 }
 
 /**
@@ -320,17 +301,7 @@ async function saveTabForLater(tab) {
  * Splits into active (not completed) and archived (completed).
  */
 async function getSavedTabs() {
-  if (laterListController && typeof laterListController.getSavedTabs === 'function') {
-    return laterListController.getSavedTabs();
-  }
-
-  const rawDeferred = await getStorageValue('deferred');
-  const { items: deferred, changed } = normalizeDeferredItems(rawDeferred);
-  setDeferredItemsCache(deferred);
-  if (changed) {
-    await setStorageValue('deferred', deferred);
-  }
-  return getSavedTabsFromCache();
+  return laterListController.getSavedTabs();
 }
 
 /**
@@ -339,20 +310,7 @@ async function getSavedTabs() {
  * Marks a saved tab as completed (checked off). It moves to the archive.
  */
 async function checkOffSavedTab(id) {
-  if (laterListController && typeof laterListController.checkOffSavedTab === 'function') {
-    return laterListController.checkOffSavedTab(id);
-  }
-
-  await queueStorageUpdate('deferred', currentDeferred => {
-    const { items } = normalizeDeferredItems(currentDeferred);
-    const deferred = [...items];
-    const tab = deferred.find(t => t.id === id);
-    if (!tab) return deferred;
-    tab.completed = true;
-    tab.completedAt = new Date().toISOString();
-    setDeferredItemsCache(deferred);
-    return deferred;
-  });
+  return laterListController.checkOffSavedTab(id);
 }
 
 /**
@@ -361,46 +319,11 @@ async function checkOffSavedTab(id) {
  * Marks a saved tab as dismissed (removed from all lists).
  */
 async function dismissSavedTab(id) {
-  if (laterListController && typeof laterListController.dismissSavedTab === 'function') {
-    return laterListController.dismissSavedTab(id);
-  }
-
-  let removed = null;
-  await queueStorageUpdate('deferred', currentDeferred => {
-    const { items } = normalizeDeferredItems(currentDeferred);
-    const deferred = [...items];
-    const tab = deferred.find(t => t.id === id);
-    if (!tab) return deferred;
-    tab.dismissed = true;
-    removed = { ...tab };
-    setDeferredItemsCache(deferred);
-    return deferred;
-  });
-  return removed;
+  return laterListController.dismissSavedTab(id);
 }
 
 async function clearSavedTabsByState({ completed }) {
-  if (laterListController && typeof laterListController.clearSavedTabsByState === 'function') {
-    return laterListController.clearSavedTabsByState({ completed });
-  }
-
-  let changed = 0;
-  await queueStorageUpdate('deferred', currentDeferred => {
-    const { items } = normalizeDeferredItems(currentDeferred);
-    const deferred = [...items];
-
-    for (const item of deferred) {
-      if (item.dismissed) continue;
-      if (!!item.completed !== !!completed) continue;
-      item.dismissed = true;
-      changed += 1;
-    }
-
-    setDeferredItemsCache(deferred);
-    return deferred;
-  });
-
-  return changed;
+  return laterListController.clearSavedTabsByState({ completed });
 }
 
 async function getImportedSession() {
@@ -1301,103 +1224,7 @@ function renderDomainCard(group) {
  * and completed items in a collapsible archive.
  */
 async function renderLaterListColumn() {
-  const column         = document.getElementById('laterColumn');
-  const list           = document.getElementById('laterList');
-  const empty          = document.getElementById('laterEmpty');
-  const countEl        = document.getElementById('laterCount');
-  const archiveEl      = document.getElementById('laterArchive');
-  const archiveCountEl = document.getElementById('archiveCount');
-  const archiveList    = document.getElementById('archiveList');
-
-  if (!column) return;
-
-  try {
-    const { active, archived } = await getSavedTabs();
-
-    // Hide the entire column if there's nothing to show
-    if (active.length === 0 && archived.length === 0) {
-      column.style.display = 'none';
-      return;
-    }
-
-    column.style.display = 'block';
-
-    // Render active checklist items
-    if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
-      list.innerHTML = active.map(item => renderLaterItem(item)).join('');
-      list.style.display = 'block';
-      empty.style.display = 'none';
-    } else {
-      list.style.display = 'none';
-      countEl.textContent = '';
-      empty.style.display = 'block';
-    }
-
-    // Render archive section
-    if (archived.length > 0) {
-      archiveCountEl.textContent = `(${archived.length})`;
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      archiveEl.style.display = 'block';
-    } else {
-      archiveEl.style.display = 'none';
-    }
-
-  } catch (err) {
-    console.warn('[tab-out] Could not load saved tabs:', err);
-    column.style.display = 'none';
-  }
-}
-
-/**
- * renderLaterItem(item)
- *
- * Builds HTML for one active checklist item: checkbox, title link,
- * domain, time ago, dismiss button.
- */
-function renderLaterItem(item) {
-  let domain = '';
-  try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const ago = timeAgo(item.savedAt);
-  const safeId = escapeHtml(item.id);
-  const safeUrl = escapeHtml(item.url);
-  const safeTitle = escapeHtml(item.title || item.url);
-  const safeDomain = escapeHtml(domain);
-
-  return `
-    <div class="later-item" data-later-id="${safeId}">
-      <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${safeId}">
-      <div class="later-info">
-        <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title" title="${safeTitle}">
-          ${buildFaviconImg(domain, 'deferred-favicon')}${safeTitle}
-        </a>
-        <div class="later-meta">
-          <span>${safeDomain}</span>
-          <span>${escapeHtml(ago)}</span>
-        </div>
-      </div>
-      <button class="later-dismiss" data-action="dismiss-later" data-later-id="${safeId}" title="Remove">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-      </button>
-    </div>`;
-}
-
-/**
- * renderArchiveItem(item)
- *
- * Builds HTML for one completed/archived item (simpler: just title + date).
- */
-function renderArchiveItem(item) {
-  const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
-  const safeUrl = escapeHtml(item.url);
-  const safeTitle = escapeHtml(item.title || item.url);
-  return `
-    <div class="archive-item">
-      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
-        ${safeTitle}
-      </a>
-      <span class="archive-item-date">${escapeHtml(ago)}</span>
-    </div>`;
+  return laterListController.renderLaterListColumn();
 }
 
 function renderImportedSessionSection() {
@@ -1779,16 +1606,10 @@ const actionHandlers = {
     renderImportedSessionSection();
   },
   'clear-later-list': async () => {
-    const cleared = await clearSavedTabsByState({ completed: false });
-    await renderLaterListColumn();
-    await scheduleSearchAndWait();
-    showToast(cleared > 0 ? `Cleared ${cleared} item${cleared !== 1 ? 's' : ''} from Later list` : 'Later list already empty');
+    return laterListController.handleClearSavedTabsByState({ completed: false });
   },
   'clear-later-archive': async () => {
-    const cleared = await clearSavedTabsByState({ completed: true });
-    await renderLaterListColumn();
-    await scheduleSearchAndWait();
-    showToast(cleared > 0 ? `Cleared ${cleared} archived item${cleared !== 1 ? 's' : ''}` : 'Archive already empty');
+    return laterListController.handleClearSavedTabsByState({ completed: true });
   },
   'close-tabout-dupes': async () => {
     await closeTabOutDupesInChrome();
