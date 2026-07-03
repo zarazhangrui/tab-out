@@ -45,6 +45,7 @@ test('buildSearchResultsModel keeps imported tab metadata and open state', () =>
       tabId: '1',
       title: 'Guide',
       url: 'https://docs.example.com/guide',
+      favIconUrl: '',
       source: 'open',
       sourceLabel: 'Open tab',
     },

@@ -19,6 +19,7 @@
         id: tab.id,
         url: getTabUrl(tab),
         title: tab.title,
+        favIconUrl: tab.favIconUrl || '',
         windowId: tab.windowId,
         active: tab.active,
         lastAccessed: tab.lastAccessed,

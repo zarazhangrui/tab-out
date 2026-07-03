@@ -584,27 +584,22 @@ function buildSessionFilename(scopeLabel) {
   return `tab-out-${safeScope}-${stamp}.json`;
 }
 
-function buildFaviconImg(domain, className = 'chip-favicon') {
-  if (!domain) return '';
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
-  return `<img class="${className}" src="${faviconUrl}" alt="">`;
+function isSafeRenderableFaviconUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (/^https:\/\/t\d\.gstatic\.com\/faviconV2\b/i.test(url)) return false;
+  return /^(https?:|data:|chrome:)/i.test(url);
 }
 
-function loadOptionalLocalConfig() {
-  return new Promise(resolve => {
-    const existing = document.querySelector('script[data-local-config="true"]');
-    if (existing) {
-      resolve();
-      return;
-    }
+function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '', options = {}) {
+  const { allowGoogleFallback = true } = options;
+  const resolvedFaviconUrl = isSafeRenderableFaviconUrl(faviconUrl)
+    ? faviconUrl
+    : allowGoogleFallback && domain
+      ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16`
+      : '';
 
-    const script = document.createElement('script');
-    script.src = 'config.local.js';
-    script.dataset.localConfig = 'true';
-    script.onload = () => resolve();
-    script.onerror = () => resolve();
-    document.head.appendChild(script);
-  });
+  if (!resolvedFaviconUrl) return '';
+  return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
 }
 
 function normalizeSearchText(value) {
@@ -636,6 +631,12 @@ function buildSearchResultItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
   const safeDomain = escapeHtml(domain || item.groupLabel || 'Unknown source');
+  const faviconHtml = buildFaviconImg(
+    domain,
+    'chip-favicon',
+    item.source === 'open' ? item.favIconUrl : '',
+    { allowGoogleFallback: item.source !== 'open' }
+  );
 
   let actions = '';
   if (item.source === 'open') {
@@ -666,7 +667,7 @@ function buildSearchResultItem(item) {
   return `
     <div class="search-card">
       <div class="search-card-header">
-        <div class="search-card-title">${buildFaviconImg(domain)}${safeDisplayTitle}</div>
+        <div class="search-card-title">${faviconHtml}${safeDisplayTitle}</div>
         <span class="search-source-badge${sourceBadgeClass}">${safeSourceLabel}</span>
       </div>
       <div class="search-card-meta">
@@ -1079,7 +1080,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${buildFaviconImg(domain)}
+      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl, { allowGoogleFallback: false })}
       <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
@@ -1161,7 +1162,7 @@ function renderDomainCard(group) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${buildFaviconImg(domain)}
+      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl, { allowGoogleFallback: false })}
       <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
@@ -1900,7 +1901,7 @@ document.addEventListener('click', (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-loadOptionalLocalConfig().finally(async () => {
+Promise.resolve().finally(async () => {
   try {
     if (ensureStorageSchema) {
       await ensureStorageSchema();

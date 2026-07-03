@@ -20,6 +20,7 @@ function buildSearchResultsModel({
       tabId: String(tab.id),
       title: tab.title,
       url: tab.url,
+      favIconUrl: tab.favIconUrl || '',
       source: 'open',
       sourceLabel: 'Open tab',
     });
