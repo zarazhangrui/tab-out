@@ -92,6 +92,7 @@
     <div class="imported-session-toolbar">
       <div class="imported-session-meta" id="importedSessionMeta"></div>
       <div class="imported-session-actions">
+        <button class="action-btn" data-action="export-imported-session">Export all</button>
         <button class="action-btn save-tabs" data-action="restore-imported-session">Restore all</button>
         <button class="action-btn danger" data-action="clear-imported-session">Clear</button>
       </div>
@@ -184,6 +185,13 @@
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="session-utils.js"></script>
+<script src="tab-service.js"></script>
+<script src="session-store.js"></script>
+<script src="app-view-models.js"></script>
+<script src="app-state.js"></script>
+<script src="open-tabs-controller.js"></script>
+<script src="later-list-controller.js"></script>
+<script src="imported-session-controller.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>

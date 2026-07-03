@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   createSessionExport,
+  dedupeSessionGroups,
   parseImportedSession,
   searchImportedSessionTabs,
   planRestoreTabs,
@@ -52,6 +53,51 @@ test('parseImportedSession rejects malformed payloads', () => {
   assert.throws(
     () => parseImportedSession(JSON.stringify({ groups: [{ tabs: [] }] })),
     /restorable tabs/i
+  );
+});
+
+test('dedupeSessionGroups removes duplicate urls across imported groups', () => {
+  const groups = dedupeSessionGroups([
+    {
+      id: 'docs',
+      label: 'Docs',
+      domain: 'docs.example.com',
+      tabs: [
+        { url: 'https://docs.example.com/guide', title: 'Guide' },
+        { url: 'https://docs.example.com/api', title: 'API' },
+      ],
+    },
+    {
+      id: 'later',
+      label: 'Later',
+      domain: 'later.example.com',
+      tabs: [
+        { url: 'https://docs.example.com/guide', title: 'Guide duplicate' },
+        { url: 'https://later.example.com/note', title: 'Note' },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(
+    groups.map(group => ({
+      id: group.id,
+      tabs: group.tabs.map(tab => tab.url),
+    })),
+    [
+      {
+        id: 'docs',
+        tabs: [
+          'https://docs.example.com/guide',
+          'https://docs.example.com/api',
+        ],
+      },
+      {
+        id: 'later',
+        tabs: [
+          'https://later.example.com/note',
+        ],
+      },
+    ]
   );
 });
 
