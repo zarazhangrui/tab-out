@@ -234,6 +234,7 @@
       const suffix = title.slice(idx + sep.length).trim();
       const suffixLow = suffix.toLowerCase();
       if (
+        suffixLow === hostname.toLowerCase() ||
         suffixLow === domain.toLowerCase() ||
         suffixLow === friendly.toLowerCase() ||
         suffixLow === domain.replace(/\.\w+$/, '').toLowerCase() ||
@@ -241,7 +242,7 @@
         friendly.toLowerCase().includes(suffixLow)
       ) {
         const cleaned = title.slice(0, idx).trim();
-        if (cleaned.length >= 5) return cleaned;
+        if (cleaned.length > 0) return cleaned;
       }
     }
     return title;
@@ -293,7 +294,7 @@
     return title || url;
   }
 
-  window.TabOutDashboardViewUtils = {
+  const dashboardViewUtils = {
     buildFaviconImg,
     buildSessionFilename,
     capitalize,
@@ -310,4 +311,12 @@
     stripTitleNoise,
     timeAgo,
   };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = dashboardViewUtils;
+  }
+
+  if (typeof window !== 'undefined') {
+    window.TabOutDashboardViewUtils = dashboardViewUtils;
+  }
 })();
