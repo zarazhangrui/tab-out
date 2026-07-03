@@ -43,6 +43,22 @@ const {
   buildImportedTabViewModel: buildImportedTabViewModelFromModule,
   buildSearchResultsModel: buildSearchResultsModelFromModule,
 } = window.TabOutAppViewModels || {};
+const {
+  buildFaviconImg,
+  buildSessionFilename,
+  cleanTitle,
+  escapeHtml,
+  formatSessionDate,
+  friendlyDomain: friendlyDomainLabel,
+  getDateDisplay: getDashboardDateDisplay,
+  getGreeting: getDashboardGreeting,
+  normalizeSearchText: normalizeDashboardSearchText,
+  searchTextMatches: searchDashboardTextMatches,
+  shortTimeAgo: formatShortTimeAgo,
+  smartTitle,
+  stripTitleNoise,
+  timeAgo: formatTimeAgo,
+} = window.TabOutDashboardViewUtils || {};
 const { createAppState } = window.TabOutAppState || {};
 const { createOpenTabsController } = window.TabOutOpenTabsController || {};
 const { createLaterListController } = window.TabOutLaterListController || {};
@@ -55,15 +71,6 @@ let searchDebounceTimer = null;
 let moreMenuOpen = false;
 let latestDashboardRenderPromise = Promise.resolve();
 let latestSearchRenderPromise = Promise.resolve(false);
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function createStableId(prefix = 'item') {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -209,7 +216,7 @@ const laterListController = typeof createLaterListController === 'function'
       scheduleSearchAndWait,
       setStorageValue,
       showToast,
-      timeAgo,
+      timeAgo: formatTimeAgo,
     })
   : null;
 const importedSessionController = typeof createImportedSessionController === 'function'
@@ -224,7 +231,7 @@ const importedSessionController = typeof createImportedSessionController === 'fu
       downloadJsonFile,
       escapeHtml,
       focusExactTabByUrl: focusExactTabByUrlInChrome,
-      friendlyDomain,
+      friendlyDomain: friendlyDomainLabel,
       formatSessionDate,
       getState: () => state,
       getRealTabs: () => getRealTabs(),
@@ -552,20 +559,6 @@ function closeMoreMenu({ restoreFocus = false } = {}) {
   }
 }
 
-function formatSessionDate(dateStr) {
-  if (!dateStr) return '';
-
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return '';
-
-  return date.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
 function downloadJsonFile(filename, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -578,42 +571,8 @@ function downloadJsonFile(filename, payload) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function buildSessionFilename(scopeLabel) {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const safeScope = scopeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
-  return `tab-out-${safeScope}-${stamp}.json`;
-}
-
-function isSafeRenderableFaviconUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  if (/^https:\/\/t\d\.gstatic\.com\/faviconV2\b/i.test(url)) return false;
-  return /^(https?:|data:|chrome:)/i.test(url);
-}
-
-function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '') {
-  const resolvedFaviconUrl = isSafeRenderableFaviconUrl(faviconUrl) ? faviconUrl : '';
-  if (resolvedFaviconUrl) {
-    return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
-  }
-
-  const domainLabel = String(domain || '').replace(/^www\./, '').trim();
-  const placeholderLetter = escapeHtml((domainLabel[0] || '?').toUpperCase());
-  const placeholderTitle = escapeHtml(domainLabel || 'Unknown site');
-  return `<span class="${className} favicon-placeholder" aria-hidden="true" title="${placeholderTitle}">${placeholderLetter}</span>`;
-}
-
-function normalizeSearchText(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function searchTextMatches(query, ...parts) {
-  const needle = normalizeSearchText(query);
-  if (!needle) return true;
-  return parts.some(part => normalizeSearchText(part).includes(needle));
-}
-
 async function syncImportedSessionSearchResults() {
-  if (!normalizeSearchText(globalSearchQuery)) return;
+  if (!normalizeDashboardSearchText(globalSearchQuery)) return;
   latestSearchRenderPromise = scheduleSearchRender();
   await latestSearchRenderPromise;
 }
@@ -690,7 +649,7 @@ async function renderSearchResults(renderCtx = {}) {
 
   if (!searchSection || !searchCount || !searchResults) return false;
 
-  const query = normalizeSearchText(globalSearchQuery);
+  const query = normalizeDashboardSearchText(globalSearchQuery);
   if (!query) {
     searchSection.style.display = 'none';
     if (openTabsSection) openTabsSection.style.display = state.domainGroups.length > 0 ? 'block' : 'none';
@@ -709,14 +668,14 @@ async function renderSearchResults(renderCtx = {}) {
   if (isStale()) return false;
   const results = typeof buildSearchResultsModelFromModule === 'function'
     ? buildSearchResultsModelFromModule({
-        friendlyDomain,
+        friendlyDomain: friendlyDomainLabel,
         importedSession: state.importedSession,
         laterActive,
         laterArchived,
         openTabs: getRealTabs(),
         query,
         searchImportedSessionTabs: sessionSearchImportedSessionTabs,
-        searchTextMatches,
+        searchTextMatches: searchDashboardTextMatches,
       })
     : [];
 
@@ -768,242 +727,11 @@ function renderOpenTabsSectionCount(domainCount, realTabCount) {
 }
 
 /**
- * timeAgo(dateStr)
+ * formatTimeAgo(dateStr)
  *
  * Converts an ISO date string into a human-friendly relative time.
  * "2026-04-04T10:00:00Z" → "2 hrs ago" or "yesterday"
  */
-function timeAgo(dateStr) {
-  if (!dateStr) return '';
-  const then = new Date(dateStr);
-  const now  = new Date();
-  const diffMins  = Math.floor((now - then) / 60000);
-  const diffHours = Math.floor((now - then) / 3600000);
-  const diffDays  = Math.floor((now - then) / 86400000);
-
-  if (diffMins < 1)   return 'just now';
-  if (diffMins < 60)  return diffMins + ' min ago';
-  if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
-  if (diffDays === 1) return 'yesterday';
-  return diffDays + ' days ago';
-}
-
-function shortTimeAgo(timestamp) {
-  if (!timestamp) return '';
-  const diffMs = Date.now() - Number(timestamp);
-  if (!Number.isFinite(diffMs) || diffMs < 0) return '';
-
-  const mins = Math.floor(diffMs / 60000);
-  const hours = Math.floor(diffMs / 3600000);
-  const days = Math.floor(diffMs / 86400000);
-
-  if (mins < 1) return 'now';
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
-}
-
-/**
- * getGreeting() — "Good morning / afternoon / evening"
- */
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
-}
-
-/**
- * getDateDisplay() — "Friday, April 4, 2026"
- */
-function getDateDisplay() {
-  return new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year:    'numeric',
-    month:   'long',
-    day:     'numeric',
-  });
-}
-
-
-/* ----------------------------------------------------------------
-   DOMAIN & TITLE CLEANUP HELPERS
-   ---------------------------------------------------------------- */
-
-// Map of known hostnames → friendly display names.
-const FRIENDLY_DOMAINS = {
-  'github.com':           'GitHub',
-  'www.github.com':       'GitHub',
-  'gist.github.com':      'GitHub Gist',
-  'youtube.com':          'YouTube',
-  'www.youtube.com':      'YouTube',
-  'music.youtube.com':    'YouTube Music',
-  'x.com':                'X',
-  'www.x.com':            'X',
-  'twitter.com':          'X',
-  'www.twitter.com':      'X',
-  'reddit.com':           'Reddit',
-  'www.reddit.com':       'Reddit',
-  'old.reddit.com':       'Reddit',
-  'substack.com':         'Substack',
-  'www.substack.com':     'Substack',
-  'medium.com':           'Medium',
-  'www.medium.com':       'Medium',
-  'linkedin.com':         'LinkedIn',
-  'www.linkedin.com':     'LinkedIn',
-  'stackoverflow.com':    'Stack Overflow',
-  'www.stackoverflow.com':'Stack Overflow',
-  'news.ycombinator.com': 'Hacker News',
-  'google.com':           'Google',
-  'www.google.com':       'Google',
-  'mail.google.com':      'Gmail',
-  'docs.google.com':      'Google Docs',
-  'drive.google.com':     'Google Drive',
-  'calendar.google.com':  'Google Calendar',
-  'meet.google.com':      'Google Meet',
-  'gemini.google.com':    'Gemini',
-  'chatgpt.com':          'ChatGPT',
-  'www.chatgpt.com':      'ChatGPT',
-  'chat.openai.com':      'ChatGPT',
-  'claude.ai':            'Claude',
-  'www.claude.ai':        'Claude',
-  'code.claude.com':      'Claude Code',
-  'notion.so':            'Notion',
-  'www.notion.so':        'Notion',
-  'figma.com':            'Figma',
-  'www.figma.com':        'Figma',
-  'slack.com':            'Slack',
-  'app.slack.com':        'Slack',
-  'discord.com':          'Discord',
-  'www.discord.com':      'Discord',
-  'wikipedia.org':        'Wikipedia',
-  'en.wikipedia.org':     'Wikipedia',
-  'amazon.com':           'Amazon',
-  'www.amazon.com':       'Amazon',
-  'netflix.com':          'Netflix',
-  'www.netflix.com':      'Netflix',
-  'spotify.com':          'Spotify',
-  'open.spotify.com':     'Spotify',
-  'vercel.com':           'Vercel',
-  'www.vercel.com':       'Vercel',
-  'npmjs.com':            'npm',
-  'www.npmjs.com':        'npm',
-  'developer.mozilla.org':'MDN',
-  'arxiv.org':            'arXiv',
-  'www.arxiv.org':        'arXiv',
-  'huggingface.co':       'Hugging Face',
-  'www.huggingface.co':   'Hugging Face',
-  'producthunt.com':      'Product Hunt',
-  'www.producthunt.com':  'Product Hunt',
-  'xiaohongshu.com':      'RedNote',
-  'www.xiaohongshu.com':  'RedNote',
-  'local-files':          'Local Files',
-};
-
-function friendlyDomain(hostname) {
-  if (!hostname) return '';
-  if (FRIENDLY_DOMAINS[hostname]) return FRIENDLY_DOMAINS[hostname];
-
-  if (hostname.endsWith('.substack.com') && hostname !== 'substack.com') {
-    return capitalize(hostname.replace('.substack.com', '')) + "'s Substack";
-  }
-  if (hostname.endsWith('.github.io')) {
-    return capitalize(hostname.replace('.github.io', '')) + ' (GitHub Pages)';
-  }
-
-  let clean = hostname
-    .replace(/^www\./, '')
-    .replace(/\.(com|org|net|io|co|ai|dev|app|so|me|xyz|info|us|uk|co\.uk|co\.jp)$/, '');
-
-  return clean.split('.').map(part => capitalize(part)).join(' ');
-}
-
-function capitalize(str) {
-  if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function stripTitleNoise(title) {
-  if (!title) return '';
-  // Strip leading notification count: "(2) Title"
-  title = title.replace(/^\(\d+\+?\)\s*/, '');
-  // Strip inline counts like "Inbox (16,359)"
-  title = title.replace(/\s*\([\d,]+\+?\)\s*/g, ' ');
-  // Strip email addresses (privacy + cleaner display)
-  title = title.replace(/\s*[\-\u2010-\u2015]\s*[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g, '');
-  title = title.replace(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g, '');
-  // Clean X/Twitter format
-  title = title.replace(/\s+on X:\s*/, ': ');
-  title = title.replace(/\s*\/\s*X\s*$/, '');
-  return title.trim();
-}
-
-function cleanTitle(title, hostname) {
-  if (!title || !hostname) return title || '';
-
-  const friendly = friendlyDomain(hostname);
-  const domain   = hostname.replace(/^www\./, '');
-  const seps     = [' - ', ' | ', ' — ', ' · ', ' – '];
-
-  for (const sep of seps) {
-    const idx = title.lastIndexOf(sep);
-    if (idx === -1) continue;
-    const suffix     = title.slice(idx + sep.length).trim();
-    const suffixLow  = suffix.toLowerCase();
-    if (
-      suffixLow === domain.toLowerCase() ||
-      suffixLow === friendly.toLowerCase() ||
-      suffixLow === domain.replace(/\.\w+$/, '').toLowerCase() ||
-      domain.toLowerCase().includes(suffixLow) ||
-      friendly.toLowerCase().includes(suffixLow)
-    ) {
-      const cleaned = title.slice(0, idx).trim();
-      if (cleaned.length >= 5) return cleaned;
-    }
-  }
-  return title;
-}
-
-function smartTitle(title, url) {
-  if (!url) return title || '';
-  let pathname = '', hostname = '';
-  try { const u = new URL(url); pathname = u.pathname; hostname = u.hostname; }
-  catch { return title || ''; }
-
-  const titleIsUrl = !title || title === url || title.startsWith(hostname) || title.startsWith('http');
-
-  if ((hostname === 'x.com' || hostname === 'twitter.com' || hostname === 'www.x.com') && pathname.includes('/status/')) {
-    const username = pathname.split('/')[1];
-    if (username) return titleIsUrl ? `Post by @${username}` : title;
-  }
-
-  if (hostname === 'github.com' || hostname === 'www.github.com') {
-    const parts = pathname.split('/').filter(Boolean);
-    if (parts.length >= 2) {
-      const [owner, repo, ...rest] = parts;
-      if (rest[0] === 'issues' && rest[1]) return `${owner}/${repo} Issue #${rest[1]}`;
-      if (rest[0] === 'pull'   && rest[1]) return `${owner}/${repo} PR #${rest[1]}`;
-      if (rest[0] === 'blob' || rest[0] === 'tree') return `${owner}/${repo} — ${rest.slice(2).join('/')}`;
-      if (titleIsUrl) return `${owner}/${repo}`;
-    }
-  }
-
-  if ((hostname === 'www.youtube.com' || hostname === 'youtube.com') && pathname === '/watch') {
-    if (titleIsUrl) return 'YouTube Video';
-  }
-
-  if ((hostname === 'www.reddit.com' || hostname === 'reddit.com' || hostname === 'old.reddit.com') && pathname.includes('/comments/')) {
-    const parts  = pathname.split('/').filter(Boolean);
-    const subIdx = parts.indexOf('r');
-    if (subIdx !== -1 && parts[subIdx + 1]) {
-      if (titleIsUrl) return `r/${parts[subIdx + 1]} post`;
-    }
-  }
-
-  return title || url;
-}
-
-
 /* ----------------------------------------------------------------
    SVG ICON STRINGS
    ---------------------------------------------------------------- */
@@ -1073,7 +801,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const ageTag   = shortTimeAgo(tab.lastAccessed);
+    const ageTag   = formatShortTimeAgo(tab.lastAccessed);
     const safeUrl   = escapeHtml(tab.url || '');
     const safeTitle = escapeHtml(label);
     let domain = '';
@@ -1155,7 +883,7 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const ageTag   = shortTimeAgo(tab.lastAccessed);
+    const ageTag   = formatShortTimeAgo(tab.lastAccessed);
     const safeUrl   = escapeHtml(tab.url || '');
     const safeTitle = escapeHtml(label);
     let domain = '';
@@ -1197,7 +925,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${escapeHtml(isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain)))}</span>
+          <span class="mission-name">${escapeHtml(isLanding ? 'Homepages' : (group.label || friendlyDomainLabel(group.domain)))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -1304,8 +1032,8 @@ async function renderStaticDashboard(renderCtx = {}) {
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
   const searchInput = document.getElementById('globalSearchInput');
-  if (greetingEl) greetingEl.textContent = getGreeting();
-  if (dateEl)     dateEl.textContent     = getDateDisplay();
+  if (greetingEl) greetingEl.textContent = getDashboardGreeting();
+  if (dateEl)     dateEl.textContent     = getDashboardDateDisplay();
   if (searchInput && searchInput.value !== globalSearchQuery) searchInput.value = globalSearchQuery;
   renderAutoRefreshToggle();
   renderMoreMenu();
@@ -1634,7 +1362,8 @@ const actionHandlers = {
   'clear-imported-group': async ({ actionEl }) => {
     return importedSessionController.handleClearImportedGroup(actionEl.dataset.importedGroupId);
   },
-  'clear-imported-tab': async ({ actionEl }) => {
+  'clear-imported-tab': async ({ actionEl, event }) => {
+    event.stopPropagation();
     await importedSessionController.handleClearImportedTab(
       actionEl.dataset.importedGroupId,
       actionEl.dataset.importedTabId
@@ -1728,7 +1457,7 @@ const actionHandlers = {
       const rect = card.getBoundingClientRect();
       shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
     }
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomainLabel(group.domain));
     await scheduleDashboardAndWait();
     showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
   },
@@ -1737,7 +1466,7 @@ const actionHandlers = {
     if (!group) return;
     const payload = sessionCreateSessionExport([group]);
     downloadJsonFile(buildSessionFilename(group.label || group.domain || 'group'), payload);
-    showToast(`Exported ${group.label || friendlyDomain(group.domain)}`);
+    showToast(`Exported ${group.label || friendlyDomainLabel(group.domain)}`);
   },
   'dedup-keep-one': async ({ actionEl }) => {
     const urlsEncoded = actionEl.dataset.dupeUrls || '';
