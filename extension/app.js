@@ -34,6 +34,8 @@ const {
   focusTab: focusTabInChrome,
   focusTabById: focusTabByIdInChrome,
   getTabUrl,
+  isRealTabUrl,
+  isTabOutTab,
   queryDashboardTabs,
   queryRawTabs,
 } = window.TabOutTabService || {};
@@ -201,6 +203,8 @@ const openTabsController = typeof createOpenTabsController === 'function'
   ? createOpenTabsController({
       getState: () => state,
       getTabUrl,
+      isRealTabUrl,
+      isTabOutTab,
       queryDashboardTabs,
     })
   : null;
@@ -1480,8 +1484,8 @@ const actionHandlers = {
   'close-all-open-tabs': async () => {
     const snapshot = getDashboardStateSnapshot();
     const allUrls = snapshot.openTabs
-      .filter(tab => tab.url && !tab.url.startsWith('chrome') && !tab.url.startsWith('about:'))
-      .map(tab => tab.url);
+      .map(tab => getTabUrl(tab))
+      .filter(url => isRealTabUrl(url));
     document.querySelectorAll('#openTabsMissions .mission-card').forEach(card => {
       shootConfetti(
         card.getBoundingClientRect().left + card.offsetWidth / 2,

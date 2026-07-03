@@ -5,14 +5,36 @@
     return (tab && (tab.pendingUrl || tab.url)) || '';
   }
 
+  function getTabOutNewTabUrl() {
+    return `chrome-extension://${chrome.runtime.id}/index.html`;
+  }
+
+  function isRealTabUrl(url) {
+    const safeUrl = String(url || '');
+    return (
+      !safeUrl.startsWith('chrome://') &&
+      !safeUrl.startsWith('chrome-extension://') &&
+      !safeUrl.startsWith('about:') &&
+      !safeUrl.startsWith('edge://') &&
+      !safeUrl.startsWith('brave://')
+    );
+  }
+
+  function isTabOutUrl(url) {
+    const safeUrl = String(url || '');
+    return safeUrl === getTabOutNewTabUrl() || safeUrl === 'chrome://newtab/';
+  }
+
+  function isTabOutTab(tab) {
+    return isTabOutUrl(getTabUrl(tab));
+  }
+
   async function queryRawTabs() {
     return chrome.tabs.query({});
   }
 
   async function queryDashboardTabs() {
     try {
-      const extensionId = chrome.runtime.id;
-      const newtabUrl = `chrome-extension://${extensionId}/index.html`;
       const tabs = await queryRawTabs();
 
       return tabs.map(tab => ({
@@ -23,7 +45,7 @@
         windowId: tab.windowId,
         active: tab.active,
         lastAccessed: tab.lastAccessed,
-        isTabOut: getTabUrl(tab) === newtabUrl || getTabUrl(tab) === 'chrome://newtab/',
+        isTabOut: isTabOutTab(tab),
       }));
     } catch {
       return [];
@@ -221,13 +243,9 @@
   }
 
   async function closeTabOutDupes() {
-    const extensionId = chrome.runtime.id;
-    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
     const allTabs = await queryRawTabs();
     const currentWindow = await chrome.windows.getCurrent();
-    const tabOutTabs = allTabs.filter(tab =>
-      getTabUrl(tab) === newtabUrl || getTabUrl(tab) === 'chrome://newtab/'
-    );
+    const tabOutTabs = allTabs.filter(tab => isTabOutTab(tab));
 
     if (tabOutTabs.length <= 1) return 0;
 
@@ -258,6 +276,10 @@
     focusTab,
     focusTabById,
     getTabUrl,
+    getTabOutNewTabUrl,
+    isRealTabUrl,
+    isTabOutTab,
+    isTabOutUrl,
     queryDashboardTabs,
     queryRawTabs,
   };

@@ -4,6 +4,8 @@
   function createOpenTabsController({
     getState,
     getTabUrl,
+    isRealTabUrl,
+    isTabOutTab,
     queryDashboardTabs,
   }) {
     async function fetchOpenTabs() {
@@ -16,8 +18,6 @@
       }
 
       try {
-        const extensionId = chrome.runtime.id;
-        const newtabUrl = `chrome-extension://${extensionId}/index.html`;
         const tabs = await chrome.tabs.query({});
         const mappedTabs = tabs.map(tab => ({
           id: tab.id,
@@ -27,7 +27,7 @@
           windowId: tab.windowId,
           active: tab.active,
           lastAccessed: tab.lastAccessed,
-          isTabOut: getTabUrl(tab) === newtabUrl || getTabUrl(tab) === 'chrome://newtab/',
+          isTabOut: isTabOutTab(tab),
         }));
         getState().openTabs = mappedTabs;
         return mappedTabs;
@@ -39,16 +39,7 @@
     }
 
     function getRealTabs() {
-      return getState().openTabs.filter(tab => {
-        const url = tab.url || '';
-        return (
-          !url.startsWith('chrome://') &&
-          !url.startsWith('chrome-extension://') &&
-          !url.startsWith('about:') &&
-          !url.startsWith('edge://') &&
-          !url.startsWith('brave://')
-        );
-      });
+      return getState().openTabs.filter(tab => isRealTabUrl(tab && tab.url));
     }
 
     return {
