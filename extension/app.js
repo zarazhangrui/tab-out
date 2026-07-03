@@ -590,16 +590,16 @@ function isSafeRenderableFaviconUrl(url) {
   return /^(https?:|data:|chrome:)/i.test(url);
 }
 
-function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '', options = {}) {
-  const { allowGoogleFallback = true } = options;
-  const resolvedFaviconUrl = isSafeRenderableFaviconUrl(faviconUrl)
-    ? faviconUrl
-    : allowGoogleFallback && domain
-      ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16`
-      : '';
+function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '') {
+  const resolvedFaviconUrl = isSafeRenderableFaviconUrl(faviconUrl) ? faviconUrl : '';
+  if (resolvedFaviconUrl) {
+    return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
+  }
 
-  if (!resolvedFaviconUrl) return '';
-  return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
+  const domainLabel = String(domain || '').replace(/^www\./, '').trim();
+  const placeholderLetter = escapeHtml((domainLabel[0] || '?').toUpperCase());
+  const placeholderTitle = escapeHtml(domainLabel || 'Unknown site');
+  return `<span class="${className} favicon-placeholder" aria-hidden="true" title="${placeholderTitle}">${placeholderLetter}</span>`;
 }
 
 function normalizeSearchText(value) {
@@ -634,8 +634,7 @@ function buildSearchResultItem(item) {
   const faviconHtml = buildFaviconImg(
     domain,
     'chip-favicon',
-    item.source === 'open' ? item.favIconUrl : '',
-    { allowGoogleFallback: item.source !== 'open' }
+    item.source === 'open' ? item.favIconUrl : ''
   );
 
   let actions = '';
@@ -1080,7 +1079,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl, { allowGoogleFallback: false })}
+      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl)}
       <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
@@ -1162,7 +1161,7 @@ function renderDomainCard(group) {
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl, { allowGoogleFallback: false })}
+      ${buildFaviconImg(domain, 'chip-favicon', tab.favIconUrl)}
       <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">
@@ -1326,8 +1325,6 @@ async function renderStaticDashboard(renderCtx = {}) {
     { hostname: 'www.linkedin.com',    pathExact: ['/'] },
     { hostname: 'github.com',          pathExact: ['/'] },
     { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
-    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
   ];
 
   function isLandingPage(url) {
@@ -1353,39 +1350,10 @@ async function renderStaticDashboard(renderCtx = {}) {
   const groupMap    = {};
   const landingTabs = [];
 
-  // Custom group rules from config.local.js (if any)
-  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
-
-  // Check if a URL matches a custom group rule; returns the rule or null
-  function matchCustomGroup(url) {
-    try {
-      const parsed = new URL(url);
-      return customGroups.find(r => {
-        const hostMatch = r.hostname
-          ? parsed.hostname === r.hostname
-          : r.hostnameEndsWith
-            ? parsed.hostname.endsWith(r.hostnameEndsWith)
-            : false;
-        if (!hostMatch) return false;
-        if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
-        return true; // hostname matched, no path filter
-      }) || null;
-    } catch { return null; }
-  }
-
   for (const tab of realTabs) {
     try {
       if (isLandingPage(tab.url)) {
         landingTabs.push(tab);
-        continue;
-      }
-
-      // Check custom group rules first (e.g. merge subdomains, split by path)
-      const customRule = matchCustomGroup(tab.url);
-      if (customRule) {
-        const key = customRule.groupKey;
-        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
-        groupMap[key].tabs.push(tab);
         continue;
       }
 
@@ -1791,7 +1759,7 @@ const actionHandlers = {
         card.getBoundingClientRect().top + card.offsetHeight / 2
       );
     });
-    await closeTabsByUrlsInChrome(allUrls);
+    await closeTabsExactInChrome(allUrls);
     playCloseSound();
     await scheduleDashboardAndWait();
     showToast('All tabs closed. Fresh start.');
