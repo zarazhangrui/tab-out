@@ -209,11 +209,30 @@ const laterListController = typeof createLaterListController === 'function'
   : null;
 const importedSessionController = typeof createImportedSessionController === 'function'
   ? createImportedSessionController({
+      buildImportedGroupViewModel: buildImportedGroupViewModelFromModule,
+      buildImportedTabViewModel: buildImportedTabViewModelFromModule,
+      buildSessionFilename,
+      buildFaviconImg,
+      createSessionExport: sessionCreateSessionExport,
+      dedupeSessionGroups: sessionDedupeSessionGroups,
+      createTab: createTabInChrome,
+      downloadJsonFile,
+      escapeHtml,
+      focusExactTabByUrl: focusExactTabByUrlInChrome,
+      friendlyDomain,
+      formatSessionDate,
       getState: () => state,
+      getRealTabs: () => getRealTabs(),
+      queryRawTabs,
       normalizeImportedSessionData,
+      planRestoreTabs: sessionPlanRestoreTabs,
+      parseImportedSession: sessionParseImportedSession,
+      summarizeRestorePlan: sessionSummarizeRestorePlan,
       getStorageValue,
       setStorageValue,
       queueStorageUpdate,
+      syncImportedSessionSearchResults,
+      showToast,
     })
   : null;
 
@@ -385,89 +404,19 @@ async function clearSavedTabsByState({ completed }) {
 }
 
 async function getImportedSession() {
-  if (importedSessionController && typeof importedSessionController.getImportedSession === 'function') {
-    return importedSessionController.getImportedSession();
-  }
-
-  const rawImportedSession = await getStorageValue('importedSession');
-  const { session, changed } = normalizeImportedSessionData(rawImportedSession);
-  appState.setImportedSession(session);
-  if (changed) {
-    await setStorageValue('importedSession', session);
-  }
-  return state.importedSession;
+  return importedSessionController.getImportedSession();
 }
 
 async function setImportedSession(session) {
-  if (importedSessionController && typeof importedSessionController.setImportedSession === 'function') {
-    return importedSessionController.setImportedSession(session);
-  }
-
-  const { session: normalized } = normalizeImportedSessionData(session);
-  appState.setImportedSession(normalized);
-  await queueStorageUpdate('importedSession', () => state.importedSession);
+  return importedSessionController.setImportedSession(session);
 }
 
 async function clearImportedSession() {
-  if (importedSessionController && typeof importedSessionController.clearImportedSession === 'function') {
-    return importedSessionController.clearImportedSession();
-  }
-
-  appState.setImportedSession(null);
-  await queueStorageUpdate('importedSession', () => null);
+  return importedSessionController.clearImportedSession();
 }
 
 async function clearImportedSessionGroup(groupId) {
-  if (importedSessionController && typeof importedSessionController.clearImportedSessionGroup === 'function') {
-    return importedSessionController.clearImportedSessionGroup(groupId);
-  }
-
-  if (!state.importedSession || !Array.isArray(state.importedSession.groups)) return;
-
-  const nextGroups = state.importedSession.groups.filter(group => group.id !== groupId);
-  if (nextGroups.length === 0) {
-    await clearImportedSession();
-    return;
-  }
-
-  await setImportedSession({
-    ...state.importedSession,
-    groups: nextGroups,
-  });
-}
-
-function mergeImportedSessions(existingSession, incomingSession) {
-  if (!existingSession || !Array.isArray(existingSession.groups) || existingSession.groups.length === 0) {
-    return incomingSession;
-  }
-
-  const existingGroups = existingSession.groups || [];
-  const existingIds = new Set(existingGroups.map(group => group.id));
-
-  const mergedGroups = [...existingGroups];
-
-  for (const group of incomingSession.groups || []) {
-    let nextId = group.id || group.domain || 'imported-group';
-    let suffix = 2;
-
-    while (existingIds.has(nextId)) {
-      nextId = `${group.id || group.domain || 'imported-group'}-${suffix}`;
-      suffix += 1;
-    }
-
-    existingIds.add(nextId);
-    mergedGroups.push({
-      ...group,
-      id: nextId,
-    });
-  }
-
-  return {
-    version: incomingSession.version || existingSession.version || 1,
-    source: 'tab-out',
-    exportedAt: incomingSession.exportedAt || existingSession.exportedAt || new Date().toISOString(),
-    groups: mergedGroups,
-  };
+  return importedSessionController.clearImportedSessionGroup(groupId);
 }
 
 async function getAutoRefreshSetting() {
@@ -1451,149 +1400,16 @@ function renderArchiveItem(item) {
     </div>`;
 }
 
-function renderImportedSessionTabChip(tab, groupId, openUrlSet) {
-  const viewModel = typeof buildImportedTabViewModelFromModule === 'function'
-    ? buildImportedTabViewModelFromModule(tab, groupId, openUrlSet)
-    : {
-        groupId: groupId || '',
-        isOpen: !!openUrlSet.has(tab.url),
-        primaryActionLabel: openUrlSet.has(tab.url) ? 'Open' : 'Restore',
-        primaryActionTitle: openUrlSet.has(tab.url) ? 'Open this tab' : 'Restore this tab',
-        statusLabel: openUrlSet.has(tab.url) ? 'Open' : '',
-        tabId: tab.id || '',
-        title: tab.title || tab.url || '',
-        url: tab.url || '',
-      };
-  const safeTitle = escapeHtml(viewModel.title);
-  const safeGroupId = escapeHtml(viewModel.groupId);
-  const safeTabId = escapeHtml(viewModel.tabId);
-  const safeUrl = escapeHtml(viewModel.url);
-  let domain = '';
-  try { domain = new URL(viewModel.url).hostname; } catch {}
-
-  const statusBadge = viewModel.statusLabel
-    ? `<span class="chip-inline-status">${escapeHtml(viewModel.statusLabel)}</span>`
-    : '';
-
-  return `<div class="page-chip" title="${safeTitle}">
-      ${buildFaviconImg(domain)}
-      <span class="chip-text">${safeTitle}</span>
-      ${statusBadge}
-      <div class="chip-actions">
-        <button class="chip-action chip-restore" data-action="restore-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" data-tab-url="${safeUrl}" title="${escapeHtml(viewModel.primaryActionTitle)}">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="clear-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" title="Clear this imported tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
-}
-
-function renderImportedSessionCard(group, openUrlSet) {
-  const groupId = escapeHtml(group.id || group.domain || '');
-  const viewModel = typeof buildImportedGroupViewModelFromModule === 'function'
-    ? buildImportedGroupViewModelFromModule(group, openUrlSet)
-    : {
-        allOpen: false,
-        hiddenTabs: (group.tabs || []).slice(8),
-        tabCount: Array.isArray(group.tabs) ? group.tabs.length : 0,
-        visibleTabs: (group.tabs || []).slice(0, 8),
-      };
-  const extraCount = viewModel.hiddenTabs.length;
-  const statusBadge = viewModel.allOpen
-    ? `<span class="open-tabs-badge imported-status-badge">Opened</span>`
-    : '';
-
-  const visibleChips = viewModel.visibleTabs
-    .map(tab => renderImportedSessionTabChip(tab, group.id || group.domain || '', openUrlSet))
-    .join('');
-  const hiddenChips = viewModel.hiddenTabs
-    .map(tab => renderImportedSessionTabChip(tab, group.id || group.domain || '', openUrlSet))
-    .join('');
-  const pageChips = visibleChips + (extraCount > 0 ? `
-    <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
-    <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
-      <span class="chip-text">+${extraCount} more</span>
-    </div>` : '');
-
-  return `
-    <div class="mission-card domain-card has-active-bar" data-imported-group-id="${groupId}">
-      <div class="status-bar"></div>
-      <div class="mission-content">
-        <div class="mission-top">
-          <span class="mission-name">${escapeHtml(group.label || friendlyDomain(group.domain))}</span>
-          <span class="open-tabs-badge">${ICONS.tabs}${viewModel.tabCount} tab${viewModel.tabCount !== 1 ? 's' : ''}</span>
-          ${statusBadge}
-        </div>
-        <div class="mission-pages">${pageChips}</div>
-        <div class="actions">
-          <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${groupId}">Restore</button>
-          <button class="action-btn danger" data-action="clear-imported-group" data-imported-group-id="${groupId}">Clear</button>
-        </div>
-      </div>
-        <div class="mission-meta">
-        <div class="mission-page-count">${viewModel.tabCount}</div>
-        <div class="mission-page-label">tabs</div>
-      </div>
-    </div>`;
-}
-
 function renderImportedSessionSection() {
-  const section = document.getElementById('importedSessionSection');
-  const countEl = document.getElementById('importedSessionCount');
-  const metaEl = document.getElementById('importedSessionMeta');
-  const missionsEl = document.getElementById('importedSessionMissions');
-
-  if (!section || !countEl || !metaEl || !missionsEl) return;
-
-  if (!state.importedSession || !Array.isArray(state.importedSession.groups) || state.importedSession.groups.length === 0) {
-    section.style.display = 'none';
-    missionsEl.innerHTML = '';
-    return;
-  }
-
-  const groupCount = state.importedSession.groups.length;
-  const tabCount = state.importedSession.groups.reduce((sum, group) => sum + ((group.tabs || []).length), 0);
-  const exportedAt = formatSessionDate(state.importedSession.exportedAt);
-  const openUrlSet = new Set(getRealTabs().map(tab => tab.url));
-
-  countEl.textContent = `${groupCount} group${groupCount !== 1 ? 's' : ''} · ${tabCount} tab${tabCount !== 1 ? 's' : ''}`;
-  metaEl.textContent = exportedAt ? `Imported from file exported ${exportedAt}` : 'Imported from file';
-  missionsEl.innerHTML = state.importedSession.groups.map(group => renderImportedSessionCard(group, openUrlSet)).join('');
-  section.style.display = 'block';
+  return importedSessionController.renderImportedSessionSection();
 }
 
 async function restoreSessionGroups(groups) {
-  const safeGroups = Array.isArray(groups) ? groups : [];
-  if (safeGroups.length === 0) {
-    return { opened: 0, skipped: 0, changedOpenTabs: false };
+  const result = await importedSessionController.restoreSessionGroups(groups);
+  if (result && result.changedOpenTabs) {
+    await fetchOpenTabs();
   }
-
-  const currentTabs = typeof queryRawTabs === 'function' ? await queryRawTabs() : [];
-  const plan = sessionSummarizeRestorePlan
-    ? sessionSummarizeRestorePlan(safeGroups, currentTabs)
-    : sessionPlanRestoreTabs(safeGroups, currentTabs);
-
-  if (plan.toOpen.length === 0) {
-    return {
-      opened: 0,
-      skipped: plan.skipped.length,
-      changedOpenTabs: false,
-    };
-  }
-
-  for (const tab of plan.toOpen) {
-    await createTabInChrome(tab.url, { active: false });
-  }
-
-  await fetchOpenTabs();
-
-  return {
-    opened: plan.toOpen.length,
-    skipped: plan.skipped.length,
-    changedOpenTabs: true,
-  };
+  return result;
 }
 
 function createRenderScheduler(renderer, { label = 'render' } = {}) {
@@ -1621,68 +1437,15 @@ function createRenderScheduler(renderer, { label = 'render' } = {}) {
 }
 
 async function restoreImportedSessionTab(groupId, tabId) {
-  const found = getImportedSessionTab(groupId, tabId);
-  if (!found) {
-    return { opened: 0, skipped: 0 };
-  }
-  const { group, tab } = found;
-
-  return restoreSessionGroups([{ ...group, tabs: [tab] }]);
+  return importedSessionController.restoreImportedSessionTab(groupId, tabId);
 }
 
 function getImportedSessionTab(groupId, tabId) {
-  if (importedSessionController && typeof importedSessionController.getImportedSessionTab === 'function') {
-    return importedSessionController.getImportedSessionTab(groupId, tabId);
-  }
-  if (!state.importedSession || !Array.isArray(state.importedSession.groups) || !groupId || !tabId) return null;
-  const group = state.importedSession.groups.find(item => item.id === groupId);
-  if (!group || !Array.isArray(group.tabs)) return null;
-  const tab = group.tabs.find(item => item && item.id === tabId);
-  if (!tab) return null;
-  return { group, tab };
+  return importedSessionController.getImportedSessionTab(groupId, tabId);
 }
 
 async function clearImportedSessionTab(groupId, tabId) {
-  if (importedSessionController && typeof importedSessionController.clearImportedSessionTab === 'function') {
-    return importedSessionController.clearImportedSessionTab(groupId, tabId);
-  }
-  if (!state.importedSession || !Array.isArray(state.importedSession.groups) || !groupId || !tabId) return false;
-
-  const nextGroups = [];
-  let changed = false;
-
-  for (const group of state.importedSession.groups) {
-    if (group.id !== groupId) {
-      nextGroups.push(group);
-      continue;
-    }
-
-    const nextTabs = (group.tabs || []).filter(tab => {
-      const keep = !(tab && tab.id === tabId);
-      if (!keep) changed = true;
-      return keep;
-    });
-
-    if (nextTabs.length > 0) {
-      nextGroups.push({
-        ...group,
-        tabs: nextTabs,
-      });
-    }
-  }
-
-  if (!changed) return false;
-
-  if (nextGroups.length === 0) {
-    await clearImportedSession();
-    return true;
-  }
-
-  await setImportedSession({
-    ...state.importedSession,
-    groups: nextGroups,
-  });
-  return true;
+  return importedSessionController.clearImportedSessionTab(groupId, tabId);
 }
 
 
@@ -1957,12 +1720,7 @@ function getDomainGroupByStableId(domainId) {
 }
 
 function getImportedGroupById(groupId) {
-  if (importedSessionController && typeof importedSessionController.getImportedGroupById === 'function') {
-    return importedSessionController.getImportedGroupById(groupId);
-  }
-  return state.importedSession && Array.isArray(state.importedSession.groups)
-    ? state.importedSession.groups.find(group => group.id === groupId) || null
-    : null;
+  return importedSessionController.getImportedGroupById(groupId);
 }
 
 async function scheduleDashboardAndWait() {
@@ -2006,26 +1764,14 @@ const actionHandlers = {
     showToast(`Exported ${payload.groups.length} group${payload.groups.length !== 1 ? 's' : ''}`);
   },
   'export-imported-session': async () => {
-    if (!state.importedSession || !Array.isArray(state.importedSession.groups) || state.importedSession.groups.length === 0) return;
-    const exportGroups = typeof sessionDedupeSessionGroups === 'function'
-      ? sessionDedupeSessionGroups(state.importedSession.groups)
-      : state.importedSession.groups;
-    const payload = sessionCreateSessionExport(exportGroups, {
-      exportedAt: state.importedSession.exportedAt,
-    });
-    downloadJsonFile(buildSessionFilename('imported-session'), payload);
-    showToast(`Exported ${payload.groups.length} imported group${payload.groups.length !== 1 ? 's' : ''}`);
+    return importedSessionController.handleExportImportedSession();
   },
   'clear-imported-session': async () => {
-    await clearImportedSession();
-    renderImportedSessionSection();
-    await syncImportedSessionSearchResults();
-    showToast('Imported session cleared');
+    return importedSessionController.handleClearImportedSession();
   },
   'restore-imported-session': async () => {
-    if (!state.importedSession) return;
-    const result = await restoreSessionGroups(state.importedSession.groups);
-    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    const result = await importedSessionController.handleRestoreImportedSession();
+    if (!result) return;
     if (result.changedOpenTabs) {
       await scheduleDashboardAndWait();
       return;
@@ -2072,10 +1818,8 @@ const actionHandlers = {
     await createTabInChrome(laterUrl, { active: true });
   },
   'restore-imported-group': async ({ actionEl }) => {
-    const group = getImportedGroupById(actionEl.dataset.importedGroupId);
-    if (!group) return;
-    const result = await restoreSessionGroups([group]);
-    showToast(`Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`);
+    const result = await importedSessionController.handleRestoreImportedGroup(actionEl.dataset.importedGroupId);
+    if (!result) return;
     if (result.changedOpenTabs) {
       await scheduleDashboardAndWait();
       return;
@@ -2083,42 +1827,28 @@ const actionHandlers = {
     renderImportedSessionSection();
   },
   'restore-imported-tab': async ({ actionEl }) => {
-    const groupId = actionEl.dataset.importedGroupId;
-    const tabId = actionEl.dataset.importedTabId;
-    const tabUrl = actionEl.dataset.tabUrl;
-    const found = getImportedSessionTab(groupId, tabId);
-    if (!found) return;
-    if (tabUrl && await focusExactTabByUrlInChrome(tabUrl)) {
-      showToast('Opened existing tab');
-      return;
-    }
-    const result = await restoreImportedSessionTab(groupId, tabId);
-    showToast(result.opened > 0
-      ? `Restored ${result.opened} tab${result.opened !== 1 ? 's' : ''}, skipped ${result.skipped}`
-      : 'Tab already open');
+    const result = await importedSessionController.handleRestoreImportedTab(
+      actionEl.dataset.importedGroupId,
+      actionEl.dataset.importedTabId,
+      actionEl.dataset.tabUrl
+    );
+    if (!result) return;
     if (result.changedOpenTabs) {
       await scheduleDashboardAndWait();
       return;
     }
-    renderImportedSessionSection();
+    if (!result.focusedExistingTab) {
+      renderImportedSessionSection();
+    }
   },
   'clear-imported-group': async ({ actionEl }) => {
-    const groupId = actionEl.dataset.importedGroupId;
-    if (!groupId) return;
-    await clearImportedSessionGroup(groupId);
-    renderImportedSessionSection();
-    await syncImportedSessionSearchResults();
-    showToast('Imported group cleared');
+    return importedSessionController.handleClearImportedGroup(actionEl.dataset.importedGroupId);
   },
   'clear-imported-tab': async ({ actionEl }) => {
-    const groupId = actionEl.dataset.importedGroupId;
-    const tabId = actionEl.dataset.importedTabId;
-    if (!groupId || !tabId) return;
-    const changed = await clearImportedSessionTab(groupId, tabId);
-    if (!changed) return;
-    renderImportedSessionSection();
-    await syncImportedSessionSearchResults();
-    showToast('Imported tab cleared');
+    await importedSessionController.handleClearImportedTab(
+      actionEl.dataset.importedGroupId,
+      actionEl.dataset.importedTabId
+    );
   },
   'close-single-tab': async ({ actionEl, event }) => {
     event.stopPropagation();
@@ -2273,20 +2003,7 @@ document.addEventListener('change', async (e) => {
   if (files.length === 0) return;
 
   try {
-    let nextImportedSession = state.importedSession;
-    let importedGroupCount = 0;
-
-    for (const file of files) {
-      const text = await file.text();
-      const parsed = sessionParseImportedSession(text);
-      nextImportedSession = mergeImportedSessions(nextImportedSession, parsed);
-      importedGroupCount += parsed.groups.length;
-    }
-
-    await setImportedSession(nextImportedSession);
-    renderImportedSessionSection();
-    await syncImportedSessionSearchResults();
-    showToast(`Imported ${importedGroupCount} group${importedGroupCount !== 1 ? 's' : ''}`);
+    await importedSessionController.handleImportSessionFiles(files);
   } catch (err) {
     console.error('[tab-out] Failed to import session:', err);
     showToast(err && err.message ? err.message : 'Import failed');
