@@ -68,7 +68,7 @@ function buildImportedTabViewModel(tab, groupId, openUrlSet) {
     isOpen,
     primaryActionLabel: isOpen ? 'Open' : 'Restore',
     primaryActionTitle: isOpen ? 'Open this tab' : 'Restore this tab',
-    statusLabel: isOpen ? 'Open' : '',
+    statusLabel: isOpen ? 'Opened' : '',
     tabId: tab && tab.id ? tab.id : '',
     title,
     url,
@@ -79,11 +79,13 @@ function buildImportedGroupViewModel(group, openUrlSet) {
   const tabs = Array.isArray(group && group.tabs) ? group.tabs : [];
   const visibleTabs = tabs.slice(0, 8);
   const hiddenTabs = tabs.slice(8);
+  const openedCount = tabs.reduce((count, tab) => count + (openUrlSet.has(tab.url) ? 1 : 0), 0);
   const allOpen = tabs.length > 0 && tabs.every(tab => openUrlSet.has(tab.url));
 
   return {
     allOpen,
     hiddenTabs,
+    openedCount,
     tabCount: tabs.length,
     visibleTabs,
   };

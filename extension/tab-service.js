@@ -1,12 +1,17 @@
 'use strict';
 
 (function initTabOutTabService() {
+  function createTabService(deps = {}) {
+    const tabsApi = deps.tabsApi || (typeof chrome !== 'undefined' ? chrome.tabs : null);
+    const windowsApi = deps.windowsApi || (typeof chrome !== 'undefined' ? chrome.windows : null);
+    const runtimeApi = deps.runtimeApi || (typeof chrome !== 'undefined' ? chrome.runtime : null);
+
   function getTabUrl(tab) {
     return (tab && (tab.pendingUrl || tab.url)) || '';
   }
 
   function getTabOutNewTabUrl() {
-    return `chrome-extension://${chrome.runtime.id}/index.html`;
+    return `chrome-extension://${runtimeApi.id}/index.html`;
   }
 
   function isRealTabUrl(url) {
@@ -30,7 +35,7 @@
   }
 
   async function queryRawTabs() {
-    return chrome.tabs.query({});
+    return tabsApi.query({});
   }
 
   async function queryDashboardTabs() {
@@ -56,7 +61,7 @@
     if (!url) return false;
 
     const allTabs = await queryRawTabs();
-    const currentWindow = await chrome.windows.getCurrent();
+    const currentWindow = await windowsApi.getCurrent();
     let matches = allTabs.filter(tab => getTabUrl(tab) === url);
 
     if (matches.length === 0) {
@@ -77,8 +82,8 @@
     if (matches.length === 0) return false;
 
     const match = matches.find(tab => tab.windowId !== currentWindow.id) || matches[0];
-    await chrome.tabs.update(match.id, { active: true });
-    await chrome.windows.update(match.windowId, { focused: true });
+    await tabsApi.update(match.id, { active: true });
+    await windowsApi.update(match.windowId, { focused: true });
     return {
       focused: true,
       matchedBy: matches[0] && getTabUrl(matches[0]) === url ? 'exact' : 'hostname',
@@ -94,8 +99,8 @@
     const match = allTabs.find(tab => String(tab.id) === String(tabId));
     if (!match) return false;
 
-    await chrome.tabs.update(match.id, { active: true });
-    await chrome.windows.update(match.windowId, { focused: true });
+    await tabsApi.update(match.id, { active: true });
+    await windowsApi.update(match.windowId, { focused: true });
     return {
       focused: true,
       matchedBy: 'id',
@@ -111,8 +116,8 @@
     const match = allTabs.find(tab => getTabUrl(tab) === url);
     if (!match) return false;
 
-    await chrome.tabs.update(match.id, { active: true });
-    await chrome.windows.update(match.windowId, { focused: true });
+    await tabsApi.update(match.id, { active: true });
+    await windowsApi.update(match.windowId, { focused: true });
     return {
       focused: true,
       matchedBy: 'exact',
@@ -155,7 +160,7 @@
     }).map(tab => tab.id);
 
     if (toClose.length > 0) {
-      await chrome.tabs.remove(toClose);
+      await tabsApi.remove(toClose);
     }
 
     return {
@@ -172,7 +177,7 @@
     const toClose = allTabs.filter(tab => urlSet.has(getTabUrl(tab))).map(tab => tab.id);
 
     if (toClose.length > 0) {
-      await chrome.tabs.remove(toClose);
+      await tabsApi.remove(toClose);
     }
 
     return {
@@ -183,12 +188,12 @@
 
   async function createTab(url, { active = false } = {}) {
     if (!url) return null;
-    return chrome.tabs.create({ url, active });
+    return tabsApi.create({ url, active });
   }
 
   async function closeTab(tabId, fallbackUrl) {
     if (tabId) {
-      await chrome.tabs.remove(Number(tabId));
+      await tabsApi.remove(Number(tabId));
       return {
         closed: true,
         matchedBy: 'id',
@@ -202,7 +207,7 @@
     const match = allTabs.find(tab => getTabUrl(tab) === fallbackUrl);
     if (!match) return false;
 
-    await chrome.tabs.remove(match.id);
+    await tabsApi.remove(match.id);
     return {
       closed: true,
       matchedBy: 'url',
@@ -232,7 +237,7 @@
     }
 
     if (toClose.length > 0) {
-      await chrome.tabs.remove(toClose);
+      await tabsApi.remove(toClose);
     }
 
     return {
@@ -244,7 +249,7 @@
 
   async function closeTabOutDupes() {
     const allTabs = await queryRawTabs();
-    const currentWindow = await chrome.windows.getCurrent();
+    const currentWindow = await windowsApi.getCurrent();
     const tabOutTabs = allTabs.filter(tab => isTabOutTab(tab));
 
     if (tabOutTabs.length <= 1) return 0;
@@ -256,7 +261,7 @@
     const toClose = tabOutTabs.filter(tab => tab.id !== keep.id).map(tab => tab.id);
 
     if (toClose.length > 0) {
-      await chrome.tabs.remove(toClose);
+      await tabsApi.remove(toClose);
     }
 
     return {
@@ -265,7 +270,7 @@
     };
   }
 
-  window.TabOutTabService = {
+    return {
     closeDuplicateTabs,
     closeTab,
     closeTabOutDupes,
@@ -283,4 +288,17 @@
     queryDashboardTabs,
     queryRawTabs,
   };
+  }
+
+  const tabService = createTabService();
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      createTabService,
+    };
+  }
+
+  if (typeof window !== 'undefined') {
+    window.TabOutTabService = tabService;
+  }
 })();

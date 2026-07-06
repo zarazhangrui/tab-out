@@ -200,7 +200,7 @@
             isOpen: !!openUrlSet.has(tab.url),
             primaryActionLabel: openUrlSet.has(tab.url) ? 'Open' : 'Restore',
             primaryActionTitle: openUrlSet.has(tab.url) ? 'Open this tab' : 'Restore this tab',
-            statusLabel: openUrlSet.has(tab.url) ? 'Open' : '',
+            statusLabel: openUrlSet.has(tab.url) ? 'Opened' : '',
             tabId: tab.id || '',
             title: tab.title || tab.url || '',
             url: tab.url || '',
@@ -235,12 +235,13 @@
         : {
             allOpen: false,
             hiddenTabs: (group.tabs || []).slice(8),
+            openedCount: 0,
             tabCount: Array.isArray(group.tabs) ? group.tabs.length : 0,
             visibleTabs: (group.tabs || []).slice(0, 8),
           };
       const extraCount = viewModel.hiddenTabs.length;
-      const statusBadge = viewModel.allOpen
-        ? `<span class="open-tabs-badge imported-status-badge">Opened</span>`
+      const statusBadge = viewModel.openedCount > 0
+        ? `<span class="open-tabs-badge imported-status-badge">${viewModel.openedCount} opened</span>`
         : '';
 
       const visibleChips = viewModel.visibleTabs

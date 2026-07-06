@@ -73,7 +73,7 @@ test('buildImportedTabViewModel switches primary action by open state', () => {
       isOpen: true,
       primaryActionLabel: 'Open',
       primaryActionTitle: 'Open this tab',
-      statusLabel: 'Open',
+      statusLabel: 'Opened',
       tabId: 'tab-1',
       title: 'Guide',
       url: 'https://docs.example.com/guide',
@@ -107,5 +107,6 @@ test('buildImportedGroupViewModel tracks visible and hidden tabs', () => {
   assert.equal(result.tabCount, 10);
   assert.equal(result.visibleTabs.length, 8);
   assert.equal(result.hiddenTabs.length, 2);
+  assert.equal(result.openedCount, 9);
   assert.equal(result.allOpen, false);
 });
