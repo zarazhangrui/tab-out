@@ -1,0 +1,462 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const {
+  createDashboardActions,
+} = require('./dashboard-actions.js');
+
+function createHarness(overrides = {}) {
+  let moreMenuOpen = overrides.moreMenuOpen || false;
+  const querySelectorAllMap = overrides.querySelectorAllMap || {};
+  const querySelectorMap = overrides.querySelectorMap || {};
+  const calls = {
+    animateCardOut: [],
+    checkOffSavedTab: [],
+    checkTabOutDupes: 0,
+    closeDuplicateTabs: [],
+    closeMoreMenu: 0,
+    closeOpenTab: [],
+    closeTabOutDupes: 0,
+    closeTabsByUrls: [],
+    closeTabsExact: [],
+    createTab: [],
+    dismissSavedTab: [],
+    downloadJsonFile: [],
+    focusMoreMenuItem: [],
+    focusTab: [],
+    focusTabById: [],
+    playCloseSound: 0,
+    removeKnownTabsFromState: [],
+    removeOpenTabOptimistically: [],
+    removeOpenTabsOptimistically: [],
+    renderAutoRefreshToggle: 0,
+    renderImportedSessionSection: 0,
+    renderLaterListColumn: 0,
+    renderMoreMenu: 0,
+    saveTabForLater: [],
+    scheduleDashboardAndWait: 0,
+    scheduleSearchAndWait: 0,
+    setAutoRefreshSetting: [],
+    showToast: [],
+    shootConfetti: [],
+  };
+
+  const importedSessionController = {
+    async handleExportImportedSession() { return 'exported'; },
+    async handleClearImportedSession() { return 'cleared'; },
+    async handleRestoreImportedSession() { return overrides.restoreImportedSessionResult || null; },
+    async handleRestoreImportedGroup() { return overrides.restoreImportedGroupResult || null; },
+    async handleRestoreImportedTab() { return overrides.restoreImportedTabResult || null; },
+    async handleClearImportedGroup(groupId) { return groupId; },
+    async handleClearImportedTab(groupId, tabId) { return { groupId, tabId }; },
+  };
+
+  const laterListController = {
+    async handleClearSavedTabsByState(input) { return input; },
+  };
+
+  const actions = createDashboardActions({
+    animateCardOut: value => calls.animateCardOut.push(value),
+    buildSessionFilename: scope => `file-${scope}.json`,
+    checkOffSavedTab: async id => { calls.checkOffSavedTab.push(id); },
+    checkTabOutDupes: () => { calls.checkTabOutDupes += 1; },
+    closeDuplicateTabs: async (urls, keepOne) => {
+      calls.closeDuplicateTabs.push({ urls, keepOne });
+      return overrides.closeDuplicateTabsResult || { tabIds: [8, 9] };
+    },
+    closeMoreMenu: () => { calls.closeMoreMenu += 1; },
+    closeOpenTab: async (tabId, tabUrl) => { calls.closeOpenTab.push({ tabId, tabUrl }); },
+    closeTabOutDupes: async () => {
+      calls.closeTabOutDupes += 1;
+      return overrides.closeTabOutDupesResult || { tabIds: [3, 4] };
+    },
+    closeTabsByUrls: async urls => { calls.closeTabsByUrls.push(urls); },
+    closeTabsExact: async urls => { calls.closeTabsExact.push(urls); },
+    createSessionExport: groups => ({ groups }),
+    createTab: async (url, options) => { calls.createTab.push({ url, options }); },
+    dismissSavedTab: async id => {
+      calls.dismissSavedTab.push(id);
+      return overrides.dismissSavedTabResult || { completed: false };
+    },
+    downloadJsonFile: (filename, payload) => { calls.downloadJsonFile.push({ filename, payload }); },
+    focusMoreMenuItem: index => { calls.focusMoreMenuItem.push(index); },
+    focusTab: async url => { calls.focusTab.push(url); },
+    focusTabById: async tabId => { calls.focusTabById.push(tabId); },
+    friendlyDomain: value => `friendly:${value}`,
+    getAutoRefreshEnabled: () => !!overrides.autoRefreshEnabled,
+    getDashboardStateSnapshot: () => overrides.dashboardStateSnapshot || {
+      domainGroups: [{ domain: 'docs.example.com' }],
+      openTabs: [
+        { id: 1, url: 'https://docs.example.com/guide' },
+        { id: 2, url: 'https://docs.example.com/guide' },
+      ],
+    },
+    getDomainGroupByStableId: () => overrides.domainGroup || null,
+    getMoreMenuOpen: () => moreMenuOpen,
+    getTabUrl: tab => tab.url || '',
+    hasActiveSearch: () => !!overrides.hasActiveSearch,
+    importedSessionController,
+    isRealTabUrl: url => /^https?:/.test(url),
+    laterListController,
+    playCloseSound: () => { calls.playCloseSound += 1; },
+    removeKnownTabsFromState: input => { calls.removeKnownTabsFromState.push(input); },
+    removeOpenTabOptimistically: async input => { calls.removeOpenTabOptimistically.push(input); },
+    removeOpenTabsOptimistically: async input => { calls.removeOpenTabsOptimistically.push(input); },
+    renderAutoRefreshToggle: () => { calls.renderAutoRefreshToggle += 1; },
+    renderImportedSessionSection: () => { calls.renderImportedSessionSection += 1; },
+    renderLaterListColumn: async () => { calls.renderLaterListColumn += 1; },
+    renderMoreMenu: () => { calls.renderMoreMenu += 1; },
+    saveTabForLater: async input => {
+      calls.saveTabForLater.push(input);
+      if (overrides.saveTabForLaterError) throw overrides.saveTabForLaterError;
+    },
+    scheduleDashboardAndWait: async () => { calls.scheduleDashboardAndWait += 1; },
+    scheduleSearchAndWait: async () => { calls.scheduleSearchAndWait += 1; },
+    setAutoRefreshSetting: async value => { calls.setAutoRefreshSetting.push(value); },
+    setMoreMenuOpen: value => {
+      moreMenuOpen = value;
+      return moreMenuOpen;
+    },
+    showToast: message => { calls.showToast.push(message); },
+    shootConfetti: (...args) => { calls.shootConfetti.push(args); },
+  });
+
+  return {
+    actions,
+    calls,
+  };
+}
+
+function withFakeDocument(overrides, run) {
+  const previousDocument = global.document;
+  global.document = {
+    querySelector(selector) {
+      if (Object.prototype.hasOwnProperty.call(overrides, selector)) {
+        return overrides[selector];
+      }
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (Object.prototype.hasOwnProperty.call(overrides, selector)) {
+        return overrides[selector];
+      }
+      return [];
+    },
+  };
+
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      global.document = previousDocument;
+    });
+}
+
+test('toggle-more-menu updates state, rerenders menu, and focuses first item when opening', async () => {
+  const timeouts = [];
+  const previousSetTimeout = global.setTimeout;
+  global.setTimeout = fn => {
+    timeouts.push(fn);
+    return 1;
+  };
+
+  try {
+    const { actions, calls } = createHarness({ moreMenuOpen: false });
+    await actions['toggle-more-menu']();
+
+    assert.equal(calls.renderMoreMenu, 1);
+    assert.equal(timeouts.length, 1);
+    timeouts[0]();
+    assert.deepEqual(calls.focusMoreMenuItem, [0]);
+  } finally {
+    global.setTimeout = previousSetTimeout;
+  }
+});
+
+test('close-tabout-dupes uses local state cleanup without full dashboard refresh', async () => {
+  const { actions, calls } = createHarness({
+    closeTabOutDupesResult: { tabIds: [11, 12] },
+  });
+
+  await actions['close-tabout-dupes']();
+
+  assert.equal(calls.closeTabOutDupes, 1);
+  assert.equal(calls.playCloseSound, 1);
+  assert.deepEqual(calls.removeKnownTabsFromState, [{ tabIds: [11, 12], tabUrls: [] }]);
+  assert.equal(calls.checkTabOutDupes, 1);
+  assert.equal(calls.scheduleDashboardAndWait, 0);
+  assert.deepEqual(calls.showToast, ['Closed extra Tab Out tabs']);
+});
+
+test('close-single-tab closes tab and applies optimistic update', async () => {
+  const chip = { closest: () => null };
+  const actionEl = {
+    dataset: { tabId: '7', tabUrl: 'https://docs.example.com/guide' },
+    closest: selector => selector === '.page-chip' ? chip : null,
+  };
+  let stopped = 0;
+
+  const { actions, calls } = createHarness();
+  await actions['close-single-tab']({
+    actionEl,
+    event: { stopPropagation() { stopped += 1; } },
+  });
+
+  assert.equal(stopped, 1);
+  assert.deepEqual(calls.closeOpenTab, [{ tabId: '7', tabUrl: 'https://docs.example.com/guide' }]);
+  assert.equal(calls.playCloseSound, 1);
+  assert.deepEqual(calls.animateCardOut, [chip]);
+  assert.deepEqual(calls.removeOpenTabOptimistically, [{ tabId: '7', tabUrl: 'https://docs.example.com/guide' }]);
+  assert.deepEqual(calls.showToast, ['Tab closed']);
+});
+
+test('defer-single-tab saves later item, closes tab, and updates later/open sections locally', async () => {
+  const chip = { closest: () => null };
+  const actionEl = {
+    dataset: {
+      tabId: '8',
+      tabUrl: 'https://docs.example.com/api',
+      tabTitle: 'API',
+    },
+    closest: selector => selector === '.page-chip' ? chip : null,
+  };
+
+  const { actions, calls } = createHarness();
+  await actions['defer-single-tab']({
+    actionEl,
+    event: { stopPropagation() {} },
+  });
+
+  assert.deepEqual(calls.saveTabForLater, [{ url: 'https://docs.example.com/api', title: 'API' }]);
+  assert.deepEqual(calls.closeOpenTab, [{ tabId: '8', tabUrl: 'https://docs.example.com/api' }]);
+  assert.equal(calls.renderLaterListColumn, 1);
+  assert.deepEqual(calls.removeOpenTabOptimistically, [{ tabId: '8', tabUrl: 'https://docs.example.com/api' }]);
+  assert.deepEqual(calls.showToast, ['Added to Later list']);
+});
+
+test('dedup-keep-one removes duplicate tabs with optimistic update', async () => {
+  const { actions, calls } = createHarness({
+    closeDuplicateTabsResult: { tabIds: [21, 22] },
+  });
+
+  await actions['dedup-keep-one']({
+    actionEl: {
+      dataset: {
+        dupeUrls: `${encodeURIComponent('https://docs.example.com/guide')},${encodeURIComponent('https://later.example.com/item')}`,
+      },
+    },
+  });
+
+  assert.deepEqual(calls.closeDuplicateTabs, [{
+    urls: ['https://docs.example.com/guide', 'https://later.example.com/item'],
+    keepOne: true,
+  }]);
+  assert.deepEqual(calls.removeOpenTabsOptimistically, [{
+    tabIds: [21, 22],
+    tabUrls: ['https://docs.example.com/guide', 'https://later.example.com/item'],
+  }]);
+  assert.deepEqual(calls.showToast, ['Closed duplicates, kept one copy each']);
+});
+
+function buildTabs(count, prefix = 'https://docs.example.com') {
+  return Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    url: `${prefix}/${index + 1}`,
+  }));
+}
+
+test('close-domain-tabs uses light confirmation for 10+ tabs before closing', async () => {
+  const timeouts = [];
+  const previousSetTimeout = global.setTimeout;
+  const previousClearTimeout = global.clearTimeout;
+  global.setTimeout = fn => {
+    timeouts.push(fn);
+    return timeouts.length;
+  };
+  global.clearTimeout = () => {};
+
+  const actionEl = {
+    dataset: { domainId: 'domain-docs-example-com' },
+    innerHTML: 'Close all 10 tabs',
+    textContent: 'Close all 10 tabs',
+    closest: () => null,
+  };
+  const domainGroup = {
+    domain: 'docs.example.com',
+    tabs: buildTabs(10),
+  };
+
+  try {
+    const { actions, calls } = createHarness({ domainGroup });
+
+    await actions['close-domain-tabs']({ actionEl });
+
+    assert.equal(calls.closeTabsByUrls.length, 0);
+    assert.deepEqual(calls.showToast, ['Click again to close 10 tabs from friendly:docs.example.com']);
+    assert.equal(actionEl.dataset.bulkCloseConfirming, 'true');
+    assert.equal(actionEl.dataset.bulkCloseConfirmMode, 'light');
+    assert.equal(actionEl.textContent, 'Click again: close 10 tabs');
+
+    await actions['close-domain-tabs']({ actionEl });
+
+    assert.deepEqual(calls.closeTabsByUrls, [buildTabs(10).map(tab => tab.url)]);
+    assert.deepEqual(calls.removeOpenTabsOptimistically, [{
+      tabIds: buildTabs(10).map(tab => tab.id),
+      tabUrls: buildTabs(10).map(tab => tab.url),
+    }]);
+    assert.deepEqual(calls.showToast, [
+      'Click again to close 10 tabs from friendly:docs.example.com',
+      'Closed 10 tabs from friendly:docs.example.com',
+    ]);
+  } finally {
+    global.setTimeout = previousSetTimeout;
+    global.clearTimeout = previousClearTimeout;
+  }
+});
+
+test('close-domain-tabs uses strong confirmation for 20+ tabs before closing', async () => {
+  const timeouts = [];
+  const previousSetTimeout = global.setTimeout;
+  const previousClearTimeout = global.clearTimeout;
+  global.setTimeout = fn => {
+    timeouts.push(fn);
+    return timeouts.length;
+  };
+  global.clearTimeout = () => {};
+
+  const actionEl = {
+    dataset: { domainId: 'domain-docs-example-com' },
+    innerHTML: 'Close all 20 tabs',
+    textContent: 'Close all 20 tabs',
+    closest: () => null,
+  };
+  const domainGroup = {
+    domain: 'docs.example.com',
+    tabs: buildTabs(20),
+  };
+
+  try {
+    const { actions, calls } = createHarness({ domainGroup });
+
+    await actions['close-domain-tabs']({ actionEl });
+
+    assert.equal(calls.closeTabsByUrls.length, 0);
+    assert.deepEqual(calls.showToast, ['Click again for explicit confirm to close 20 tabs from friendly:docs.example.com']);
+    assert.equal(actionEl.dataset.bulkCloseConfirmMode, 'strong');
+    assert.equal(actionEl.textContent, 'Click again: close 20 tabs');
+
+    await actions['close-domain-tabs']({ actionEl });
+
+    assert.equal(calls.closeTabsByUrls.length, 1);
+    assert.deepEqual(calls.showToast.at(-1), 'Closed 20 tabs from friendly:docs.example.com');
+  } finally {
+    global.setTimeout = previousSetTimeout;
+    global.clearTimeout = previousClearTimeout;
+  }
+});
+
+test('close-all-open-tabs uses light confirmation for 30+ tabs before closing', async () => {
+  const timeouts = [];
+  const previousSetTimeout = global.setTimeout;
+  const previousClearTimeout = global.clearTimeout;
+  global.setTimeout = fn => {
+    timeouts.push(fn);
+    return timeouts.length;
+  };
+  global.clearTimeout = () => {};
+
+  const closeAllButton = {
+    dataset: {},
+    innerHTML: 'Close all 30 tabs',
+    textContent: 'Close all 30 tabs',
+  };
+  const missionCard = {
+    offsetWidth: 100,
+    offsetHeight: 50,
+    getBoundingClientRect() {
+      return { left: 10, top: 20 };
+    },
+  };
+
+  try {
+    const { actions, calls } = createHarness({
+      dashboardStateSnapshot: {
+        domainGroups: [],
+        openTabs: buildTabs(30),
+      },
+    });
+
+    await withFakeDocument({
+      '[data-action="close-all-open-tabs"]': closeAllButton,
+      '#openTabsMissions .mission-card': [missionCard],
+    }, async () => {
+      await actions['close-all-open-tabs']();
+
+      assert.equal(calls.closeTabsExact.length, 0);
+      assert.deepEqual(calls.showToast, ['Click again to close 30 tabs']);
+      assert.equal(closeAllButton.dataset.bulkCloseConfirming, 'true');
+      assert.equal(closeAllButton.dataset.bulkCloseConfirmMode, 'light');
+      assert.equal(closeAllButton.textContent, 'Click again: close 30 tabs');
+
+      await actions['close-all-open-tabs']();
+    });
+
+    assert.deepEqual(calls.closeTabsExact, [buildTabs(30).map(tab => tab.url)]);
+    assert.equal(calls.playCloseSound, 1);
+    assert.equal(calls.shootConfetti.length, 1);
+    assert.deepEqual(calls.showToast, [
+      'Click again to close 30 tabs',
+      'All tabs closed. Fresh start.',
+    ]);
+  } finally {
+    global.setTimeout = previousSetTimeout;
+    global.clearTimeout = previousClearTimeout;
+  }
+});
+
+test('close-all-open-tabs uses strong confirmation for 60+ tabs before closing', async () => {
+  const timeouts = [];
+  const previousSetTimeout = global.setTimeout;
+  const previousClearTimeout = global.clearTimeout;
+  global.setTimeout = fn => {
+    timeouts.push(fn);
+    return timeouts.length;
+  };
+  global.clearTimeout = () => {};
+
+  const closeAllButton = {
+    dataset: {},
+    innerHTML: 'Close all 60 tabs',
+    textContent: 'Close all 60 tabs',
+  };
+
+  try {
+    const { actions, calls } = createHarness({
+      dashboardStateSnapshot: {
+        domainGroups: [],
+        openTabs: buildTabs(60),
+      },
+    });
+
+    await withFakeDocument({
+      '[data-action="close-all-open-tabs"]': closeAllButton,
+      '#openTabsMissions .mission-card': [],
+    }, async () => {
+      await actions['close-all-open-tabs']();
+
+      assert.equal(calls.closeTabsExact.length, 0);
+      assert.deepEqual(calls.showToast, ['Click again for explicit confirm to close 60 tabs']);
+      assert.equal(closeAllButton.dataset.bulkCloseConfirmMode, 'strong');
+      assert.equal(closeAllButton.textContent, 'Click again: close 60 tabs');
+
+      await actions['close-all-open-tabs']();
+    });
+
+    assert.equal(calls.closeTabsExact.length, 1);
+    assert.deepEqual(calls.showToast.at(-1), 'All tabs closed. Fresh start.');
+  } finally {
+    global.setTimeout = previousSetTimeout;
+    global.clearTimeout = previousClearTimeout;
+  }
+});

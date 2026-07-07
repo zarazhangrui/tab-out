@@ -838,6 +838,30 @@ header {
   border-color: var(--accent-amber);
 }
 
+.action-btn[data-bulk-close-confirming="true"] {
+  border-width: 2px;
+  padding: 4px 13px;
+  font-weight: 600;
+}
+
+.action-btn.close-tabs[data-bulk-close-confirming="true"][data-bulk-close-confirm-mode="light"] {
+  color: var(--ink);
+  background: rgba(200, 113, 58, 0.14);
+  border-color: rgba(200, 113, 58, 0.7);
+  box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.12);
+}
+
+.action-btn.close-tabs[data-bulk-close-confirming="true"][data-bulk-close-confirm-mode="strong"] {
+  color: #fffaf5;
+  background: linear-gradient(135deg, rgba(181, 86, 40, 0.96), rgba(145, 58, 23, 0.96));
+  border-color: rgba(120, 43, 15, 0.92);
+  box-shadow: 0 0 0 4px rgba(145, 58, 23, 0.16);
+}
+
+.action-btn.close-tabs[data-bulk-close-confirming="true"]:hover {
+  transform: translateY(-1px);
+}
+
 .action-btn.save-tabs {
   border-color: rgba(90, 122, 98, 0.3);
   color: var(--accent-sage);

@@ -46,6 +46,93 @@
     showToast,
     shootConfetti,
   }) {
+    const BULK_CLOSE_THRESHOLDS = {
+      'close-all-open-tabs': {
+        light: 30,
+        strong: 60,
+      },
+      'close-domain-tabs': {
+        light: 10,
+        strong: 20,
+      },
+    };
+    const BULK_CLOSE_CONFIRM_WINDOW_MS = 2500;
+    let pendingBulkCloseConfirmation = null;
+
+    function restoreBulkCloseActionLabel(actionEl) {
+      if (!actionEl || !actionEl.dataset) return;
+      const originalLabel = actionEl.dataset.originalLabel;
+      if (originalLabel) {
+        actionEl.innerHTML = originalLabel;
+      }
+      delete actionEl.dataset.originalLabel;
+      delete actionEl.dataset.bulkCloseConfirming;
+      delete actionEl.dataset.bulkCloseConfirmMode;
+    }
+
+    function clearBulkCloseConfirmation() {
+      if (!pendingBulkCloseConfirmation) return;
+      if (pendingBulkCloseConfirmation.timeoutId) {
+        clearTimeout(pendingBulkCloseConfirmation.timeoutId);
+      }
+      restoreBulkCloseActionLabel(pendingBulkCloseConfirmation.actionEl);
+      pendingBulkCloseConfirmation = null;
+    }
+
+    function getBulkCloseConfirmationMode(action, count) {
+      const thresholds = BULK_CLOSE_THRESHOLDS[action];
+      if (!thresholds) return null;
+      if (count >= thresholds.strong) return 'strong';
+      if (count >= thresholds.light) return 'light';
+      return null;
+    }
+
+    function buildBulkCloseConfirmationCopy({ count, description = '', mode }) {
+      if (mode === 'strong') {
+        return {
+          buttonLabel: `Click again: close ${count} tabs`,
+          toastMessage: `Click again for explicit confirm to close ${count} tabs${description ? ` ${description}` : ''}`,
+        };
+      }
+      return {
+        buttonLabel: `Click again: close ${count} tabs`,
+        toastMessage: `Click again to close ${count} tabs${description ? ` ${description}` : ''}`,
+      };
+    }
+
+    function requestBulkCloseConfirmation({ action, actionEl, count, description = '' }) {
+      const mode = getBulkCloseConfirmationMode(action, count);
+      if (!actionEl || !mode) {
+        return true;
+      }
+
+      if (
+        pendingBulkCloseConfirmation &&
+        pendingBulkCloseConfirmation.actionEl === actionEl &&
+        actionEl.dataset.bulkCloseConfirming === 'true' &&
+        actionEl.dataset.bulkCloseConfirmMode === mode
+      ) {
+        clearBulkCloseConfirmation();
+        return true;
+      }
+
+      const copy = buildBulkCloseConfirmationCopy({ count, description, mode });
+      clearBulkCloseConfirmation();
+      actionEl.dataset.originalLabel = actionEl.innerHTML;
+      actionEl.dataset.bulkCloseConfirming = 'true';
+      actionEl.dataset.bulkCloseConfirmMode = mode;
+      actionEl.textContent = copy.buttonLabel;
+      pendingBulkCloseConfirmation = {
+        actionEl,
+        timeoutId: setTimeout(() => {
+          restoreBulkCloseActionLabel(actionEl);
+          pendingBulkCloseConfirmation = null;
+        }, BULK_CLOSE_CONFIRM_WINDOW_MS),
+      };
+      showToast(copy.toastMessage);
+      return false;
+    }
+
     return {
       'manual-refresh': async () => {
         closeMoreMenu();
@@ -240,7 +327,17 @@
         const card = actionEl.closest('.mission-card');
         const group = getDomainGroupByStableId(actionEl.dataset.domainId);
         if (!group) return;
-        const urls = group.tabs.map(tab => tab.url);
+        const urls = group.tabs.map(tab => getTabUrl(tab)).filter(url => isRealTabUrl(url));
+        if (urls.length === 0) return;
+        const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+        if (!requestBulkCloseConfirmation({
+          action: 'close-domain-tabs',
+          actionEl,
+          count: urls.length,
+          description: `from ${groupLabel}`,
+        })) {
+          return;
+        }
         const useExact = group.domain === '__landing-pages__' || !!group.label;
         if (useExact) {
           await closeTabsExact(urls);
@@ -252,7 +349,6 @@
           playCloseSound();
           animateCardOut(card);
         }
-        const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
         await removeOpenTabsOptimistically({ tabIds: closedTabIds, tabUrls: urls });
         showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
       },
@@ -281,6 +377,15 @@
         const allUrls = snapshot.openTabs
           .map(tab => getTabUrl(tab))
           .filter(url => isRealTabUrl(url));
+        if (allUrls.length === 0) return;
+        const closeAllButton = document.querySelector('[data-action="close-all-open-tabs"]');
+        if (!requestBulkCloseConfirmation({
+          action: 'close-all-open-tabs',
+          actionEl: closeAllButton,
+          count: allUrls.length,
+        })) {
+          return;
+        }
         document.querySelectorAll('#openTabsMissions .mission-card').forEach(card => {
           shootConfetti(
             card.getBoundingClientRect().left + card.offsetWidth / 2,
