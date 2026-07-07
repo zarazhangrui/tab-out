@@ -64,6 +64,7 @@ const {
 const { buildDomainGroups: buildDashboardDomainGroups } = window.TabOutDashboardDomainGroups || {};
 const { createDashboardCardRenderer } = window.TabOutDashboardCardRenderer || {};
 const { createDashboardSearchRenderer } = window.TabOutDashboardSearchRenderer || {};
+const { createDashboardActions } = window.TabOutDashboardActions || {};
 const { createDashboardUiEffects } = window.TabOutDashboardUiEffects || {};
 const { createAppState } = window.TabOutAppState || {};
 const { createOpenTabsController } = window.TabOutOpenTabsController || {};
@@ -213,6 +214,9 @@ const playCloseSound = dashboardUiEffects && typeof dashboardUiEffects.playClose
   : () => {};
 const animateCardOut = dashboardUiEffects && typeof dashboardUiEffects.animateCardOut === 'function'
   ? dashboardUiEffects.animateCardOut
+  : () => {};
+const shootConfetti = dashboardUiEffects && typeof dashboardUiEffects.shootConfetti === 'function'
+  ? dashboardUiEffects.shootConfetti
   : () => {};
 const showToast = dashboardUiEffects && typeof dashboardUiEffects.showToast === 'function'
   ? dashboardUiEffects.showToast
@@ -574,6 +578,86 @@ function renderImportedSessionSection() {
   return importedSessionController.renderImportedSessionSection();
 }
 
+function rebuildDomainGroupsFromState() {
+  appState.setDomainGroups(
+    typeof buildDashboardDomainGroups === 'function'
+      ? buildDashboardDomainGroups({ tabs: getRealTabs(), getTabUrl, previousGroups: state.domainGroups })
+      : []
+  );
+}
+
+function renderOpenTabsSectionFromState() {
+  const realTabs = getRealTabs();
+  const openTabsSection = document.getElementById('openTabsSection');
+  const openTabsMissionsEl = document.getElementById('openTabsMissions');
+  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+
+  rebuildDomainGroupsFromState();
+
+  if (state.domainGroups.length > 0 && openTabsSection && openTabsMissionsEl && openTabsSectionCount) {
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
+    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(state.domainGroups.length, realTabs.length);
+    openTabsMissionsEl.innerHTML = state.domainGroups.map(group => renderDomainCard(group)).join('');
+    openTabsSection.style.display = 'block';
+  } else if (openTabsSection) {
+    openTabsSection.style.display = 'none';
+  }
+
+  const statTabs = document.getElementById('statTabs');
+  if (statTabs) statTabs.textContent = realTabs.length;
+
+  checkTabOutDupes();
+  renderImportedSessionSection();
+}
+
+async function removeOpenTabOptimistically({ tabId, tabUrl } = {}) {
+  const nextOpenTabs = state.openTabs.filter(tab => {
+    if (tabId && String(tab.id) === String(tabId)) return false;
+    if (!tabId && tabUrl && getTabUrl(tab) === tabUrl) return false;
+    return true;
+  });
+
+  appState.setOpenTabs(nextOpenTabs);
+  renderOpenTabsSectionFromState();
+
+  if (normalizeDashboardSearchText(globalSearchQuery)) {
+    await scheduleSearchAndWait();
+  }
+}
+
+async function removeOpenTabsOptimistically({ tabIds = [], tabUrls = [] } = {}) {
+  const idSet = new Set((Array.isArray(tabIds) ? tabIds : []).map(value => String(value)));
+  const urlSet = new Set((Array.isArray(tabUrls) ? tabUrls : []).filter(Boolean));
+
+  const nextOpenTabs = state.openTabs.filter(tab => {
+    if (idSet.size > 0 && idSet.has(String(tab.id))) return false;
+    if (urlSet.size > 0 && urlSet.has(getTabUrl(tab))) return false;
+    return true;
+  });
+
+  appState.setOpenTabs(nextOpenTabs);
+  renderOpenTabsSectionFromState();
+
+  if (normalizeDashboardSearchText(globalSearchQuery)) {
+    await scheduleSearchAndWait();
+  }
+}
+
+function removeKnownTabsFromState({ tabIds = [], tabUrls = [] } = {}) {
+  const idSet = new Set((Array.isArray(tabIds) ? tabIds : []).map(value => String(value)));
+  const urlSet = new Set((Array.isArray(tabUrls) ? tabUrls : []).filter(Boolean));
+
+  const nextOpenTabs = state.openTabs.filter(tab => {
+    if (idSet.size > 0 && idSet.has(String(tab.id))) return false;
+    if (urlSet.size > 0 && urlSet.has(getTabUrl(tab))) return false;
+    return true;
+  });
+
+  appState.setOpenTabs(nextOpenTabs);
+  return nextOpenTabs;
+}
+
 async function restoreSessionGroups(groups) {
   const result = await importedSessionController.restoreSessionGroups(groups);
   if (result && result.changedOpenTabs) {
@@ -656,38 +740,7 @@ async function renderStaticDashboard(renderCtx = {}) {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   if (isStale()) return false;
-  const realTabs = getRealTabs();
-
-  // --- Group tabs by domain ---
-  // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
-  // so they can be closed together without affecting content tabs on the same domain.
-  appState.setDomainGroups(
-    typeof buildDashboardDomainGroups === 'function'
-      ? buildDashboardDomainGroups({ tabs: realTabs, getTabUrl })
-      : []
-  );
-
-  // --- Render domain cards ---
-  const openTabsSection      = document.getElementById('openTabsSection');
-  const openTabsMissionsEl   = document.getElementById('openTabsMissions');
-  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
-  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-
-  if (state.domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(state.domainGroups.length, realTabs.length);
-    openTabsMissionsEl.innerHTML = state.domainGroups.map(g => renderDomainCard(g)).join('');
-    openTabsSection.style.display = 'block';
-  } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
-  }
-
-  // --- Footer stats ---
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = realTabs.length;
-
-  // --- Check for duplicate Tab Out tabs ---
-  checkTabOutDupes();
+  renderOpenTabsSectionFromState();
 
   // --- Imported session section ---
   await getImportedSession();
@@ -741,7 +794,12 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.deferred) {
     const { items } = normalizeDeferredItems(changes.deferred.newValue);
     setDeferredItemsCache(items);
-    shouldRender = true;
+    renderLaterListColumn().catch(err => {
+      console.warn('[tab-out] Failed to refresh later list after storage change:', err);
+    });
+    if (normalizeDashboardSearchText(globalSearchQuery)) {
+      latestSearchRenderPromise = scheduleSearchRender();
+    }
   }
 
   if (changes.importedSession) {
@@ -800,243 +858,65 @@ async function scheduleSearchAndWait() {
   await latestSearchRenderPromise;
 }
 
-const actionHandlers = {
-  'manual-refresh': async () => {
-    closeMoreMenu();
-    await scheduleDashboardAndWait();
-    showToast('Refreshed');
-  },
-  'toggle-more-menu': async () => {
-    moreMenuOpen = !moreMenuOpen;
-    renderMoreMenu();
-    if (moreMenuOpen) {
-      setTimeout(() => focusMoreMenuItem(0), 0);
-    }
-  },
-  'toggle-auto-refresh': async () => {
-    await setAutoRefreshSetting(!autoRefreshEnabled);
-    renderAutoRefreshToggle();
-    closeMoreMenu();
-    showToast(`Auto refresh ${autoRefreshEnabled ? 'enabled' : 'disabled'}`);
-  },
-  'trigger-import-session': async () => {
-    const input = document.getElementById('sessionImportInput');
-    closeMoreMenu();
-    if (input) input.click();
-  },
-  'export-all-groups': async () => {
-    const payload = sessionCreateSessionExport(state.domainGroups);
-    closeMoreMenu();
-    downloadJsonFile(buildSessionFilename('all-tabs'), payload);
-    showToast(`Exported ${payload.groups.length} group${payload.groups.length !== 1 ? 's' : ''}`);
-  },
-  'export-imported-session': async () => {
-    return importedSessionController.handleExportImportedSession();
-  },
-  'clear-imported-session': async () => {
-    return importedSessionController.handleClearImportedSession();
-  },
-  'restore-imported-session': async () => {
-    const result = await importedSessionController.handleRestoreImportedSession();
-    if (!result) return;
-    if (result.changedOpenTabs) {
-      await scheduleDashboardAndWait();
-      return;
-    }
-    renderImportedSessionSection();
-  },
-  'clear-later-list': async () => {
-    return laterListController.handleClearSavedTabsByState({ completed: false });
-  },
-  'clear-later-archive': async () => {
-    return laterListController.handleClearSavedTabsByState({ completed: true });
-  },
-  'close-tabout-dupes': async () => {
-    await closeTabOutDupesInChrome();
-    playCloseSound();
-    await scheduleDashboardAndWait();
-    showToast('Closed extra Tab Out tabs');
-  },
-  'expand-chips': async ({ actionEl }) => {
-    const overflowContainer = actionEl.parentElement.querySelector('.page-chips-overflow');
-    if (overflowContainer) {
-      overflowContainer.style.display = 'contents';
-      actionEl.remove();
-    }
-  },
-  'focus-tab': async ({ actionEl }) => {
-    const tabId = actionEl.dataset.tabId;
-    const tabUrl = actionEl.dataset.tabUrl;
-    if (tabId) {
-      await focusTabByIdInChrome(tabId);
-      return;
-    }
-    if (tabUrl) await focusTabInChrome(tabUrl);
-  },
-  'open-later-item': async ({ actionEl }) => {
-    const laterUrl = actionEl.dataset.laterUrl;
-    if (!laterUrl) return;
-    await createTabInChrome(laterUrl, { active: true });
-  },
-  'restore-imported-group': async ({ actionEl }) => {
-    const result = await importedSessionController.handleRestoreImportedGroup(actionEl.dataset.importedGroupId);
-    if (!result) return;
-    if (result.changedOpenTabs) {
-      await scheduleDashboardAndWait();
-      return;
-    }
-    renderImportedSessionSection();
-  },
-  'restore-imported-tab': async ({ actionEl }) => {
-    const result = await importedSessionController.handleRestoreImportedTab(
-      actionEl.dataset.importedGroupId,
-      actionEl.dataset.importedTabId,
-      actionEl.dataset.tabUrl
-    );
-    if (!result) return;
-    if (result.changedOpenTabs) {
-      await scheduleDashboardAndWait();
-      return;
-    }
-    if (!result.focusedExistingTab) {
-      renderImportedSessionSection();
-    }
-  },
-  'clear-imported-group': async ({ actionEl }) => {
-    return importedSessionController.handleClearImportedGroup(actionEl.dataset.importedGroupId);
-  },
-  'clear-imported-tab': async ({ actionEl, event }) => {
-    event.stopPropagation();
-    await importedSessionController.handleClearImportedTab(
-      actionEl.dataset.importedGroupId,
-      actionEl.dataset.importedTabId
-    );
-  },
-  'close-single-tab': async ({ actionEl, event }) => {
-    event.stopPropagation();
-    const tabId = actionEl.dataset.tabId;
-    const tabUrl = actionEl.dataset.tabUrl;
-    if (!tabId && !tabUrl) return;
-    await closeOpenTabInChrome(tabId, tabUrl);
-    await fetchOpenTabs();
-    playCloseSound();
-    const chip = actionEl.closest('.page-chip');
-    if (chip) {
-      const rect = chip.getBoundingClientRect();
-      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }
-    await scheduleDashboardAndWait();
-    showToast('Tab closed');
-  },
-  'defer-single-tab': async ({ actionEl, event }) => {
-    event.stopPropagation();
-    const tabId = actionEl.dataset.tabId;
-    const tabUrl = actionEl.dataset.tabUrl;
-    const tabTitle = actionEl.dataset.tabTitle || tabUrl;
-    if (!tabUrl) return;
-    try {
-      await saveTabForLater({ url: tabUrl, title: tabTitle });
-    } catch (err) {
-      console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
-      return;
-    }
-    await closeOpenTabInChrome(tabId, tabUrl);
-    await fetchOpenTabs();
-    const chip = actionEl.closest('.page-chip');
-    if (chip) {
-      const rect = chip.getBoundingClientRect();
-      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }
-    await scheduleDashboardAndWait();
-    showToast('Added to Later list');
-  },
-  'check-later': async ({ actionEl }) => {
-    const id = actionEl.dataset.laterId;
-    if (!id) return;
-    await checkOffSavedTab(id);
-    const item = actionEl.closest('.later-item');
-    if (item) {
-      item.classList.add('checked');
-      setTimeout(() => {
-        item.classList.add('removing');
-        setTimeout(() => {
-          latestDashboardRenderPromise = scheduleDashboardRender();
-        }, 300);
-      }, 800);
-    } else {
-      await scheduleDashboardAndWait();
-    }
-    showToast('Moved to Archive');
-  },
-  'dismiss-later': async ({ actionEl }) => {
-    const id = actionEl.dataset.laterId;
-    if (!id) return;
-    const removedItem = await dismissSavedTab(id);
-    const item = actionEl.closest('.later-item');
-    if (item) {
-      item.classList.add('removing');
-      setTimeout(() => {
-        latestDashboardRenderPromise = scheduleDashboardRender();
-      }, 300);
-    } else {
-      await scheduleDashboardAndWait();
-    }
-    showToast(removedItem && removedItem.completed ? 'Removed from Archive' : 'Removed from Later list');
-  },
-  'close-domain-tabs': async ({ actionEl }) => {
-    const card = actionEl.closest('.mission-card');
-    const group = getDomainGroupByStableId(actionEl.dataset.domainId);
-    if (!group) return;
-    const urls = group.tabs.map(tab => tab.url);
-    const useExact = group.domain === '__landing-pages__' || !!group.label;
-    if (useExact) {
-      await closeTabsExactInChrome(urls);
-    } else {
-      await closeTabsByUrlsInChrome(urls);
-    }
-    if (card) {
-      playCloseSound();
-      const rect = card.getBoundingClientRect();
-      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomainLabel(group.domain));
-    await scheduleDashboardAndWait();
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
-  },
-  'export-domain-group': async ({ actionEl }) => {
-    const group = getDomainGroupByStableId(actionEl.dataset.domainId);
-    if (!group) return;
-    const payload = sessionCreateSessionExport([group]);
-    downloadJsonFile(buildSessionFilename(group.label || group.domain || 'group'), payload);
-    showToast(`Exported ${group.label || friendlyDomainLabel(group.domain)}`);
-  },
-  'dedup-keep-one': async ({ actionEl }) => {
-    const urlsEncoded = actionEl.dataset.dupeUrls || '';
-    const urls = urlsEncoded.split(',').map(value => decodeURIComponent(value)).filter(Boolean);
-    if (urls.length === 0) return;
-    await closeDuplicateTabsInChrome(urls, true);
-    playCloseSound();
-    await scheduleDashboardAndWait();
-    showToast('Closed duplicates, kept one copy each');
-  },
-  'close-all-open-tabs': async () => {
-    const snapshot = getDashboardStateSnapshot();
-    const allUrls = snapshot.openTabs
-      .map(tab => getTabUrl(tab))
-      .filter(url => isRealTabUrl(url));
-    document.querySelectorAll('#openTabsMissions .mission-card').forEach(card => {
-      shootConfetti(
-        card.getBoundingClientRect().left + card.offsetWidth / 2,
-        card.getBoundingClientRect().top + card.offsetHeight / 2
-      );
-    });
-    await closeTabsExactInChrome(allUrls);
-    playCloseSound();
-    await scheduleDashboardAndWait();
-    showToast('All tabs closed. Fresh start.');
-  },
-};
+function hasActiveSearch() {
+  return !!normalizeDashboardSearchText(globalSearchQuery);
+}
+
+function getMoreMenuOpen() {
+  return moreMenuOpen;
+}
+
+function setMoreMenuOpen(nextValue) {
+  moreMenuOpen = !!nextValue;
+  return moreMenuOpen;
+}
+
+const actionHandlers = typeof createDashboardActions === 'function'
+  ? createDashboardActions({
+      animateCardOut,
+      buildSessionFilename,
+      checkOffSavedTab,
+      checkTabOutDupes,
+      closeDuplicateTabs: closeDuplicateTabsInChrome,
+      closeMoreMenu,
+      closeOpenTab: closeOpenTabInChrome,
+      closeTabOutDupes: closeTabOutDupesInChrome,
+      closeTabsByUrls: closeTabsByUrlsInChrome,
+      closeTabsExact: closeTabsExactInChrome,
+      createSessionExport: sessionCreateSessionExport,
+      createTab: createTabInChrome,
+      dismissSavedTab,
+      downloadJsonFile,
+      focusMoreMenuItem,
+      focusTab: focusTabInChrome,
+      focusTabById: focusTabByIdInChrome,
+      friendlyDomain: friendlyDomainLabel,
+      getAutoRefreshEnabled: () => autoRefreshEnabled,
+      getDashboardStateSnapshot,
+      getDomainGroupByStableId,
+      getMoreMenuOpen,
+      getTabUrl,
+      hasActiveSearch,
+      importedSessionController,
+      isRealTabUrl,
+      laterListController,
+      playCloseSound,
+      removeKnownTabsFromState,
+      removeOpenTabOptimistically,
+      removeOpenTabsOptimistically,
+      renderAutoRefreshToggle,
+      renderImportedSessionSection,
+      renderLaterListColumn,
+      renderMoreMenu,
+      saveTabForLater,
+      scheduleDashboardAndWait,
+      scheduleSearchAndWait,
+      setAutoRefreshSetting,
+      setMoreMenuOpen,
+      showToast,
+      shootConfetti,
+    })
+  : {};
 
 document.addEventListener('click', async (e) => {
   const actionEl = e.target.closest('[data-action]');

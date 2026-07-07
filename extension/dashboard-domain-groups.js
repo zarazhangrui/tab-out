@@ -46,10 +46,13 @@
     return landingSuffixes.some(suffix => domain.endsWith(suffix));
   }
 
-  function buildDomainGroups({ tabs = [], getTabUrl } = {}) {
+  function buildDomainGroups({ tabs = [], getTabUrl, previousGroups = [] } = {}) {
     const sourceTabs = Array.isArray(tabs) ? tabs : [];
     const groupMap = {};
     const landingTabs = [];
+    const previousOrder = new Map(
+      (Array.isArray(previousGroups) ? previousGroups : []).map((group, index) => [group.domain, index])
+    );
 
     for (const tab of sourceTabs) {
       try {
@@ -94,7 +97,13 @@
       const bIsPriority = isLandingDomain(b.domain);
       if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
 
-      return b.tabs.length - a.tabs.length;
+      const aPrevIndex = previousOrder.has(a.domain) ? previousOrder.get(a.domain) : Number.POSITIVE_INFINITY;
+      const bPrevIndex = previousOrder.has(b.domain) ? previousOrder.get(b.domain) : Number.POSITIVE_INFINITY;
+      if (aPrevIndex !== bPrevIndex) return aPrevIndex - bPrevIndex;
+
+      const countDiff = b.tabs.length - a.tabs.length;
+      if (countDiff !== 0) return countDiff;
+      return a.domain.localeCompare(b.domain);
     });
   }
 
