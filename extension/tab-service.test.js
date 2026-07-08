@@ -166,6 +166,30 @@ test('closeTabOutDupes keeps the active tab in the current window', async () => 
   assert.deepEqual(removed, [2, 3]);
   assert.deepEqual(result, {
     closedCount: 2,
+    suppressRefreshForTabIds: [2, 3],
     tabIds: [2, 3],
   });
+});
+
+test('closeTabOutDupes calls beforeRemove before removing tabs', async () => {
+  const { service, removed } = createHarness([
+    { id: 1, url: 'chrome-extension://test-extension-id/index.html', windowId: 1, active: true },
+    { id: 2, url: 'chrome-extension://test-extension-id/index.html', windowId: 2, active: true },
+    { id: 3, url: 'chrome://newtab/', windowId: 3, active: false },
+  ]);
+  const callOrder = [];
+
+  await service.closeTabOutDupes({
+    async beforeRemove(tabIds) {
+      callOrder.push({ type: 'beforeRemove', tabIds });
+      assert.deepEqual(removed, []);
+    },
+  });
+
+  callOrder.push({ type: 'afterClose', removed: [...removed] });
+
+  assert.deepEqual(callOrder, [
+    { type: 'beforeRemove', tabIds: [2, 3] },
+    { type: 'afterClose', removed: [2, 3] },
+  ]);
 });

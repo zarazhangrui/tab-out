@@ -44,6 +44,7 @@
     setAutoRefreshSetting,
     setMoreMenuOpen,
     showToast,
+    suppressRemovedTabRefresh,
     shootConfetti,
   }) {
     const BULK_CLOSE_THRESHOLDS = {
@@ -177,7 +178,16 @@
       'clear-later-list': async () => laterListController.handleClearSavedTabsByState({ completed: false }),
       'clear-later-archive': async () => laterListController.handleClearSavedTabsByState({ completed: true }),
       'close-tabout-dupes': async () => {
-        const result = await closeTabOutDupes();
+        const result = await closeTabOutDupes({
+          beforeRemove(tabIds) {
+            suppressRemovedTabRefresh(tabIds);
+          },
+        });
+        if (!result || !result.closedCount) {
+          await scheduleDashboardAndWait();
+          showToast('No extra Tab Out tabs to close');
+          return;
+        }
         playCloseSound();
         removeKnownTabsFromState({
           tabIds: result && Array.isArray(result.tabIds) ? result.tabIds : [],

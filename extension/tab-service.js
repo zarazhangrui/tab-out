@@ -247,12 +247,18 @@
     };
   }
 
-  async function closeTabOutDupes() {
+  async function closeTabOutDupes({ beforeRemove } = {}) {
     const allTabs = await queryRawTabs();
     const currentWindow = await windowsApi.getCurrent();
     const tabOutTabs = allTabs.filter(tab => isTabOutTab(tab));
 
-    if (tabOutTabs.length <= 1) return 0;
+    if (tabOutTabs.length <= 1) {
+      return {
+        closedCount: 0,
+        suppressRefreshForTabIds: [],
+        tabIds: [],
+      };
+    }
 
     const keep =
       tabOutTabs.find(tab => tab.active && tab.windowId === currentWindow.id) ||
@@ -261,11 +267,15 @@
     const toClose = tabOutTabs.filter(tab => tab.id !== keep.id).map(tab => tab.id);
 
     if (toClose.length > 0) {
+      if (typeof beforeRemove === 'function') {
+        await beforeRemove(toClose);
+      }
       await tabsApi.remove(toClose);
     }
 
     return {
       closedCount: toClose.length,
+      suppressRefreshForTabIds: toClose,
       tabIds: toClose,
     };
   }

@@ -78,6 +78,7 @@ let searchDebounceTimer = null;
 let moreMenuOpen = false;
 let latestDashboardRenderPromise = Promise.resolve();
 let latestSearchRenderPromise = Promise.resolve(false);
+const suppressedRemovedTabIds = new Set();
 
 function createStableId(prefix = 'item') {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -586,7 +587,7 @@ function rebuildDomainGroupsFromState() {
   );
 }
 
-function renderOpenTabsSectionFromState() {
+function renderOpenTabsSectionFromState({ includeImportedSection = true } = {}) {
   const realTabs = getRealTabs();
   const openTabsSection = document.getElementById('openTabsSection');
   const openTabsMissionsEl = document.getElementById('openTabsMissions');
@@ -608,7 +609,9 @@ function renderOpenTabsSectionFromState() {
   if (statTabs) statTabs.textContent = realTabs.length;
 
   checkTabOutDupes();
-  renderImportedSessionSection();
+  if (includeImportedSection) {
+    renderImportedSessionSection();
+  }
 }
 
 async function removeOpenTabOptimistically({ tabId, tabUrl } = {}) {
@@ -740,7 +743,7 @@ async function renderStaticDashboard(renderCtx = {}) {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   if (isStale()) return false;
-  renderOpenTabsSectionFromState();
+  renderOpenTabsSectionFromState({ includeImportedSection: false });
 
   // --- Imported session section ---
   await getImportedSession();
@@ -776,7 +779,11 @@ chrome.tabs.onCreated.addListener(() => {
   scheduleDashboardRefresh();
 });
 
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener(tabId => {
+  if (suppressedRemovedTabIds.has(tabId)) {
+    suppressedRemovedTabIds.delete(tabId);
+    return;
+  }
   scheduleDashboardRefresh();
 });
 
@@ -871,6 +878,13 @@ function setMoreMenuOpen(nextValue) {
   return moreMenuOpen;
 }
 
+function suppressRemovedTabRefresh(tabIds = []) {
+  for (const tabId of Array.isArray(tabIds) ? tabIds : []) {
+    if (typeof tabId === 'undefined' || tabId === null) continue;
+    suppressedRemovedTabIds.add(Number(tabId));
+  }
+}
+
 const actionHandlers = typeof createDashboardActions === 'function'
   ? createDashboardActions({
       animateCardOut,
@@ -914,6 +928,7 @@ const actionHandlers = typeof createDashboardActions === 'function'
       setAutoRefreshSetting,
       setMoreMenuOpen,
       showToast,
+      suppressRemovedTabRefresh,
       shootConfetti,
     })
   : {};

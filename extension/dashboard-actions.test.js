@@ -40,6 +40,7 @@ function createHarness(overrides = {}) {
     scheduleSearchAndWait: 0,
     setAutoRefreshSetting: [],
     showToast: [],
+    suppressRemovedTabRefresh: [],
     shootConfetti: [],
   };
 
@@ -68,8 +69,15 @@ function createHarness(overrides = {}) {
     },
     closeMoreMenu: () => { calls.closeMoreMenu += 1; },
     closeOpenTab: async (tabId, tabUrl) => { calls.closeOpenTab.push({ tabId, tabUrl }); },
-    closeTabOutDupes: async () => {
+    closeTabOutDupes: async options => {
       calls.closeTabOutDupes += 1;
+      if (options && typeof options.beforeRemove === 'function') {
+        await options.beforeRemove(
+          overrides.closeTabOutDupesBeforeRemoveIds ||
+          (overrides.closeTabOutDupesResult && overrides.closeTabOutDupesResult.suppressRefreshForTabIds) ||
+          []
+        );
+      }
       return overrides.closeTabOutDupesResult || { tabIds: [3, 4] };
     },
     closeTabsByUrls: async urls => { calls.closeTabsByUrls.push(urls); },
@@ -120,6 +128,7 @@ function createHarness(overrides = {}) {
       return moreMenuOpen;
     },
     showToast: message => { calls.showToast.push(message); },
+    suppressRemovedTabRefresh: tabIds => { calls.suppressRemovedTabRefresh.push(tabIds); },
     shootConfetti: (...args) => { calls.shootConfetti.push(args); },
   });
 
@@ -176,17 +185,34 @@ test('toggle-more-menu updates state, rerenders menu, and focuses first item whe
 
 test('close-tabout-dupes uses local state cleanup without full dashboard refresh', async () => {
   const { actions, calls } = createHarness({
-    closeTabOutDupesResult: { tabIds: [11, 12] },
+    closeTabOutDupesResult: { closedCount: 2, tabIds: [11, 12], suppressRefreshForTabIds: [11, 12] },
   });
 
   await actions['close-tabout-dupes']();
 
   assert.equal(calls.closeTabOutDupes, 1);
   assert.equal(calls.playCloseSound, 1);
+  assert.deepEqual(calls.suppressRemovedTabRefresh, [[11, 12]]);
   assert.deepEqual(calls.removeKnownTabsFromState, [{ tabIds: [11, 12], tabUrls: [] }]);
   assert.equal(calls.checkTabOutDupes, 1);
   assert.equal(calls.scheduleDashboardAndWait, 0);
   assert.deepEqual(calls.showToast, ['Closed extra Tab Out tabs']);
+});
+
+test('close-tabout-dupes refreshes from source when no extra tab-out tabs remain', async () => {
+  const { actions, calls } = createHarness({
+    closeTabOutDupesResult: { closedCount: 0, tabIds: [], suppressRefreshForTabIds: [] },
+  });
+
+  await actions['close-tabout-dupes']();
+
+  assert.equal(calls.closeTabOutDupes, 1);
+  assert.deepEqual(calls.suppressRemovedTabRefresh, [[]]);
+  assert.equal(calls.playCloseSound, 0);
+  assert.deepEqual(calls.removeKnownTabsFromState, []);
+  assert.equal(calls.checkTabOutDupes, 0);
+  assert.equal(calls.scheduleDashboardAndWait, 1);
+  assert.deepEqual(calls.showToast, ['No extra Tab Out tabs to close']);
 });
 
 test('close-single-tab closes tab and applies optimistic update', async () => {
