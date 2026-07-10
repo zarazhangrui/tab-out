@@ -687,6 +687,14 @@ function scheduleDashboardRefresh(delay = 120) {
   }, delay);
 }
 
+function scheduleOpenTabsRefresh(delay = 120) {
+  if (!autoRefreshEnabled) return;
+  clearTimeout(dashboardRefreshTimer);
+  dashboardRefreshTimer = setTimeout(() => {
+    void reconcileOpenTabsFromBrowser();
+  }, delay);
+}
+
 
 /* ----------------------------------------------------------------
    EVENT HANDLERS — using event delegation
@@ -864,6 +872,7 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
       renderAutoRefreshToggle,
       renderLaterListColumn,
       scheduleDashboardRefresh,
+      scheduleOpenTabsRefresh,
       scheduleDashboardRender: () => {
         latestDashboardRenderPromise = scheduleDashboardRender();
         return latestDashboardRenderPromise;

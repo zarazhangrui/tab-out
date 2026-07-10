@@ -11,34 +11,69 @@
     renderAutoRefreshToggle,
     renderLaterListColumn,
     scheduleDashboardRefresh,
+    scheduleOpenTabsRefresh,
     scheduleDashboardRender,
     scheduleSearchRender,
     setAutoRefreshEnabled,
     setDeferredItemsCache,
     setImportedSession,
     shouldSkipRemovedTab,
+    tabCreateMergeWindowMs = 800,
   }) {
+    const recentlyCreatedTabs = new Map();
+
+    function markTabCreated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return;
+      recentlyCreatedTabs.set(Number(tabId), Date.now());
+    }
+
+    function wasRecentlyCreated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return false;
+      const createdAt = recentlyCreatedTabs.get(Number(tabId));
+      if (!createdAt) return false;
+      if (Date.now() - createdAt > tabCreateMergeWindowMs) {
+        recentlyCreatedTabs.delete(Number(tabId));
+        return false;
+      }
+      return true;
+    }
+
+    function clearRecentlyCreated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return;
+      recentlyCreatedTabs.delete(Number(tabId));
+    }
+
     function bindBrowserListeners({ tabsApi, storageApi, logger = console } = {}) {
       const safeTabsApi = tabsApi || (typeof chrome !== 'undefined' ? chrome.tabs : null);
       const safeStorageApi = storageApi || (typeof chrome !== 'undefined' ? chrome.storage : null);
 
       if (safeTabsApi && safeTabsApi.onCreated) {
-        safeTabsApi.onCreated.addListener(() => {
-          scheduleDashboardRefresh();
+        safeTabsApi.onCreated.addListener(tab => {
+          markTabCreated(tab && tab.id);
+          scheduleOpenTabsRefresh();
         });
       }
 
       if (safeTabsApi && safeTabsApi.onRemoved) {
         safeTabsApi.onRemoved.addListener(tabId => {
+          clearRecentlyCreated(tabId);
           if (shouldSkipRemovedTab(tabId)) return;
-          scheduleDashboardRefresh();
+          scheduleOpenTabsRefresh();
         });
       }
 
       if (safeTabsApi && safeTabsApi.onUpdated) {
         safeTabsApi.onUpdated.addListener((tabId, changeInfo) => {
+          const hasMeaningfulUpdate = !!(changeInfo.url || changeInfo.status === 'complete');
+          if (!hasMeaningfulUpdate) return;
+
+          if (wasRecentlyCreated(tabId)) {
+            clearRecentlyCreated(tabId);
+            return;
+          }
+
           if (changeInfo.url || changeInfo.status === 'complete') {
-            scheduleDashboardRefresh();
+            scheduleOpenTabsRefresh();
           }
         });
       }
