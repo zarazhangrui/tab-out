@@ -35,6 +35,7 @@ function createHarness(overrides = {}) {
     renderImportedSessionSection: 0,
     renderLaterListColumn: 0,
     renderMoreMenu: 0,
+    reconcileOpenTabsFromBrowser: 0,
     saveTabForLater: [],
     scheduleDashboardAndWait: 0,
     scheduleSearchAndWait: 0,
@@ -81,7 +82,10 @@ function createHarness(overrides = {}) {
       return overrides.closeTabOutDupesResult || { tabIds: [3, 4] };
     },
     closeTabsByUrls: async urls => { calls.closeTabsByUrls.push(urls); },
-    closeTabsExact: async urls => { calls.closeTabsExact.push(urls); },
+    closeTabsExact: async urls => {
+      calls.closeTabsExact.push(urls);
+      return overrides.closeTabsExactResult || { closedCount: urls.length, tabIds: [] };
+    },
     createSessionExport: groups => ({ groups }),
     createTab: async (url, options) => { calls.createTab.push({ url, options }); },
     dismissSavedTab: async id => {
@@ -116,6 +120,7 @@ function createHarness(overrides = {}) {
     renderImportedSessionSection: () => { calls.renderImportedSessionSection += 1; },
     renderLaterListColumn: async () => { calls.renderLaterListColumn += 1; },
     renderMoreMenu: () => { calls.renderMoreMenu += 1; },
+    reconcileOpenTabsFromBrowser: async () => { calls.reconcileOpenTabsFromBrowser += 1; },
     saveTabForLater: async input => {
       calls.saveTabForLater.push(input);
       if (overrides.saveTabForLaterError) throw overrides.saveTabForLaterError;
@@ -195,6 +200,7 @@ test('close-tabout-dupes uses local state cleanup without full dashboard refresh
   assert.deepEqual(calls.suppressRemovedTabRefresh, [[11, 12]]);
   assert.deepEqual(calls.removeKnownTabsFromState, [{ tabIds: [11, 12], tabUrls: [] }]);
   assert.equal(calls.checkTabOutDupes, 1);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 0);
   assert.equal(calls.scheduleDashboardAndWait, 0);
   assert.deepEqual(calls.showToast, ['Closed extra Tab Out tabs']);
 });
@@ -211,6 +217,7 @@ test('close-tabout-dupes refreshes from source when no extra tab-out tabs remain
   assert.equal(calls.playCloseSound, 0);
   assert.deepEqual(calls.removeKnownTabsFromState, []);
   assert.equal(calls.checkTabOutDupes, 0);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 0);
   assert.equal(calls.scheduleDashboardAndWait, 1);
   assert.deepEqual(calls.showToast, ['No extra Tab Out tabs to close']);
 });
@@ -234,7 +241,39 @@ test('close-single-tab closes tab and applies optimistic update', async () => {
   assert.equal(calls.playCloseSound, 1);
   assert.deepEqual(calls.animateCardOut, [chip]);
   assert.deepEqual(calls.removeOpenTabOptimistically, [{ tabId: '7', tabUrl: 'https://docs.example.com/guide' }]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
   assert.deepEqual(calls.showToast, ['Tab closed']);
+});
+
+test('close-tab-url-dupes closes all exact-match duplicates and reconciles open tabs', async () => {
+  const chip = { closest: () => null };
+  const actionEl = {
+    dataset: { tabUrl: 'https://docs.example.com/guide' },
+    closest: selector => selector === '.page-chip' ? chip : null,
+  };
+  let stopped = 0;
+
+  const { actions, calls } = createHarness({
+    closeTabsExactResult: { closedCount: 2, tabIds: [31, 32] },
+  });
+  const originalCloseTabsExact = actions['close-all-open-tabs'];
+  void originalCloseTabsExact;
+
+  await actions['close-tab-url-dupes']({
+    actionEl,
+    event: { stopPropagation() { stopped += 1; } },
+  });
+
+  assert.equal(stopped, 1);
+  assert.deepEqual(calls.closeTabsExact, [['https://docs.example.com/guide']]);
+  assert.equal(calls.playCloseSound, 1);
+  assert.deepEqual(calls.animateCardOut, [chip]);
+  assert.deepEqual(calls.removeOpenTabsOptimistically, [{
+    tabIds: [31, 32],
+    tabUrls: ['https://docs.example.com/guide'],
+  }]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['Closed 2 duplicate tabs']);
 });
 
 test('defer-single-tab saves later item, closes tab, and updates later/open sections locally', async () => {
@@ -282,7 +321,38 @@ test('dedup-keep-one removes duplicate tabs with optimistic update', async () =>
     tabIds: [21, 22],
     tabUrls: ['https://docs.example.com/guide', 'https://later.example.com/item'],
   }]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
   assert.deepEqual(calls.showToast, ['Closed duplicates, kept one copy each']);
+});
+
+test('close-all-dupes closes all duplicate urls and reconciles open tabs', async () => {
+  const { actions, calls } = createHarness({
+    dashboardStateSnapshot: {
+      domainGroups: [],
+      openTabs: [
+        { id: 1, url: 'https://docs.example.com/guide' },
+        { id: 2, url: 'https://docs.example.com/guide' },
+        { id: 3, url: 'https://later.example.com/item' },
+        { id: 4, url: 'https://later.example.com/item' },
+        { id: 5, url: 'https://unique.example.com/home' },
+      ],
+    },
+    closeDuplicateTabsResult: { tabIds: [2, 4] },
+  });
+
+  await actions['close-all-dupes']();
+
+  assert.deepEqual(calls.closeDuplicateTabs, [{
+    urls: ['https://docs.example.com/guide', 'https://later.example.com/item'],
+    keepOne: true,
+  }]);
+  assert.equal(calls.playCloseSound, 1);
+  assert.deepEqual(calls.removeOpenTabsOptimistically, [{
+    tabIds: [2, 4],
+    tabUrls: ['https://docs.example.com/guide', 'https://later.example.com/item'],
+  }]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['Closed all dupes, kept one copy each']);
 });
 
 function buildTabs(count, prefix = 'https://docs.example.com') {
@@ -331,6 +401,7 @@ test('close-domain-tabs uses light confirmation for 10+ tabs before closing', as
       tabIds: buildTabs(10).map(tab => tab.id),
       tabUrls: buildTabs(10).map(tab => tab.url),
     }]);
+    assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
     assert.deepEqual(calls.showToast, [
       'Click again to close 10 tabs from friendly:docs.example.com',
       'Closed 10 tabs from friendly:docs.example.com',
@@ -370,11 +441,12 @@ test('close-domain-tabs uses strong confirmation for 20+ tabs before closing', a
     assert.equal(calls.closeTabsByUrls.length, 0);
     assert.deepEqual(calls.showToast, ['Click again for explicit confirm to close 20 tabs from friendly:docs.example.com']);
     assert.equal(actionEl.dataset.bulkCloseConfirmMode, 'strong');
-    assert.equal(actionEl.textContent, 'Click again: close 20 tabs');
+    assert.equal(actionEl.textContent, 'Yes, close 20 tabs');
 
     await actions['close-domain-tabs']({ actionEl });
 
     assert.equal(calls.closeTabsByUrls.length, 1);
+    assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
     assert.deepEqual(calls.showToast.at(-1), 'Closed 20 tabs from friendly:docs.example.com');
   } finally {
     global.setTimeout = previousSetTimeout;
@@ -431,6 +503,7 @@ test('close-all-open-tabs uses light confirmation for 30+ tabs before closing', 
     assert.deepEqual(calls.closeTabsExact, [buildTabs(30).map(tab => tab.url)]);
     assert.equal(calls.playCloseSound, 1);
     assert.equal(calls.shootConfetti.length, 1);
+    assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
     assert.deepEqual(calls.showToast, [
       'Click again to close 30 tabs',
       'All tabs closed. Fresh start.',
@@ -474,12 +547,13 @@ test('close-all-open-tabs uses strong confirmation for 60+ tabs before closing',
       assert.equal(calls.closeTabsExact.length, 0);
       assert.deepEqual(calls.showToast, ['Click again for explicit confirm to close 60 tabs']);
       assert.equal(closeAllButton.dataset.bulkCloseConfirmMode, 'strong');
-      assert.equal(closeAllButton.textContent, 'Click again: close 60 tabs');
+      assert.equal(closeAllButton.textContent, 'Yes, close 60 tabs');
 
       await actions['close-all-open-tabs']();
     });
 
     assert.equal(calls.closeTabsExact.length, 1);
+    assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
     assert.deepEqual(calls.showToast.at(-1), 'All tabs closed. Fresh start.');
   } finally {
     global.setTimeout = previousSetTimeout;

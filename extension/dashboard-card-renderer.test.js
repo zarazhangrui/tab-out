@@ -33,6 +33,15 @@ test('renderOpenTabsSectionCount shows domain summary and close-all action', () 
   assert.match(html, /Close all 9 tabs/);
 });
 
+test('renderOpenTabsSectionCount shows close-all-dupes when duplicate tabs exist', () => {
+  const renderer = createRenderer();
+  const html = renderer.renderOpenTabsSectionCount(2, 9, 3);
+
+  assert.match(html, /data-action="close-all-dupes"/);
+  assert.match(html, /Close all 3 dupes/);
+  assert.match(html, /data-action="close-all-open-tabs"/);
+});
+
 test('buildOverflowChips renders hidden tabs and overflow trigger', () => {
   const renderer = createRenderer();
   const html = renderer.buildOverflowChips([
@@ -55,7 +64,7 @@ test('buildOverflowChips renders hidden tabs and overflow trigger', () => {
   assert.match(html, /page-chips-overflow/);
   assert.match(html, /\+2 more/);
   assert.match(html, /\(2x\)/);
-  assert.match(html, /data-action="close-single-tab"/);
+  assert.match(html, /data-action="close-tab-url-dupes"/);
 });
 
 test('renderDomainCard renders dupes, localhost labels, and domain actions', () => {
@@ -91,6 +100,7 @@ test('renderDomainCard renders dupes, localhost labels, and domain actions', () 
   assert.match(html, /data-action="export-domain-group"/);
   assert.match(html, /data-action="close-domain-tabs"/);
   assert.match(html, /data-action="dedup-keep-one"/);
+  assert.match(html, /data-action="close-tab-url-dupes"/);
 });
 
 test('renderDomainCard uses Homepages label for landing group', () => {

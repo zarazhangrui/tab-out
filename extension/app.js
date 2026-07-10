@@ -78,6 +78,7 @@ let searchDebounceTimer = null;
 let moreMenuOpen = false;
 let latestDashboardRenderPromise = Promise.resolve();
 let latestSearchRenderPromise = Promise.resolve(false);
+let latestOpenTabsReconcilePromise = Promise.resolve();
 const suppressedRemovedTabIds = new Set();
 
 function createStableId(prefix = 'item') {
@@ -593,12 +594,25 @@ function renderOpenTabsSectionFromState({ includeImportedSection = true } = {}) 
   const openTabsMissionsEl = document.getElementById('openTabsMissions');
   const openTabsSectionCount = document.getElementById('openTabsSectionCount');
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+  const urlCounts = {};
 
   rebuildDomainGroupsFromState();
+  for (const tab of realTabs) {
+    const url = getTabUrl(tab);
+    if (!url) continue;
+    urlCounts[url] = (urlCounts[url] || 0) + 1;
+  }
+  const totalDuplicateTabs = Object.values(urlCounts).reduce((sum, count) => (
+    count > 1 ? sum + count - 1 : sum
+  ), 0);
 
   if (state.domainGroups.length > 0 && openTabsSection && openTabsMissionsEl && openTabsSectionCount) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(state.domainGroups.length, realTabs.length);
+    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(
+      state.domainGroups.length,
+      realTabs.length,
+      totalDuplicateTabs
+    );
     openTabsMissionsEl.innerHTML = state.domainGroups.map(group => renderDomainCard(group)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -865,6 +879,20 @@ async function scheduleSearchAndWait() {
   await latestSearchRenderPromise;
 }
 
+async function reconcileOpenTabsFromBrowser() {
+  latestOpenTabsReconcilePromise = latestOpenTabsReconcilePromise
+    .catch(() => undefined)
+    .then(async () => {
+      await fetchOpenTabs();
+      renderOpenTabsSectionFromState();
+      if (hasActiveSearch()) {
+        await scheduleSearchAndWait();
+      }
+    });
+
+  await latestOpenTabsReconcilePromise;
+}
+
 function hasActiveSearch() {
   return !!normalizeDashboardSearchText(globalSearchQuery);
 }
@@ -922,6 +950,7 @@ const actionHandlers = typeof createDashboardActions === 'function'
       renderImportedSessionSection,
       renderLaterListColumn,
       renderMoreMenu,
+      reconcileOpenTabsFromBrowser,
       saveTabForLater,
       scheduleDashboardAndWait,
       scheduleSearchAndWait,

@@ -37,6 +37,7 @@
     renderImportedSessionSection,
     renderLaterListColumn,
     renderMoreMenu,
+    reconcileOpenTabsFromBrowser,
     saveTabForLater,
     scheduleDashboardAndWait,
     scheduleSearchAndWait,
@@ -91,7 +92,7 @@
     function buildBulkCloseConfirmationCopy({ count, description = '', mode }) {
       if (mode === 'strong') {
         return {
-          buttonLabel: `Click again: close ${count} tabs`,
+          buttonLabel: `Yes, close ${count} tabs`,
           toastMessage: `Click again for explicit confirm to close ${count} tabs${description ? ` ${description}` : ''}`,
         };
       }
@@ -263,7 +264,26 @@
           animateCardOut(chip);
         }
         await removeOpenTabOptimistically({ tabId, tabUrl });
+        await reconcileOpenTabsFromBrowser();
         showToast('Tab closed');
+      },
+      'close-tab-url-dupes': async ({ actionEl, event }) => {
+        event.stopPropagation();
+        const tabUrl = actionEl.dataset.tabUrl;
+        if (!tabUrl) return;
+        const chip = actionEl.closest('.page-chip');
+        const result = await closeTabsExact([tabUrl]);
+        if (!result || !result.closedCount) return;
+        playCloseSound();
+        if (chip) {
+          animateCardOut(chip);
+        }
+        await removeOpenTabsOptimistically({
+          tabIds: result && Array.isArray(result.tabIds) ? result.tabIds : [],
+          tabUrls: [tabUrl],
+        });
+        await reconcileOpenTabsFromBrowser();
+        showToast(`Closed ${result.closedCount} duplicate tab${result.closedCount !== 1 ? 's' : ''}`);
       },
       'defer-single-tab': async ({ actionEl, event }) => {
         event.stopPropagation();
@@ -360,6 +380,7 @@
           animateCardOut(card);
         }
         await removeOpenTabsOptimistically({ tabIds: closedTabIds, tabUrls: urls });
+        await reconcileOpenTabsFromBrowser();
         showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
       },
       'export-domain-group': async ({ actionEl }) => {
@@ -379,7 +400,29 @@
           tabIds: result && Array.isArray(result.tabIds) ? result.tabIds : [],
           tabUrls: urls,
         });
+        await reconcileOpenTabsFromBrowser();
         showToast('Closed duplicates, kept one copy each');
+      },
+      'close-all-dupes': async () => {
+        const snapshot = getDashboardStateSnapshot();
+        const urlCounts = {};
+        for (const tab of snapshot.openTabs || []) {
+          const url = getTabUrl(tab);
+          if (!isRealTabUrl(url)) continue;
+          urlCounts[url] = (urlCounts[url] || 0) + 1;
+        }
+        const dupeUrls = Object.entries(urlCounts)
+          .filter(([, count]) => count > 1)
+          .map(([url]) => url);
+        if (dupeUrls.length === 0) return;
+        const result = await closeDuplicateTabs(dupeUrls, true);
+        playCloseSound();
+        await removeOpenTabsOptimistically({
+          tabIds: result && Array.isArray(result.tabIds) ? result.tabIds : [],
+          tabUrls: dupeUrls,
+        });
+        await reconcileOpenTabsFromBrowser();
+        showToast('Closed all dupes, kept one copy each');
       },
       'close-all-open-tabs': async () => {
         const snapshot = getDashboardStateSnapshot();
@@ -405,6 +448,7 @@
         await closeTabsExact(allUrls);
         playCloseSound();
         await removeOpenTabsOptimistically({ tabIds: openTabIds, tabUrls: allUrls });
+        await reconcileOpenTabsFromBrowser();
         showToast('All tabs closed. Fresh start.');
       },
     };

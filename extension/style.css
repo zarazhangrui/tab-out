@@ -787,6 +787,7 @@ header {
 /* ---- Actions row ---- */
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
 }
@@ -805,6 +806,9 @@ header {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .action-btn:hover {
