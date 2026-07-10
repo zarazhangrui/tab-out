@@ -251,7 +251,7 @@
         .map(tab => renderImportedSessionTabChip(tab, group.id || group.domain || '', openUrlSet))
         .join('');
       const pageChips = visibleChips + (extraCount > 0 ? `
-        <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
+        <div class="page-chips-overflow">${hiddenChips}</div>
         <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
           <span class="chip-text">+${extraCount} more</span>
         </div>` : '');

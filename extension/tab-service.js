@@ -34,6 +34,10 @@
     return isTabOutUrl(getTabUrl(tab));
   }
 
+  function isMissingTabError(error) {
+    return !!(error && /No tab with id|Tabs cannot be edited right now/i.test(String(error.message || error)));
+  }
+
   async function queryRawTabs() {
     return tabsApi.query({});
   }
@@ -193,7 +197,17 @@
 
   async function closeTab(tabId, fallbackUrl) {
     if (tabId) {
-      await tabsApi.remove(Number(tabId));
+      const allTabs = await queryRawTabs();
+      const match = allTabs.find(tab => String(tab.id) === String(tabId));
+      if (!match) return false;
+
+      try {
+        await tabsApi.remove(Number(tabId));
+      } catch (error) {
+        if (isMissingTabError(error)) return false;
+        throw error;
+      }
+
       return {
         closed: true,
         matchedBy: 'id',
@@ -207,7 +221,13 @@
     const match = allTabs.find(tab => getTabUrl(tab) === fallbackUrl);
     if (!match) return false;
 
-    await tabsApi.remove(match.id);
+    try {
+      await tabsApi.remove(match.id);
+    } catch (error) {
+      if (isMissingTabError(error)) return false;
+      throw error;
+    }
+
     return {
       closed: true,
       matchedBy: 'url',

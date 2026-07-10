@@ -40,6 +40,8 @@ const {
   queryRawTabs,
 } = window.TabOutTabService || {};
 const { createSessionStore } = window.TabOutSessionStore || {};
+const { createRenderScheduler: createRenderSchedulerFromModule } = window.TabOutDashboardRuntime || {};
+const { createDashboardHeaderUi } = window.TabOutDashboardHeaderUi || {};
 const {
   buildImportedGroupViewModel: buildImportedGroupViewModelFromModule,
   buildImportedTabViewModel: buildImportedTabViewModelFromModule,
@@ -226,6 +228,12 @@ const showToast = dashboardUiEffects && typeof dashboardUiEffects.showToast === 
 const downloadJsonFile = dashboardUiEffects && typeof dashboardUiEffects.downloadJsonFile === 'function'
   ? dashboardUiEffects.downloadJsonFile
   : () => {};
+const dashboardHeaderUi = typeof createDashboardHeaderUi === 'function'
+  ? createDashboardHeaderUi({
+      getAutoRefreshEnabled: () => autoRefreshEnabled,
+      getMoreMenuOpen: () => moreMenuOpen,
+    })
+  : null;
 const openTabsController = typeof createOpenTabsController === 'function'
   ? createOpenTabsController({
       getState: () => state,
@@ -424,36 +432,18 @@ async function setAutoRefreshSetting(enabled) {
 }
 
 
-function renderAutoRefreshToggle() {
-  const toggle = document.getElementById('autoRefreshToggle');
-  if (!toggle) return;
-
-  toggle.textContent = `Auto refresh: ${autoRefreshEnabled ? 'On' : 'Off'}`;
-  toggle.classList.toggle('save-tabs', autoRefreshEnabled);
-  toggle.classList.toggle('danger', !autoRefreshEnabled);
-}
-
-function renderMoreMenu() {
-  const menu = document.getElementById('moreMenu');
-  const toggle = document.getElementById('moreMenuToggle');
-  const panel = document.getElementById('moreMenuPanel');
-  if (!menu || !toggle || !panel) return;
-
-  menu.classList.toggle('open', moreMenuOpen);
-  toggle.setAttribute('aria-expanded', moreMenuOpen ? 'true' : 'false');
-  panel.style.display = moreMenuOpen ? 'flex' : 'none';
-}
-
-function getMoreMenuItems() {
-  return Array.from(document.querySelectorAll('#moreMenuPanel .more-menu-item'));
-}
-
-function focusMoreMenuItem(index) {
-  const items = getMoreMenuItems();
-  if (items.length === 0) return;
-  const safeIndex = Math.max(0, Math.min(index, items.length - 1));
-  items[safeIndex].focus();
-}
+const renderAutoRefreshToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderAutoRefreshToggle === 'function'
+  ? dashboardHeaderUi.renderAutoRefreshToggle
+  : () => {};
+const renderMoreMenu = dashboardHeaderUi && typeof dashboardHeaderUi.renderMoreMenu === 'function'
+  ? dashboardHeaderUi.renderMoreMenu
+  : () => {};
+const getMoreMenuItems = dashboardHeaderUi && typeof dashboardHeaderUi.getMoreMenuItems === 'function'
+  ? dashboardHeaderUi.getMoreMenuItems
+  : () => [];
+const focusMoreMenuItem = dashboardHeaderUi && typeof dashboardHeaderUi.focusMoreMenuItem === 'function'
+  ? dashboardHeaderUi.focusMoreMenuItem
+  : () => {};
 
 function closeMoreMenu({ restoreFocus = false } = {}) {
   if (!moreMenuOpen) return;
@@ -683,30 +673,6 @@ async function restoreSessionGroups(groups) {
   return result;
 }
 
-function createRenderScheduler(renderer, { label = 'render' } = {}) {
-  let renderSequence = 0;
-  let scheduledPromise = Promise.resolve();
-
-  return function scheduleRender(...args) {
-    renderSequence += 1;
-    const requestId = renderSequence;
-
-    scheduledPromise = scheduledPromise
-      .catch(() => undefined)
-      .then(async () => {
-        const result = await renderer({ requestId, isStale: () => requestId !== renderSequence }, ...args);
-        if (requestId !== renderSequence) return undefined;
-        return result;
-      })
-      .catch(err => {
-        console.warn(`[tab-out] ${label} failed:`, err);
-        throw err;
-      });
-
-    return scheduledPromise;
-  };
-}
-
 async function restoreImportedSessionTab(groupId, tabId) {
   return importedSessionController.restoreImportedSessionTab(groupId, tabId);
 }
@@ -778,6 +744,31 @@ async function renderDashboard(renderCtx = {}) {
   return renderStaticDashboard(renderCtx);
 }
 
+const createRenderScheduler = typeof createRenderSchedulerFromModule === 'function'
+  ? createRenderSchedulerFromModule
+  : (renderer, { label = 'render' } = {}) => {
+      let renderSequence = 0;
+      let scheduledPromise = Promise.resolve();
+
+      return function scheduleRender(...args) {
+        renderSequence += 1;
+        const requestId = renderSequence;
+
+        scheduledPromise = scheduledPromise
+          .catch(() => undefined)
+          .then(async () => {
+            const result = await renderer({ requestId, isStale: () => requestId !== renderSequence }, ...args);
+            if (requestId !== renderSequence) return undefined;
+            return result;
+          })
+          .catch(err => {
+            console.warn(`[tab-out] ${label} failed:`, err);
+            throw err;
+          });
+
+        return scheduledPromise;
+      };
+    };
 const scheduleDashboardRender = createRenderScheduler(renderDashboard, { label: 'dashboard render' });
 const scheduleSearchRender = createRenderScheduler(renderSearchResults, { label: 'search render' });
 
@@ -930,6 +921,7 @@ const actionHandlers = typeof createDashboardActions === 'function'
       dismissSavedTab,
       downloadJsonFile,
       focusMoreMenuItem,
+      focusExactTabByUrl: focusExactTabByUrlInChrome,
       focusTab: focusTabInChrome,
       focusTabById: focusTabByIdInChrome,
       friendlyDomain: friendlyDomainLabel,

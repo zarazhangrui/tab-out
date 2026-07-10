@@ -792,6 +792,10 @@ header {
   margin-top: 10px;
 }
 
+.hidden-by-default {
+  display: none;
+}
+
 .action-btn {
   font-size: 11px;
   font-family: 'DM Sans', sans-serif;
@@ -886,6 +890,20 @@ header {
   color: var(--status-abandoned);
 }
 
+.action-btn.compact {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+.open-tabs-badge.dupe-badge {
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.08);
+}
+
+.page-chips-overflow {
+  display: none;
+}
+
 /* ---- Toast notification ---- */
 .toast {
   position: fixed;
@@ -959,6 +977,16 @@ footer {
 .last-refresh {
   font-size: 11px;
   color: var(--muted);
+}
+
+.footer-credit {
+  color: var(--muted);
+}
+
+.footer-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .refresh-btn {

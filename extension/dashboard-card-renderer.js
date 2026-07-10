@@ -59,16 +59,16 @@
     function renderOpenTabsSectionCount(domainCount, realTabCount, totalDuplicateTabs = 0) {
       const domainLabel = `${domainCount} domain${domainCount !== 1 ? 's' : ''}`;
       const closeAllDupesButton = totalDuplicateTabs > 0
-        ? `&nbsp;&middot;&nbsp; <button class="action-btn" data-action="close-all-dupes" style="font-size:11px;padding:3px 10px;">Close all ${totalDuplicateTabs} dupe${totalDuplicateTabs !== 1 ? 's' : ''}</button>`
+        ? `&nbsp;&middot;&nbsp; <button class="action-btn compact" data-action="close-all-dupes">Close all ${totalDuplicateTabs} dupe${totalDuplicateTabs !== 1 ? 's' : ''}</button>`
         : '';
-      return `${escapeHtml(domainLabel)}${closeAllDupesButton} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabCount} tabs</button>`;
+      return `${escapeHtml(domainLabel)}${closeAllDupesButton} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs compact" data-action="close-all-open-tabs">${ICONS.close} Close all ${realTabCount} tabs</button>`;
     }
 
     function buildOverflowChips(hiddenTabs, urlCounts = {}) {
       const hiddenChips = hiddenTabs.map(tab => buildTabChip(tab, { urlCounts })).join('');
 
       return `
-    <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
+    <div class="page-chips-overflow">${hiddenChips}</div>
     <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
       <span class="chip-text">+${hiddenTabs.length} more</span>
     </div>`;
@@ -94,7 +94,7 @@
   </span>`;
 
       const dupeBadge = hasDupes
-        ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
+        ? `<span class="open-tabs-badge dupe-badge">
         ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
       </span>`
         : '';

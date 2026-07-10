@@ -17,6 +17,7 @@
     dismissSavedTab,
     downloadJsonFile,
     focusMoreMenuItem,
+    focusExactTabByUrl,
     focusTab,
     focusTabById,
     friendlyDomain,
@@ -207,11 +208,24 @@
       'focus-tab': async ({ actionEl }) => {
         const tabId = actionEl.dataset.tabId;
         const tabUrl = actionEl.dataset.tabUrl;
+        let focused = false;
+
         if (tabId) {
-          await focusTabById(tabId);
-          return;
+          focused = !!(await focusTabById(tabId));
         }
-        if (tabUrl) await focusTab(tabUrl);
+
+        if (!focused && tabUrl && typeof focusExactTabByUrl === 'function') {
+          focused = !!(await focusExactTabByUrl(tabUrl));
+        }
+
+        if (!focused && tabUrl && !tabId) {
+          focused = !!(await focusTab(tabUrl));
+        }
+
+        if (focused) return;
+
+        showToast('This tab is no longer open');
+        await reconcileOpenTabsFromBrowser();
       },
       'open-later-item': async ({ actionEl }) => {
         const laterUrl = actionEl.dataset.laterUrl;
@@ -258,7 +272,12 @@
         const tabUrl = actionEl.dataset.tabUrl;
         if (!tabId && !tabUrl) return;
         const chip = actionEl.closest('.page-chip');
-        await closeOpenTab(tabId, tabUrl);
+        const result = await closeOpenTab(tabId, tabUrl);
+        if (!result) {
+          showToast('This tab is no longer open');
+          await reconcileOpenTabsFromBrowser();
+          return;
+        }
         playCloseSound();
         if (chip) {
           animateCardOut(chip);

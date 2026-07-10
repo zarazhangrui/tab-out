@@ -24,6 +24,7 @@ function createHarness(overrides = {}) {
     createTab: [],
     dismissSavedTab: [],
     downloadJsonFile: [],
+    focusExactTabByUrl: [],
     focusMoreMenuItem: [],
     focusTab: [],
     focusTabById: [],
@@ -69,7 +70,12 @@ function createHarness(overrides = {}) {
       return overrides.closeDuplicateTabsResult || { tabIds: [8, 9] };
     },
     closeMoreMenu: () => { calls.closeMoreMenu += 1; },
-    closeOpenTab: async (tabId, tabUrl) => { calls.closeOpenTab.push({ tabId, tabUrl }); },
+    closeOpenTab: async (tabId, tabUrl) => {
+      calls.closeOpenTab.push({ tabId, tabUrl });
+      return Object.prototype.hasOwnProperty.call(overrides, 'closeOpenTabResult')
+        ? overrides.closeOpenTabResult
+        : { closed: true, tabId: Number(tabId) || 1 };
+    },
     closeTabOutDupes: async options => {
       calls.closeTabOutDupes += 1;
       if (options && typeof options.beforeRemove === 'function') {
@@ -93,9 +99,19 @@ function createHarness(overrides = {}) {
       return overrides.dismissSavedTabResult || { completed: false };
     },
     downloadJsonFile: (filename, payload) => { calls.downloadJsonFile.push({ filename, payload }); },
+    focusExactTabByUrl: async url => {
+      calls.focusExactTabByUrl.push(url);
+      return overrides.focusExactTabByUrlResult || false;
+    },
     focusMoreMenuItem: index => { calls.focusMoreMenuItem.push(index); },
-    focusTab: async url => { calls.focusTab.push(url); },
-    focusTabById: async tabId => { calls.focusTabById.push(tabId); },
+    focusTab: async url => {
+      calls.focusTab.push(url);
+      return overrides.focusTabResult || false;
+    },
+    focusTabById: async tabId => {
+      calls.focusTabById.push(tabId);
+      return overrides.focusTabByIdResult || false;
+    },
     friendlyDomain: value => `friendly:${value}`,
     getAutoRefreshEnabled: () => !!overrides.autoRefreshEnabled,
     getDashboardStateSnapshot: () => overrides.dashboardStateSnapshot || {
@@ -222,6 +238,48 @@ test('close-tabout-dupes refreshes from source when no extra tab-out tabs remain
   assert.deepEqual(calls.showToast, ['No extra Tab Out tabs to close']);
 });
 
+test('focus-tab shows stale-tab toast and reconciles when target is gone', async () => {
+  const { actions, calls } = createHarness({
+    focusTabByIdResult: false,
+    focusExactTabByUrlResult: false,
+  });
+
+  await actions['focus-tab']({
+    actionEl: {
+      dataset: {
+        tabId: '7',
+        tabUrl: 'https://docs.example.com/guide',
+      },
+    },
+  });
+
+  assert.deepEqual(calls.focusTabById, ['7']);
+  assert.deepEqual(calls.focusExactTabByUrl, ['https://docs.example.com/guide']);
+  assert.deepEqual(calls.focusTab, []);
+  assert.deepEqual(calls.showToast, ['This tab is no longer open']);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+});
+
+test('focus-tab can focus open tab chips by exact url when no tab id is present', async () => {
+  const { actions, calls } = createHarness({
+    focusExactTabByUrlResult: { focused: true, matchedBy: 'exact' },
+  });
+
+  await actions['focus-tab']({
+    actionEl: {
+      dataset: {
+        tabUrl: 'https://docs.example.com/guide',
+      },
+    },
+  });
+
+  assert.deepEqual(calls.focusTabById, []);
+  assert.deepEqual(calls.focusExactTabByUrl, ['https://docs.example.com/guide']);
+  assert.deepEqual(calls.focusTab, []);
+  assert.deepEqual(calls.showToast, []);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 0);
+});
+
 test('close-single-tab closes tab and applies optimistic update', async () => {
   const chip = { closest: () => null };
   const actionEl = {
@@ -243,6 +301,31 @@ test('close-single-tab closes tab and applies optimistic update', async () => {
   assert.deepEqual(calls.removeOpenTabOptimistically, [{ tabId: '7', tabUrl: 'https://docs.example.com/guide' }]);
   assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
   assert.deepEqual(calls.showToast, ['Tab closed']);
+});
+
+test('close-single-tab shows stale-tab toast when target is already gone', async () => {
+  const chip = { closest: () => null };
+  const actionEl = {
+    dataset: { tabId: '7', tabUrl: 'https://docs.example.com/guide' },
+    closest: selector => selector === '.page-chip' ? chip : null,
+  };
+  let stopped = 0;
+
+  const { actions, calls } = createHarness({
+    closeOpenTabResult: false,
+  });
+  await actions['close-single-tab']({
+    actionEl,
+    event: { stopPropagation() { stopped += 1; } },
+  });
+
+  assert.equal(stopped, 1);
+  assert.deepEqual(calls.closeOpenTab, [{ tabId: '7', tabUrl: 'https://docs.example.com/guide' }]);
+  assert.equal(calls.playCloseSound, 0);
+  assert.deepEqual(calls.animateCardOut, []);
+  assert.deepEqual(calls.removeOpenTabOptimistically, []);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['This tab is no longer open']);
 });
 
 test('close-tab-url-dupes closes all exact-match duplicates and reconciles open tabs', async () => {

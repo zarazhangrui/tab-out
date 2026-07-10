@@ -56,6 +56,50 @@ function createHarness(initialTabs = []) {
   };
 }
 
+function createHarnessWithCustomTabsApi(initialTabs = [], tabsApiOverrides = {}) {
+  let tabs = initialTabs.map(tab => ({ ...tab }));
+  const removed = [];
+  const updates = [];
+  const windowUpdates = [];
+
+  const tabsApi = {
+    async query() {
+      return tabs.map(tab => ({ ...tab }));
+    },
+    async update(tabId, patch) {
+      updates.push({ tabId, patch });
+      return { id: tabId, ...patch };
+    },
+    async remove(ids) {
+      const nextIds = Array.isArray(ids) ? ids.map(Number) : [Number(ids)];
+      removed.push(...nextIds);
+      tabs = tabs.filter(tab => !nextIds.includes(Number(tab.id)));
+    },
+    ...tabsApiOverrides,
+  };
+
+  const windowsApi = {
+    async getCurrent() {
+      return { id: 1 };
+    },
+    async update(windowId, patch) {
+      windowUpdates.push({ windowId, patch });
+      return { id: windowId, ...patch };
+    },
+  };
+
+  const runtimeApi = {
+    id: 'test-extension-id',
+  };
+
+  return {
+    service: createTabService({ tabsApi, windowsApi, runtimeApi }),
+    removed,
+    updates,
+    windowUpdates,
+  };
+}
+
 test('getTabUrl prefers pendingUrl over url', () => {
   const { service } = createHarness();
 
@@ -152,6 +196,33 @@ test('closeTabsExact closes only exact matched urls', async () => {
     closedCount: 2,
     tabIds: [1, 3],
   });
+});
+
+test('closeTab returns false when target tab id is already gone', async () => {
+  const { service, removed } = createHarness([
+    { id: 1, url: 'https://docs.example.com/guide' },
+  ]);
+
+  const result = await service.closeTab(99, 'https://docs.example.com/guide');
+
+  assert.equal(result, false);
+  assert.deepEqual(removed, []);
+});
+
+test('closeTab returns false when chrome reports missing tab during remove', async () => {
+  const { service, removed } = createHarnessWithCustomTabsApi(
+    [{ id: 7, url: 'https://docs.example.com/guide' }],
+    {
+      async remove() {
+        throw new Error('No tab with id: 7.');
+      },
+    }
+  );
+
+  const result = await service.closeTab(7, 'https://docs.example.com/guide');
+
+  assert.equal(result, false);
+  assert.deepEqual(removed, []);
 });
 
 test('closeTabOutDupes keeps the active tab in the current window', async () => {
