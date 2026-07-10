@@ -11,6 +11,7 @@
     cleanTitle,
     escapeHtml,
     friendlyDomain,
+    getDomainGroupActionId,
     shortTimeAgo,
     smartTitle,
     stripTitleNoise,
@@ -78,7 +79,7 @@
       const tabs = group.tabs || [];
       const tabCount = tabs.length;
       const isLanding = group.domain === '__landing-pages__';
-      const stableId = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+      const stableId = getDomainGroupActionId(group);
 
       const urlCounts = {};
       for (const tab of tabs) {

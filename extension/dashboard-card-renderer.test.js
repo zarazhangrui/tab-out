@@ -18,6 +18,7 @@ function createRenderer() {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;'),
     friendlyDomain: value => `friendly:${value}`,
+    getDomainGroupActionId: group => group.id || `domain-${group.domain.replace(/[^a-z0-9]/g, '-')}`,
     shortTimeAgo: value => (value ? '5m ago' : ''),
     smartTitle: title => title || '',
     stripTitleNoise: title => title || '',

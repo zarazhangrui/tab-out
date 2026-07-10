@@ -9,6 +9,7 @@ const {
   cleanTitle,
   escapeHtml,
   friendlyDomain,
+  getDomainGroupActionId,
   normalizeSearchText,
   searchTextMatches,
   shortTimeAgo,
@@ -47,6 +48,21 @@ test('friendlyDomain maps common hosts and formats unknown domains', () => {
   assert.equal(friendlyDomain('foo.github.io'), 'Foo (GitHub Pages)');
   assert.equal(friendlyDomain('newsletter.substack.com'), "Newsletter's Substack");
   assert.equal(friendlyDomain('docs.example.dev'), 'Docs Example');
+});
+
+test('getDomainGroupActionId prefers stable group ids and keeps domain fallback deterministic', () => {
+  assert.equal(
+    getDomainGroupActionId({ id: 'group_docs-example-com_1', domain: 'docs.example.com' }),
+    'group_docs-example-com_1'
+  );
+  assert.equal(
+    getDomainGroupActionId({ domain: 'docs.example.com' }),
+    'domain-docs-example-com'
+  );
+  assert.notEqual(
+    getDomainGroupActionId({ id: 'docs.example.com', domain: 'docs.example.com' }),
+    getDomainGroupActionId({ id: 'docs-example-com', domain: 'docs-example-com' })
+  );
 });
 
 test('stripTitleNoise removes counters, email addresses, and x suffix noise', () => {

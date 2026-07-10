@@ -317,6 +317,16 @@
       showToast(`Exported ${payload.groups.length} imported group${payload.groups.length !== 1 ? 's' : ''}`);
     }
 
+    async function refreshImportedSessionViews(message) {
+      renderImportedSessionSection();
+      if (typeof syncImportedSessionSearchResults === 'function') {
+        await syncImportedSessionSearchResults();
+      }
+      if (message) {
+        showToast(message);
+      }
+    }
+
     async function handleImportSessionFiles(files) {
       const safeFiles = Array.isArray(files) ? files : [];
       if (safeFiles.length === 0) return 0;
@@ -335,11 +345,7 @@
       }
 
       await setImportedSession(nextImportedSession);
-      renderImportedSessionSection();
-      if (typeof syncImportedSessionSearchResults === 'function') {
-        await syncImportedSessionSearchResults();
-      }
-      showToast(`Imported ${importedGroupCount} group${importedGroupCount !== 1 ? 's' : ''}`);
+      await refreshImportedSessionViews(`Imported ${importedGroupCount} group${importedGroupCount !== 1 ? 's' : ''}`);
       return importedGroupCount;
     }
 
@@ -380,32 +386,20 @@
 
     async function handleClearImportedSession() {
       await clearImportedSession();
-      renderImportedSessionSection();
-      if (typeof syncImportedSessionSearchResults === 'function') {
-        await syncImportedSessionSearchResults();
-      }
-      showToast('Imported session cleared');
+      await refreshImportedSessionViews('Imported session cleared');
     }
 
     async function handleClearImportedGroup(groupId) {
       if (!groupId) return;
       await clearImportedSessionGroup(groupId);
-      renderImportedSessionSection();
-      if (typeof syncImportedSessionSearchResults === 'function') {
-        await syncImportedSessionSearchResults();
-      }
-      showToast('Imported group cleared');
+      await refreshImportedSessionViews('Imported group cleared');
     }
 
     async function handleClearImportedTab(groupId, tabId) {
       if (!groupId || !tabId) return false;
       const changed = await clearImportedSessionTab(groupId, tabId);
       if (!changed) return false;
-      renderImportedSessionSection();
-      if (typeof syncImportedSessionSearchResults === 'function') {
-        await syncImportedSessionSearchResults();
-      }
-      showToast('Imported tab cleared');
+      await refreshImportedSessionViews('Imported tab cleared');
       return true;
     }
 

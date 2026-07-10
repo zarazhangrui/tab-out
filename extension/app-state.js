@@ -7,15 +7,6 @@
       importedSession: null,
       domainGroups: [],
       deferredItemsCache: [],
-      ui: {
-        dashboardRefreshTimer: null,
-        autoRefreshEnabled: false,
-        globalSearchQuery: '',
-        searchDebounceTimer: null,
-        moreMenuOpen: false,
-        latestDashboardRenderPromise: Promise.resolve(),
-        latestSearchRenderPromise: Promise.resolve(false),
-      },
     };
 
     return {
@@ -37,10 +28,6 @@
       setDeferredItemsCache(items) {
         state.deferredItemsCache = Array.isArray(items) ? items : [];
         return state.deferredItemsCache;
-      },
-      setUiState(patch) {
-        Object.assign(state.ui, patch || {});
-        return state.ui;
       },
     };
   }

@@ -15,6 +15,12 @@
 
 'use strict';
 
+if (window.TabOutDashboardBootstrap && typeof window.TabOutDashboardBootstrap.validateDashboardModules === 'function') {
+  window.TabOutDashboardBootstrap.validateDashboardModules(window);
+} else {
+  throw new Error('Tab Out dashboard failed to start. Missing required modules: TabOutDashboardBootstrap.validateDashboardModules');
+}
+
 const {
   createSessionExport: sessionCreateSessionExport,
   dedupeSessionGroups: sessionDedupeSessionGroups,
@@ -59,6 +65,7 @@ const {
   formatSessionDate,
   friendlyDomain: friendlyDomainLabel,
   getDateDisplay: getDashboardDateDisplay,
+  getDomainGroupActionId,
   getGreeting: getDashboardGreeting,
   normalizeSearchText: normalizeDashboardSearchText,
   searchTextMatches: searchDashboardTextMatches,
@@ -186,7 +193,6 @@ const fallbackAppState = {
   importedSession: null,
   domainGroups: [],
   deferredItemsCache: [],
-  ui: {},
 };
 const appState = typeof createAppState === 'function'
   ? createAppState()
@@ -208,7 +214,6 @@ const appState = typeof createAppState === 'function'
         fallbackAppState.deferredItemsCache = Array.isArray(items) ? items : [];
         return fallbackAppState.deferredItemsCache;
       },
-      setUiState: patch => Object.assign(fallbackAppState.ui, patch || {}),
     };
 const state = appState.getState();
 const dashboardUiEffects = typeof createDashboardUiEffects === 'function'
@@ -311,6 +316,7 @@ const dashboardCardRenderer = typeof createDashboardCardRenderer === 'function'
       cleanTitle,
       escapeHtml,
       friendlyDomain: friendlyDomainLabel,
+      getDomainGroupActionId,
       shortTimeAgo: formatShortTimeAgo,
       smartTitle,
       stripTitleNoise,
@@ -665,7 +671,7 @@ function getDashboardStateSnapshot() {
 }
 
 function getDomainGroupByStableId(domainId) {
-  return state.domainGroups.find(group => 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-') === domainId) || null;
+  return state.domainGroups.find(group => getDomainGroupActionId(group) === domainId) || null;
 }
 
 function getImportedGroupById(groupId) {

@@ -210,6 +210,20 @@
     return clean.split('.').map(part => capitalize(part)).join(' ');
   }
 
+  function getDomainGroupActionId(group) {
+    const source = group && (group.id || group.domain);
+    const sourceText = String(source || 'domain').toLowerCase();
+
+    if (group && group.id) {
+      return sourceText.replace(/[^a-z0-9_-]/g, char => `_${char.charCodeAt(0).toString(16)}_`);
+    }
+
+    const safeDomain = sourceText
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `domain-${safeDomain || 'unknown'}`;
+  }
+
   function stripTitleNoise(title) {
     if (!title) return '';
     let nextTitle = title.replace(/^\(\d+\+?\)\s*/, '');
@@ -303,6 +317,7 @@
     formatSessionDate,
     friendlyDomain,
     getDateDisplay,
+    getDomainGroupActionId,
     getGreeting,
     normalizeSearchText,
     searchTextMatches,
