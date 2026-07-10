@@ -44,6 +44,7 @@ const { createRenderScheduler: createRenderSchedulerFromModule } = window.TabOut
 const { createDashboardHeaderUi } = window.TabOutDashboardHeaderUi || {};
 const { createDashboardEventBindings } = window.TabOutDashboardEventBindings || {};
 const { createDashboardLifecycle } = window.TabOutDashboardLifecycle || {};
+const { createDashboardRenderFlow } = window.TabOutDashboardRenderFlow || {};
 const { createOpenTabsRuntime } = window.TabOutOpenTabsRuntime || {};
 const {
   buildImportedGroupViewModel: buildImportedGroupViewModelFromModule,
@@ -597,60 +598,6 @@ async function clearImportedSessionTab(groupId, tabId) {
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
-/**
- * renderStaticDashboard()
- *
- * The main render function:
- * 1. Paints greeting + date
- * 2. Fetches open tabs via chrome.tabs.query()
- * 3. Groups tabs by domain (with landing pages pulled out to their own group)
- * 4. Renders domain cards
- * 5. Updates footer stats
- * 6. Renders the "Saved for Later" checklist
- */
-async function renderStaticDashboard(renderCtx = {}) {
-  const { isStale = () => false } = renderCtx;
-  try {
-    await getAutoRefreshSetting();
-  } catch (err) {
-    console.warn('[tab-out] Failed to load auto refresh setting:', err);
-  }
-  if (isStale()) return false;
-
-  // --- Header ---
-  const greetingEl = document.getElementById('greeting');
-  const dateEl     = document.getElementById('dateDisplay');
-  const searchInput = document.getElementById('globalSearchInput');
-  if (greetingEl) greetingEl.textContent = getDashboardGreeting();
-  if (dateEl)     dateEl.textContent     = getDashboardDateDisplay();
-  if (searchInput && searchInput.value !== globalSearchQuery) searchInput.value = globalSearchQuery;
-  renderAutoRefreshToggle();
-  renderMoreMenu();
-
-  // --- Fetch tabs ---
-  await fetchOpenTabs();
-  if (isStale()) return false;
-  renderOpenTabsSectionFromState({ includeImportedSection: false });
-
-  // --- Imported session section ---
-  await getImportedSession();
-  if (isStale()) return false;
-  renderImportedSessionSection();
-
-  // --- Render "Later list" column ---
-  await renderLaterListColumn();
-  if (isStale()) return false;
-
-  // --- Search results overlay ---
-  await renderSearchResults(renderCtx);
-  if (isStale()) return false;
-  return true;
-}
-
-async function renderDashboard(renderCtx = {}) {
-  return renderStaticDashboard(renderCtx);
-}
-
 const createRenderScheduler = typeof createRenderSchedulerFromModule === 'function'
   ? createRenderSchedulerFromModule
   : (renderer, { label = 'render' } = {}) => {
@@ -786,6 +733,28 @@ const removeKnownTabsFromState = openTabsRuntime && typeof openTabsRuntime.remov
 const reconcileOpenTabsFromBrowser = openTabsRuntime && typeof openTabsRuntime.reconcileOpenTabsFromBrowser === 'function'
   ? openTabsRuntime.reconcileOpenTabsFromBrowser
   : async () => {};
+const dashboardRenderFlow = typeof createDashboardRenderFlow === 'function'
+  ? createDashboardRenderFlow({
+      fetchOpenTabs,
+      getDateDisplay: getDashboardDateDisplay,
+      getGreeting: getDashboardGreeting,
+      getImportedSession,
+      getSearchQuery: () => globalSearchQuery,
+      renderAutoRefreshToggle,
+      renderImportedSessionSection,
+      renderLaterListColumn,
+      renderMoreMenu,
+      renderOpenTabsSectionFromState,
+      renderSearchResults,
+    })
+  : null;
+const renderStaticDashboard = dashboardRenderFlow && typeof dashboardRenderFlow.renderStaticDashboard === 'function'
+  ? dashboardRenderFlow.renderStaticDashboard
+  : async () => false;
+
+async function renderDashboard(renderCtx = {}) {
+  return renderStaticDashboard(renderCtx);
+}
 
 const actionHandlers = typeof createDashboardActions === 'function'
   ? createDashboardActions({
@@ -863,7 +832,6 @@ const dashboardEventBindings = typeof createDashboardEventBindings === 'function
   : null;
 const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
   ? createDashboardLifecycle({
-      appState,
       ensureStorageSchema,
       getAutoRefreshSetting,
       getNormalizeDeferredItems: () => normalizeDeferredItems,
@@ -871,7 +839,6 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
       getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
       renderAutoRefreshToggle,
       renderLaterListColumn,
-      scheduleDashboardRefresh,
       scheduleOpenTabsRefresh,
       scheduleDashboardRender: () => {
         latestDashboardRenderPromise = scheduleDashboardRender();

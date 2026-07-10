@@ -2,7 +2,6 @@
 
 (function initDashboardLifecycle() {
   function createDashboardLifecycle({
-    appState,
     ensureStorageSchema,
     getAutoRefreshSetting,
     getNormalizeDeferredItems,
@@ -10,7 +9,6 @@
     getSearchQuery,
     renderAutoRefreshToggle,
     renderLaterListColumn,
-    scheduleDashboardRefresh,
     scheduleOpenTabsRefresh,
     scheduleDashboardRender,
     scheduleSearchRender,
