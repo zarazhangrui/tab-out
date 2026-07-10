@@ -39,8 +39,13 @@
       </div>
       <button class="action-btn" data-action="manual-refresh">Refresh</button>
       <div class="more-menu" id="moreMenu">
-        <button class="action-btn" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false" aria-haspopup="menu" aria-controls="moreMenuPanel">More</button>
-        <div class="more-menu-panel" id="moreMenuPanel" role="menu" aria-label="More actions" style="display:none">
+        <button class="action-btn more-menu-toggle" id="moreMenuToggle" data-action="toggle-more-menu" aria-expanded="false" aria-haspopup="menu" aria-controls="moreMenuPanel">
+          More
+          <svg class="more-menu-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        <div class="more-menu-panel hidden-by-default" id="moreMenuPanel" role="menu" aria-label="More actions">
           <button class="more-menu-item" id="autoRefreshToggle" data-action="toggle-auto-refresh" role="menuitem">Auto refresh: Off</button>
           <button class="more-menu-item" data-action="trigger-import-session" role="menuitem">Import file</button>
           <button class="more-menu-item" data-action="export-all-groups" role="menuitem">Export all</button>
@@ -49,7 +54,7 @@
     </div>
   </header>
 
-  <div class="search-section" id="searchSection" style="display:none">
+  <div class="search-section hidden-by-default" id="searchSection">
     <div class="section-header">
       <h2>Search results</h2>
       <div class="section-line"></div>
@@ -62,7 +67,7 @@
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
        Hidden by default; app.js shows it when dupeTabOutCount > 1
        ================================================================ -->
-  <div class="tab-cleanup-banner" id="tabOutDupeBanner" style="display:none">
+  <div class="tab-cleanup-banner hidden-by-default" id="tabOutDupeBanner">
     <div class="tab-cleanup-left">
       <div class="tab-cleanup-icon">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -78,7 +83,7 @@
 
   <input type="file" id="sessionImportInput" accept="application/json,.json" multiple hidden>
 
-  <div class="imported-session-section" id="importedSessionSection" style="display:none">
+  <div class="imported-session-section hidden-by-default" id="importedSessionSection">
     <div class="section-header">
       <h2 id="importedSessionTitle">Imported session</h2>
       <div class="section-line"></div>
@@ -87,6 +92,7 @@
     <div class="imported-session-toolbar">
       <div class="imported-session-meta" id="importedSessionMeta"></div>
       <div class="imported-session-actions">
+        <button class="action-btn" data-action="export-imported-session">Export all</button>
         <button class="action-btn save-tabs" data-action="restore-imported-session">Restore all</button>
         <button class="action-btn danger" data-action="clear-imported-session">Clear</button>
       </div>
@@ -103,7 +109,7 @@
   <div class="dashboard-columns" id="dashboardColumns">
 
     <!-- LEFT COLUMN: Open tabs -->
-    <div class="active-section" id="openTabsSection" style="display:none">
+    <div class="active-section hidden-by-default" id="openTabsSection">
       <div class="section-header">
         <h2 id="openTabsSectionTitle">Right now</h2>
         <div class="section-line"></div>
@@ -113,7 +119,7 @@
     </div>
 
     <!-- RIGHT COLUMN: Later list -->
-    <div class="later-column" id="laterColumn" style="display:none">
+    <div class="later-column hidden-by-default" id="laterColumn">
       <div class="section-header">
         <h2>Later list</h2>
         <div class="section-line"></div>
@@ -125,12 +131,12 @@
       <div class="later-list" id="laterList"></div>
 
       <!-- Empty state — shown when no active later-list tabs -->
-      <div class="later-empty" id="laterEmpty" style="display:none">
+      <div class="later-empty hidden-by-default" id="laterEmpty">
         Nothing in your later list.
       </div>
 
       <!-- Archive section — collapsed by default -->
-      <div class="later-archive" id="laterArchive" style="display:none">
+      <div class="later-archive hidden-by-default" id="laterArchive">
         <div class="archive-header">
           <button class="archive-toggle" id="archiveToggle">
             <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
@@ -139,7 +145,7 @@
           </button>
           <button class="action-btn close-tabs" data-action="clear-later-archive">Clear</button>
         </div>
-        <div class="archive-body" id="archiveBody" style="display:none">
+        <div class="archive-body hidden-by-default" id="archiveBody">
           <div class="archive-list" id="archiveList"></div>
         </div>
       </div>
@@ -158,7 +164,7 @@
       </div>
     </div>
     <div class="last-refresh">
-      <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> by <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
+      <span class="footer-credit"><a class="footer-link" href="https://github.com/zarazhangrui/tab-out" target="_top">Tab Out</a> by <a class="footer-link" href="https://x.com/zarazhangrui" target="_top">Zara</a></span>
     </div>
   </footer>
 
@@ -176,9 +182,27 @@
   <span id="toastText"></span>
 </div>
 
-<!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
-<!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="session-utils.js"></script>
+<script src="tab-service.js"></script>
+<script src="session-store.js"></script>
+<script src="app-view-models.js"></script>
+<script src="dashboard-runtime.js"></script>
+<script src="dashboard-header-ui.js"></script>
+<script src="dashboard-event-bindings.js"></script>
+<script src="dashboard-lifecycle.js"></script>
+<script src="dashboard-render-flow.js"></script>
+<script src="open-tabs-runtime.js"></script>
+<script src="dashboard-view-utils.js"></script>
+<script src="dashboard-domain-groups.js"></script>
+<script src="dashboard-card-renderer.js"></script>
+<script src="dashboard-search-renderer.js"></script>
+<script src="dashboard-actions.js"></script>
+<script src="dashboard-ui-effects.js"></script>
+<script src="app-state.js"></script>
+<script src="open-tabs-controller.js"></script>
+<script src="later-list-controller.js"></script>
+<script src="imported-session-controller.js"></script>
+<script src="dashboard-bootstrap.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>

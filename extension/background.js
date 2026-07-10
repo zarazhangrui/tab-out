@@ -13,6 +13,21 @@
  *   Red    (#b35a5a) → 21+ tabs   (time to cull!)
  */
 
+function getTabUrl(tab) {
+  return (tab && (tab.pendingUrl || tab.url)) || '';
+}
+
+function isRealTabUrl(url) {
+  const safeUrl = String(url || '');
+  return (
+    !safeUrl.startsWith('chrome://') &&
+    !safeUrl.startsWith('chrome-extension://') &&
+    !safeUrl.startsWith('about:') &&
+    !safeUrl.startsWith('edge://') &&
+    !safeUrl.startsWith('brave://')
+  );
+}
+
 // ─── Badge updater ────────────────────────────────────────────────────────────
 
 /**
@@ -26,16 +41,7 @@ async function updateBadge() {
     const tabs = await chrome.tabs.query({});
 
     // Only count actual web pages — skip browser internals and extension pages
-    const count = tabs.filter(t => {
-      const url = t.url || '';
-      return (
-        !url.startsWith('chrome://') &&
-        !url.startsWith('chrome-extension://') &&
-        !url.startsWith('about:') &&
-        !url.startsWith('edge://') &&
-        !url.startsWith('brave://')
-      );
-    }).length;
+    const count = tabs.filter(tab => isRealTabUrl(getTabUrl(tab))).length;
 
     // Don't show "0" — an empty badge is cleaner
     await chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });

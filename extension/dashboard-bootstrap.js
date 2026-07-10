@@ -1,0 +1,106 @@
+'use strict';
+
+(function initDashboardBootstrap() {
+  const REQUIRED_MODULES = {
+    TabOutSessionUtils: [
+      'createSessionExport',
+      'dedupeSessionGroups',
+      'parseImportedSession',
+      'searchImportedSessionTabs',
+      'planRestoreTabs',
+      'summarizeRestorePlan',
+    ],
+    TabOutTabService: [
+      'closeDuplicateTabs',
+      'closeTab',
+      'closeTabOutDupes',
+      'closeTabsByUrls',
+      'closeTabsExact',
+      'createTab',
+      'focusExactTabByUrl',
+      'focusTab',
+      'focusTabById',
+      'getTabUrl',
+      'isRealTabUrl',
+      'isTabOutTab',
+      'queryDashboardTabs',
+      'queryRawTabs',
+    ],
+    TabOutSessionStore: ['createSessionStore'],
+    TabOutDashboardRuntime: ['createRenderScheduler'],
+    TabOutDashboardHeaderUi: ['createDashboardHeaderUi'],
+    TabOutDashboardEventBindings: ['createDashboardEventBindings'],
+    TabOutDashboardLifecycle: ['createDashboardLifecycle'],
+    TabOutDashboardRenderFlow: ['createDashboardRenderFlow'],
+    TabOutOpenTabsRuntime: ['createOpenTabsRuntime'],
+    TabOutAppViewModels: [
+      'buildImportedGroupViewModel',
+      'buildImportedTabViewModel',
+      'buildSearchResultsModel',
+    ],
+    TabOutDashboardViewUtils: [
+      'buildFaviconImg',
+      'buildSessionFilename',
+      'cleanTitle',
+      'escapeHtml',
+      'formatSessionDate',
+      'friendlyDomain',
+      'getDateDisplay',
+      'getDomainGroupActionId',
+      'getGreeting',
+      'normalizeSearchText',
+      'searchTextMatches',
+      'shortTimeAgo',
+      'smartTitle',
+      'stripTitleNoise',
+      'timeAgo',
+    ],
+    TabOutDashboardDomainGroups: ['buildDomainGroups'],
+    TabOutDashboardCardRenderer: ['createDashboardCardRenderer'],
+    TabOutDashboardSearchRenderer: ['createDashboardSearchRenderer'],
+    TabOutDashboardActions: ['createDashboardActions'],
+    TabOutDashboardUiEffects: ['createDashboardUiEffects'],
+    TabOutAppState: ['createAppState'],
+    TabOutOpenTabsController: ['createOpenTabsController'],
+    TabOutLaterListController: ['createLaterListController'],
+    TabOutImportedSessionController: ['createImportedSessionController'],
+  };
+
+  function validateDashboardModules(modules) {
+    const source = modules || {};
+    const missing = [];
+
+    for (const [moduleName, requiredExports] of Object.entries(REQUIRED_MODULES)) {
+      const moduleValue = source[moduleName];
+      if (!moduleValue || typeof moduleValue !== 'object') {
+        missing.push(moduleName);
+        continue;
+      }
+
+      for (const exportName of requiredExports) {
+        if (typeof moduleValue[exportName] !== 'function') {
+          missing.push(`${moduleName}.${exportName}`);
+        }
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new Error(`Tab Out dashboard failed to start. Missing required modules: ${missing.join(', ')}`);
+    }
+
+    return source;
+  }
+
+  const dashboardBootstrap = {
+    REQUIRED_MODULES,
+    validateDashboardModules,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = dashboardBootstrap;
+  }
+
+  if (typeof window !== 'undefined') {
+    window.TabOutDashboardBootstrap = dashboardBootstrap;
+  }
+})();

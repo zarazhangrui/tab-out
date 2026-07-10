@@ -86,6 +86,34 @@ function createSessionExport(groups, metadata = {}) {
   };
 }
 
+function dedupeSessionGroups(groups) {
+  const safeGroups = Array.isArray(groups)
+    ? groups.map((group, index) => sanitizeSessionGroup(group, index)).filter(Boolean)
+    : [];
+
+  const seenUrls = new Set();
+  const dedupedGroups = [];
+
+  for (const group of safeGroups) {
+    const nextTabs = [];
+
+    for (const tab of group.tabs) {
+      if (seenUrls.has(tab.url)) continue;
+      seenUrls.add(tab.url);
+      nextTabs.push(tab);
+    }
+
+    if (nextTabs.length === 0) continue;
+
+    dedupedGroups.push({
+      ...group,
+      tabs: nextTabs,
+    });
+  }
+
+  return dedupedGroups;
+}
+
 function parseImportedSession(raw) {
   let payload;
 
@@ -218,6 +246,7 @@ function summarizeRestorePlan(groups, openTabs) {
 const sessionUtils = {
   SESSION_FILE_VERSION,
   createSessionExport,
+  dedupeSessionGroups,
   parseImportedSession,
   searchImportedSessionTabs,
   planRestoreTabs,
