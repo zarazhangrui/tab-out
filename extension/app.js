@@ -42,6 +42,9 @@ const {
 const { createSessionStore } = window.TabOutSessionStore || {};
 const { createRenderScheduler: createRenderSchedulerFromModule } = window.TabOutDashboardRuntime || {};
 const { createDashboardHeaderUi } = window.TabOutDashboardHeaderUi || {};
+const { createDashboardEventBindings } = window.TabOutDashboardEventBindings || {};
+const { createDashboardLifecycle } = window.TabOutDashboardLifecycle || {};
+const { createOpenTabsRuntime } = window.TabOutOpenTabsRuntime || {};
 const {
   buildImportedGroupViewModel: buildImportedGroupViewModelFromModule,
   buildImportedTabViewModel: buildImportedTabViewModelFromModule,
@@ -80,7 +83,6 @@ let searchDebounceTimer = null;
 let moreMenuOpen = false;
 let latestDashboardRenderPromise = Promise.resolve();
 let latestSearchRenderPromise = Promise.resolve(false);
-let latestOpenTabsReconcilePromise = Promise.resolve();
 const suppressedRemovedTabIds = new Set();
 
 function createStableId(prefix = 'item') {
@@ -570,101 +572,6 @@ function renderImportedSessionSection() {
   return importedSessionController.renderImportedSessionSection();
 }
 
-function rebuildDomainGroupsFromState() {
-  appState.setDomainGroups(
-    typeof buildDashboardDomainGroups === 'function'
-      ? buildDashboardDomainGroups({ tabs: getRealTabs(), getTabUrl, previousGroups: state.domainGroups })
-      : []
-  );
-}
-
-function renderOpenTabsSectionFromState({ includeImportedSection = true } = {}) {
-  const realTabs = getRealTabs();
-  const openTabsSection = document.getElementById('openTabsSection');
-  const openTabsMissionsEl = document.getElementById('openTabsMissions');
-  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
-  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-  const urlCounts = {};
-
-  rebuildDomainGroupsFromState();
-  for (const tab of realTabs) {
-    const url = getTabUrl(tab);
-    if (!url) continue;
-    urlCounts[url] = (urlCounts[url] || 0) + 1;
-  }
-  const totalDuplicateTabs = Object.values(urlCounts).reduce((sum, count) => (
-    count > 1 ? sum + count - 1 : sum
-  ), 0);
-
-  if (state.domainGroups.length > 0 && openTabsSection && openTabsMissionsEl && openTabsSectionCount) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = renderOpenTabsSectionCount(
-      state.domainGroups.length,
-      realTabs.length,
-      totalDuplicateTabs
-    );
-    openTabsMissionsEl.innerHTML = state.domainGroups.map(group => renderDomainCard(group)).join('');
-    openTabsSection.style.display = 'block';
-  } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
-  }
-
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = realTabs.length;
-
-  checkTabOutDupes();
-  if (includeImportedSection) {
-    renderImportedSessionSection();
-  }
-}
-
-async function removeOpenTabOptimistically({ tabId, tabUrl } = {}) {
-  const nextOpenTabs = state.openTabs.filter(tab => {
-    if (tabId && String(tab.id) === String(tabId)) return false;
-    if (!tabId && tabUrl && getTabUrl(tab) === tabUrl) return false;
-    return true;
-  });
-
-  appState.setOpenTabs(nextOpenTabs);
-  renderOpenTabsSectionFromState();
-
-  if (normalizeDashboardSearchText(globalSearchQuery)) {
-    await scheduleSearchAndWait();
-  }
-}
-
-async function removeOpenTabsOptimistically({ tabIds = [], tabUrls = [] } = {}) {
-  const idSet = new Set((Array.isArray(tabIds) ? tabIds : []).map(value => String(value)));
-  const urlSet = new Set((Array.isArray(tabUrls) ? tabUrls : []).filter(Boolean));
-
-  const nextOpenTabs = state.openTabs.filter(tab => {
-    if (idSet.size > 0 && idSet.has(String(tab.id))) return false;
-    if (urlSet.size > 0 && urlSet.has(getTabUrl(tab))) return false;
-    return true;
-  });
-
-  appState.setOpenTabs(nextOpenTabs);
-  renderOpenTabsSectionFromState();
-
-  if (normalizeDashboardSearchText(globalSearchQuery)) {
-    await scheduleSearchAndWait();
-  }
-}
-
-function removeKnownTabsFromState({ tabIds = [], tabUrls = [] } = {}) {
-  const idSet = new Set((Array.isArray(tabIds) ? tabIds : []).map(value => String(value)));
-  const urlSet = new Set((Array.isArray(tabUrls) ? tabUrls : []).filter(Boolean));
-
-  const nextOpenTabs = state.openTabs.filter(tab => {
-    if (idSet.size > 0 && idSet.has(String(tab.id))) return false;
-    if (urlSet.size > 0 && urlSet.has(getTabUrl(tab))) return false;
-    return true;
-  });
-
-  appState.setOpenTabs(nextOpenTabs);
-  return nextOpenTabs;
-}
-
 async function restoreSessionGroups(groups) {
   const result = await importedSessionController.restoreSessionGroups(groups);
   if (result && result.changedOpenTabs) {
@@ -780,56 +687,6 @@ function scheduleDashboardRefresh(delay = 120) {
   }, delay);
 }
 
-chrome.tabs.onCreated.addListener(() => {
-  scheduleDashboardRefresh();
-});
-
-chrome.tabs.onRemoved.addListener(tabId => {
-  if (suppressedRemovedTabIds.has(tabId)) {
-    suppressedRemovedTabIds.delete(tabId);
-    return;
-  }
-  scheduleDashboardRefresh();
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.url || changeInfo.status === 'complete') {
-    scheduleDashboardRefresh();
-  }
-});
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') return;
-
-  let shouldRender = false;
-
-  if (changes.deferred) {
-    const { items } = normalizeDeferredItems(changes.deferred.newValue);
-    setDeferredItemsCache(items);
-    renderLaterListColumn().catch(err => {
-      console.warn('[tab-out] Failed to refresh later list after storage change:', err);
-    });
-    if (normalizeDashboardSearchText(globalSearchQuery)) {
-      latestSearchRenderPromise = scheduleSearchRender();
-    }
-  }
-
-  if (changes.importedSession) {
-    const { session } = normalizeImportedSessionData(changes.importedSession.newValue);
-    appState.setImportedSession(session);
-    shouldRender = true;
-  }
-
-  if (changes.autoRefreshEnabled) {
-    autoRefreshEnabled = !!changes.autoRefreshEnabled.newValue;
-    renderAutoRefreshToggle();
-  }
-
-  if (shouldRender) {
-    latestDashboardRenderPromise = scheduleDashboardRender();
-  }
-});
-
 
 /* ----------------------------------------------------------------
    EVENT HANDLERS — using event delegation
@@ -870,20 +727,6 @@ async function scheduleSearchAndWait() {
   await latestSearchRenderPromise;
 }
 
-async function reconcileOpenTabsFromBrowser() {
-  latestOpenTabsReconcilePromise = latestOpenTabsReconcilePromise
-    .catch(() => undefined)
-    .then(async () => {
-      await fetchOpenTabs();
-      renderOpenTabsSectionFromState();
-      if (hasActiveSearch()) {
-        await scheduleSearchAndWait();
-      }
-    });
-
-  await latestOpenTabsReconcilePromise;
-}
-
 function hasActiveSearch() {
   return !!normalizeDashboardSearchText(globalSearchQuery);
 }
@@ -903,6 +746,38 @@ function suppressRemovedTabRefresh(tabIds = []) {
     suppressedRemovedTabIds.add(Number(tabId));
   }
 }
+
+const openTabsRuntime = typeof createOpenTabsRuntime === 'function'
+  ? createOpenTabsRuntime({
+      appState,
+      buildDomainGroups: buildDashboardDomainGroups,
+      checkTabOutDupes,
+      fetchOpenTabs,
+      getImportedSessionSectionRenderer: () => renderImportedSessionSection,
+      getRealTabs,
+      getRenderDomainCard: () => renderDomainCard,
+      getRenderOpenTabsSectionCount: () => renderOpenTabsSectionCount,
+      getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
+      getState: () => state,
+      getTabUrl,
+      renderSearchResults: scheduleSearchAndWait,
+    })
+  : null;
+const renderOpenTabsSectionFromState = openTabsRuntime && typeof openTabsRuntime.renderOpenTabsSectionFromState === 'function'
+  ? openTabsRuntime.renderOpenTabsSectionFromState
+  : () => {};
+const removeOpenTabOptimistically = openTabsRuntime && typeof openTabsRuntime.removeOpenTabOptimistically === 'function'
+  ? openTabsRuntime.removeOpenTabOptimistically
+  : async () => {};
+const removeOpenTabsOptimistically = openTabsRuntime && typeof openTabsRuntime.removeOpenTabsOptimistically === 'function'
+  ? openTabsRuntime.removeOpenTabsOptimistically
+  : async () => {};
+const removeKnownTabsFromState = openTabsRuntime && typeof openTabsRuntime.removeKnownTabsFromState === 'function'
+  ? openTabsRuntime.removeKnownTabsFromState
+  : () => [];
+const reconcileOpenTabsFromBrowser = openTabsRuntime && typeof openTabsRuntime.reconcileOpenTabsFromBrowser === 'function'
+  ? openTabsRuntime.reconcileOpenTabsFromBrowser
+  : async () => {};
 
 const actionHandlers = typeof createDashboardActions === 'function'
   ? createDashboardActions({
@@ -953,118 +828,90 @@ const actionHandlers = typeof createDashboardActions === 'function'
       shootConfetti,
     })
   : {};
+const dashboardEventBindings = typeof createDashboardEventBindings === 'function'
+  ? createDashboardEventBindings({
+      closeMoreMenu,
+      focusMoreMenuItem,
+      getActionHandlers: () => actionHandlers,
+      getMoreMenuItems,
+      getStateSnapshot: getDashboardStateSnapshot,
+      handleImportSessionFiles: files => importedSessionController.handleImportSessionFiles(files),
+      renderMoreMenu,
+      scheduleDashboardRender: () => {
+        latestDashboardRenderPromise = scheduleDashboardRender();
+        return latestDashboardRenderPromise;
+      },
+      scheduleSearchRender: () => {
+        latestSearchRenderPromise = scheduleSearchRender();
+        return latestSearchRenderPromise;
+      },
+      setMoreMenuOpen,
+      setSearchQuery: value => {
+        globalSearchQuery = value;
+        return globalSearchQuery;
+      },
+      showToast,
+    })
+  : null;
+const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
+  ? createDashboardLifecycle({
+      appState,
+      ensureStorageSchema,
+      getAutoRefreshSetting,
+      getNormalizeDeferredItems: () => normalizeDeferredItems,
+      getNormalizeImportedSessionData: () => normalizeImportedSessionData,
+      getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
+      renderAutoRefreshToggle,
+      renderLaterListColumn,
+      scheduleDashboardRefresh,
+      scheduleDashboardRender: () => {
+        latestDashboardRenderPromise = scheduleDashboardRender();
+        return latestDashboardRenderPromise;
+      },
+      scheduleSearchRender: () => {
+        latestSearchRenderPromise = scheduleSearchRender();
+        return latestSearchRenderPromise;
+      },
+      setAutoRefreshEnabled: value => {
+        autoRefreshEnabled = !!value;
+        return autoRefreshEnabled;
+      },
+      setDeferredItemsCache,
+      setImportedSession: session => appState.setImportedSession(session),
+      shouldSkipRemovedTab: tabId => {
+        if (!suppressedRemovedTabIds.has(tabId)) return false;
+        suppressedRemovedTabIds.delete(tabId);
+        return true;
+      },
+    })
+  : null;
 
-document.addEventListener('click', async (e) => {
-  const actionEl = e.target.closest('[data-action]');
-  if (!actionEl) return;
-  const action = actionEl.dataset.action;
-  const handler = actionHandlers[action];
-  if (!handler) return;
-  try {
-    await handler({
-      action,
-      actionEl,
-      event: e,
-      snapshot: getDashboardStateSnapshot(),
-    });
-  } catch (err) {
-    console.error(`[tab-out] Action failed: ${action}`, err);
-    showToast('Action failed, refreshing view');
-    latestDashboardRenderPromise = scheduleDashboardRender();
-  }
-});
+if (dashboardEventBindings && typeof dashboardEventBindings.bind === 'function') {
+  dashboardEventBindings.bind(document);
+}
 
-document.addEventListener('change', async (e) => {
-  if (e.target.id !== 'sessionImportInput') return;
-
-  const files = Array.from(e.target.files || []);
-  if (files.length === 0) return;
-
-  try {
-    await importedSessionController.handleImportSessionFiles(files);
-  } catch (err) {
-    console.error('[tab-out] Failed to import session:', err);
-    showToast(err && err.message ? err.message : 'Import failed');
-  } finally {
-    e.target.value = '';
-  }
-});
-
-document.addEventListener('input', async (e) => {
-  if (e.target.id === 'globalSearchInput') {
-    globalSearchQuery = e.target.value || '';
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = setTimeout(() => {
-      latestSearchRenderPromise = scheduleSearchRender();
-    }, 120);
-    return;
-  }
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    closeMoreMenu({ restoreFocus: true });
-    return;
-  }
-
-  const isToggle = e.target && e.target.id === 'moreMenuToggle';
-  const isMenuItem = !!(e.target && e.target.closest && e.target.closest('#moreMenuPanel .more-menu-item'));
-
-  if (!isToggle && !isMenuItem) return;
-
-  if (isToggle && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
-    e.preventDefault();
-    moreMenuOpen = true;
-    renderMoreMenu();
-    setTimeout(() => focusMoreMenuItem(0), 0);
-    return;
-  }
-
-  if (!isMenuItem) return;
-
-  const items = getMoreMenuItems();
-  const currentIndex = items.indexOf(e.target);
-  if (currentIndex === -1) return;
-
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    focusMoreMenuItem((currentIndex + 1) % items.length);
-    return;
-  }
-
-  if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    focusMoreMenuItem((currentIndex - 1 + items.length) % items.length);
-  }
-});
-
-// ---- Archive toggle — expand/collapse the archive section ----
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#moreMenu')) {
-    closeMoreMenu();
-  }
-
-  const toggle = e.target.closest('#archiveToggle');
-  if (!toggle) return;
-
-  toggle.classList.toggle('open');
-  const body = document.getElementById('archiveBody');
-  if (body) {
-    body.style.display = body.style.display === 'none' ? 'block' : 'none';
-  }
-});
+if (dashboardLifecycle && typeof dashboardLifecycle.bindBrowserListeners === 'function') {
+  dashboardLifecycle.bindBrowserListeners({
+    tabsApi: chrome.tabs,
+    storageApi: chrome.storage,
+  });
+}
 
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-Promise.resolve().finally(async () => {
-  try {
-    if (ensureStorageSchema) {
-      await ensureStorageSchema();
+if (dashboardLifecycle && typeof dashboardLifecycle.initialize === 'function') {
+  dashboardLifecycle.initialize();
+} else {
+  Promise.resolve().finally(async () => {
+    try {
+      if (ensureStorageSchema) {
+        await ensureStorageSchema();
+      }
+      await getAutoRefreshSetting();
+    } catch (err) {
+      console.warn('[tab-out] Initialization fallback path triggered:', err);
     }
-    await getAutoRefreshSetting();
-  } catch (err) {
-    console.warn('[tab-out] Initialization fallback path triggered:', err);
-  }
-  latestDashboardRenderPromise = scheduleDashboardRender();
-});
+    latestDashboardRenderPromise = scheduleDashboardRender();
+  });
+}
