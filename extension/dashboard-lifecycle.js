@@ -4,6 +4,7 @@
   function createDashboardLifecycle({
     ensureStorageSchema,
     getAutoRefreshSetting,
+    getCurrentTabId,
     getNormalizeDeferredItems,
     getNormalizeImportedSessionData,
     getSearchQuery,
@@ -16,13 +17,49 @@
     setDeferredItemsCache,
     setImportedSession,
     shouldSkipRemovedTab,
+    shouldSkipUpdatedTab = () => false,
     tabCreateMergeWindowMs = 800,
+    tabUpdateMergeWindowMs = 800,
   }) {
     const recentlyCreatedTabs = new Map();
+    const recentlyUpdatedTabs = new Map();
+    let currentDashboardTabId = null;
+    let currentDashboardTabIdPromise = Promise.resolve();
+
+    function pruneRecentlyCreatedTabs(now = Date.now()) {
+      for (const [tabId, createdAt] of recentlyCreatedTabs) {
+        if (now - createdAt > tabCreateMergeWindowMs) {
+          recentlyCreatedTabs.delete(tabId);
+        }
+      }
+    }
+
+    function markTabUpdated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return;
+      recentlyUpdatedTabs.set(Number(tabId), Date.now());
+    }
+
+    function wasRecentlyUpdated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return false;
+      const updatedAt = recentlyUpdatedTabs.get(Number(tabId));
+      if (!updatedAt) return false;
+      if (Date.now() - updatedAt > tabUpdateMergeWindowMs) {
+        recentlyUpdatedTabs.delete(Number(tabId));
+        return false;
+      }
+      return true;
+    }
+
+    function clearRecentlyUpdated(tabId) {
+      if (typeof tabId === 'undefined' || tabId === null) return;
+      recentlyUpdatedTabs.delete(Number(tabId));
+    }
 
     function markTabCreated(tabId) {
       if (typeof tabId === 'undefined' || tabId === null) return;
-      recentlyCreatedTabs.set(Number(tabId), Date.now());
+      const now = Date.now();
+      pruneRecentlyCreatedTabs(now);
+      recentlyCreatedTabs.set(Number(tabId), now);
     }
 
     function wasRecentlyCreated(tabId) {
@@ -41,9 +78,56 @@
       recentlyCreatedTabs.delete(Number(tabId));
     }
 
+    async function hydrateCurrentDashboardTabId(logger = console) {
+      if (typeof getCurrentTabId !== 'function') return;
+
+      currentDashboardTabIdPromise = (async () => {
+        const tabId = await getCurrentTabId();
+        if (typeof tabId === 'undefined' || tabId === null) return;
+        currentDashboardTabId = Number(tabId);
+      })().catch(err => {
+        logger.warn('[tab-out] Failed to identify dashboard tab:', err);
+      });
+
+      await currentDashboardTabIdPromise;
+    }
+
+    async function handleUpdatedTab(tabId, changeInfo, tab) {
+      const hasMeaningfulUpdate = !!(changeInfo.url || changeInfo.status === 'complete');
+      if (!hasMeaningfulUpdate) return;
+
+      if (shouldSkipUpdatedTab(tabId, changeInfo, tab)) return;
+
+      try {
+        await currentDashboardTabIdPromise;
+      } catch (err) {
+        // hydrateCurrentDashboardTabId logs the failure; keep normal tab updates working.
+      }
+
+      if (currentDashboardTabId !== null && Number(tabId) === currentDashboardTabId) return;
+
+      if (wasRecentlyCreated(tabId)) {
+        return;
+      }
+
+      if (changeInfo.status === 'complete' && wasRecentlyUpdated(tabId)) {
+        clearRecentlyUpdated(tabId);
+        return;
+      }
+
+      if (changeInfo.url || changeInfo.status === 'complete') {
+        if (changeInfo.url) {
+          markTabUpdated(tabId);
+        }
+        scheduleOpenTabsRefresh();
+      }
+    }
+
     function bindBrowserListeners({ tabsApi, storageApi, logger = console } = {}) {
       const safeTabsApi = tabsApi || (typeof chrome !== 'undefined' ? chrome.tabs : null);
       const safeStorageApi = storageApi || (typeof chrome !== 'undefined' ? chrome.storage : null);
+
+      hydrateCurrentDashboardTabId(logger);
 
       if (safeTabsApi && safeTabsApi.onCreated) {
         safeTabsApi.onCreated.addListener(tab => {
@@ -55,24 +139,15 @@
       if (safeTabsApi && safeTabsApi.onRemoved) {
         safeTabsApi.onRemoved.addListener(tabId => {
           clearRecentlyCreated(tabId);
+          clearRecentlyUpdated(tabId);
           if (shouldSkipRemovedTab(tabId)) return;
           scheduleOpenTabsRefresh();
         });
       }
 
       if (safeTabsApi && safeTabsApi.onUpdated) {
-        safeTabsApi.onUpdated.addListener((tabId, changeInfo) => {
-          const hasMeaningfulUpdate = !!(changeInfo.url || changeInfo.status === 'complete');
-          if (!hasMeaningfulUpdate) return;
-
-          if (wasRecentlyCreated(tabId)) {
-            clearRecentlyCreated(tabId);
-            return;
-          }
-
-          if (changeInfo.url || changeInfo.status === 'complete') {
-            scheduleOpenTabsRefresh();
-          }
+        safeTabsApi.onUpdated.addListener((tabId, changeInfo, tab) => {
+          handleUpdatedTab(tabId, changeInfo, tab);
         });
       }
 

@@ -11,6 +11,7 @@ function createHarness(overrides = {}) {
   const calls = {
     ensureStorageSchema: 0,
     getAutoRefreshSetting: 0,
+    getCurrentTabId: 0,
     scheduleOpenTabsRefresh: 0,
     renderAutoRefreshToggle: 0,
     renderLaterListColumn: 0,
@@ -20,6 +21,7 @@ function createHarness(overrides = {}) {
     setAutoRefreshEnabled: [],
     setDeferredItemsCache: [],
     setImportedSession: [],
+    shouldSkipUpdatedTab: [],
     shouldSkipRemovedTab: [],
     warnings: [],
   };
@@ -62,6 +64,14 @@ function createHarness(overrides = {}) {
       if (overrides.getAutoRefreshSettingError) throw overrides.getAutoRefreshSettingError;
       return true;
     },
+    getCurrentTabId: overrides.currentTabId === undefined && !overrides.getCurrentTabIdError && !overrides.getCurrentTabId
+      ? undefined
+      : async () => {
+          calls.getCurrentTabId += 1;
+          if (overrides.getCurrentTabIdError) throw overrides.getCurrentTabIdError;
+          if (overrides.getCurrentTabId) return overrides.getCurrentTabId();
+          return overrides.currentTabId;
+        },
     getNormalizeDeferredItems: () => value => ({ items: value || [] }),
     getNormalizeImportedSessionData: () => value => ({ session: value || null }),
     getSearchQuery: () => overrides.searchQuery || '',
@@ -83,6 +93,10 @@ function createHarness(overrides = {}) {
     },
     scheduleSearchRender: () => {
       calls.scheduleSearchRender += 1;
+    },
+    shouldSkipUpdatedTab: (tabId, changeInfo, tab) => {
+      calls.shouldSkipUpdatedTab.push({ tabId, changeInfo, tab });
+      return !!(overrides.shouldSkipUpdatedTab && overrides.shouldSkipUpdatedTab(tabId, changeInfo, tab));
     },
     setAutoRefreshEnabled: value => {
       calls.setAutoRefreshEnabled.push(value);
@@ -129,7 +143,7 @@ test('bindBrowserListeners wires tab lifecycle events to dashboard refresh', asy
   assert.deepEqual(calls.shouldSkipRemovedTab, [2]);
 });
 
-test('bindBrowserListeners merges immediate update after tab creation into a single refresh', async () => {
+test('bindBrowserListeners merges early updates after tab creation into one refresh', async () => {
   const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness();
 
   lifecycle.bindBrowserListeners({ tabsApi, storageApi });
@@ -137,8 +151,60 @@ test('bindBrowserListeners merges immediate update after tab creation into a sin
   tabsListeners.updated(7, { url: 'https://docs.example.com/guide' });
   tabsListeners.updated(7, { status: 'complete' });
 
-  assert.equal(calls.scheduleOpenTabsRefresh, 2);
+  assert.equal(calls.scheduleOpenTabsRefresh, 1);
   assert.equal(calls.scheduleDashboardRefresh, 0);
+});
+
+test('bindBrowserListeners skips caller-designated updated tabs', async () => {
+  const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness({
+    shouldSkipUpdatedTab: (_tabId, _changeInfo, tab) => tab && tab.isTabOut,
+  });
+
+  lifecycle.bindBrowserListeners({ tabsApi, storageApi });
+  tabsListeners.updated(17, { status: 'complete' }, { id: 17, isTabOut: true });
+
+  assert.equal(calls.scheduleOpenTabsRefresh, 0);
+  assert.deepEqual(calls.shouldSkipUpdatedTab, [
+    { tabId: 17, changeInfo: { status: 'complete' }, tab: { id: 17, isTabOut: true } },
+  ]);
+});
+
+test('bindBrowserListeners skips updates for the dashboard tab navigating away', async () => {
+  const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness({
+    currentTabId: 17,
+  });
+
+  lifecycle.bindBrowserListeners({ tabsApi, storageApi });
+  await Promise.resolve();
+
+  tabsListeners.updated(17, { url: 'https://example.com/' }, { id: 17, url: 'https://example.com/' });
+  tabsListeners.updated(17, { status: 'complete' }, { id: 17, url: 'https://example.com/' });
+  await Promise.resolve();
+
+  assert.equal(calls.getCurrentTabId, 1);
+  assert.equal(calls.scheduleOpenTabsRefresh, 0);
+});
+
+test('bindBrowserListeners waits for current tab id before handling early current-tab updates', async () => {
+  let resolveCurrentTabId;
+  const currentTabIdPromise = new Promise(resolve => {
+    resolveCurrentTabId = resolve;
+  });
+  const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness({
+    getCurrentTabId: () => currentTabIdPromise,
+  });
+
+  lifecycle.bindBrowserListeners({ tabsApi, storageApi });
+  tabsListeners.updated(17, { status: 'complete' }, { id: 17, url: 'https://example.com/' });
+
+  assert.equal(calls.getCurrentTabId, 1);
+  assert.equal(calls.scheduleOpenTabsRefresh, 0);
+
+  resolveCurrentTabId(17);
+  await currentTabIdPromise;
+  await Promise.resolve();
+
+  assert.equal(calls.scheduleOpenTabsRefresh, 0);
 });
 
 test('bindBrowserListeners still refreshes updates for older tabs', async () => {
@@ -146,9 +212,22 @@ test('bindBrowserListeners still refreshes updates for older tabs', async () => 
 
   lifecycle.bindBrowserListeners({ tabsApi, storageApi });
   tabsListeners.updated(11, { status: 'complete' });
+  await Promise.resolve();
 
   assert.equal(calls.scheduleOpenTabsRefresh, 1);
   assert.equal(calls.scheduleDashboardRefresh, 0);
+});
+
+test('bindBrowserListeners merges url and complete updates for the same tab navigation', async () => {
+  const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness();
+
+  lifecycle.bindBrowserListeners({ tabsApi, storageApi });
+  tabsListeners.updated(11, { url: 'https://example.com/' }, { id: 11, url: 'https://example.com/' });
+  await Promise.resolve();
+  tabsListeners.updated(11, { status: 'complete' }, { id: 11, url: 'https://example.com/' });
+  await Promise.resolve();
+
+  assert.equal(calls.scheduleOpenTabsRefresh, 1);
 });
 
 test('bindBrowserListeners skips suppressed remove refresh', async () => {

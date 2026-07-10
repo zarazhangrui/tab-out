@@ -840,6 +840,14 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
   ? createDashboardLifecycle({
       ensureStorageSchema,
       getAutoRefreshSetting,
+      getCurrentTabId: async () => {
+        const currentTab = await chrome.tabs.getCurrent();
+        if (currentTab && currentTab.id) return currentTab.id;
+
+        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const activeTabOutTab = activeTabs.find(tab => isTabOutTab(tab));
+        return activeTabOutTab && activeTabOutTab.id;
+      },
       getNormalizeDeferredItems: () => normalizeDeferredItems,
       getNormalizeImportedSessionData: () => normalizeImportedSessionData,
       getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
@@ -865,6 +873,7 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
         suppressedRemovedTabIds.delete(tabId);
         return true;
       },
+      shouldSkipUpdatedTab: (_tabId, _changeInfo, tab) => isTabOutTab(tab),
     })
   : null;
 
