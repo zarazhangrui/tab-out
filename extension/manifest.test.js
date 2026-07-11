@@ -4,6 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const manifest = require('./manifest.json');
 
+test('manifest version matches current extension release', () => {
+  assert.equal(manifest.version, '1.0.1');
+});
+
 test('manifest exposes Chrome favicon endpoint to extension pages', () => {
   assert.equal(manifest.permissions.includes('favicon'), true);
   assert.deepEqual(manifest.web_accessible_resources, [

@@ -14,6 +14,7 @@ function createHarness(overrides = {}) {
   const i18n = createTestI18n();
   const calls = {
     closeMoreMenu: [],
+    faviconPlaceholders: [],
     focusMoreMenuItem: [],
     handleImportSessionFiles: [],
     renderMoreMenu: 0,
@@ -28,6 +29,15 @@ function createHarness(overrides = {}) {
     addEventListener(type, handler) {
       listeners[type] = handler;
     },
+    createElement(tagName) {
+      return {
+        firstElementChild: { tagName: 'SPAN' },
+        set innerHTML(value) {
+          this.html = value;
+          this.firstElementChild = { html: value };
+        },
+      };
+    },
     getElementById(id) {
       if (id === 'archiveBody') {
         return overrides.archiveBody || null;
@@ -38,6 +48,10 @@ function createHarness(overrides = {}) {
   const actionHandlers = overrides.actionHandlers || {};
 
   const bindings = createDashboardEventBindings({
+    buildFaviconPlaceholder: (domain, className) => {
+      calls.faviconPlaceholders.push({ domain, className });
+      return `<span class="${className} favicon-placeholder">${domain[0]}</span>`;
+    },
     closeMoreMenu: options => {
       calls.closeMoreMenu.push(options || null);
     },
@@ -110,6 +124,31 @@ test('click action failure shows toast and schedules dashboard refresh', async (
 
   assert.deepEqual(calls.showToast, ['Action failed, refreshing view']);
   assert.equal(calls.scheduleDashboardRender, 1);
+});
+
+test('favicon image errors fall back to local placeholder', () => {
+  const { calls, listeners } = createHarness();
+  const replacements = [];
+  const img = {
+    className: 'chip-favicon',
+    dataset: {
+      faviconClass: 'chip-favicon',
+      faviconDomain: 'github.com',
+    },
+    replaceWith(node) {
+      replacements.push(node);
+    },
+  };
+
+  listeners.error({
+    target: img,
+  });
+
+  assert.deepEqual(calls.faviconPlaceholders, [
+    { domain: 'github.com', className: 'chip-favicon' },
+  ]);
+  assert.equal(replacements.length, 1);
+  assert.match(replacements[0].html, /favicon-placeholder/);
 });
 
 test('input updates search query and debounces search render', async () => {

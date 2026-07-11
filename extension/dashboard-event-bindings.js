@@ -2,6 +2,7 @@
 
 (function initDashboardEventBindings() {
   function createDashboardEventBindings({
+    buildFaviconPlaceholder,
     closeMoreMenu,
     focusMoreMenuItem,
     getActionHandlers,
@@ -21,6 +22,26 @@
       if (!documentRef || typeof documentRef.addEventListener !== 'function') {
         return;
       }
+
+      documentRef.addEventListener('error', event => {
+        const target = event.target;
+        if (!target || !target.dataset || !target.dataset.faviconDomain) return;
+        if (typeof buildFaviconPlaceholder !== 'function') return;
+
+        const wrapper = documentRef.createElement
+          ? documentRef.createElement('span')
+          : null;
+        if (!wrapper) return;
+
+        wrapper.innerHTML = buildFaviconPlaceholder(
+          target.dataset.faviconDomain,
+          target.dataset.faviconClass || target.className || 'chip-favicon'
+        );
+        const placeholder = wrapper.firstElementChild;
+        if (placeholder && typeof target.replaceWith === 'function') {
+          target.replaceWith(placeholder);
+        }
+      }, true);
 
       documentRef.addEventListener('click', async event => {
         const actionEl = event.target.closest('[data-action]');

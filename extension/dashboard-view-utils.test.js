@@ -38,16 +38,40 @@ test('buildFaviconImg uses Chrome favicon endpoint for page urls', () => {
   assert.match(html, /\/_favicon\/\?pageUrl=https%3A%2F%2Fdocs\.example\.com%2Fguide&amp;size=32/);
 });
 
-test('buildFaviconImg blocks remote native favicon urls', () => {
+test('buildFaviconImg prefers embedded favicon fallback over Chrome favicon endpoint', () => {
+  const html = buildFaviconImg(
+    'docs.example.com',
+    'chip-favicon',
+    'https://docs.example.com/guide',
+    'data:image/png;base64,abc'
+  );
+  assert.match(html, /<img class="chip-favicon"/);
+  assert.match(html, /data:image\/png;base64,abc/);
+  assert.doesNotMatch(html, /\/_favicon\//);
+});
+
+test('buildFaviconImg uses remote favicon fallback urls before event fallback', () => {
+  const html = buildFaviconImg(
+    'docs.example.com',
+    'chip-favicon',
+    'https://docs.example.com/guide',
+    'https://docs.example.com/favicon.ico'
+  );
+  assert.match(html, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(html, /data-favicon-domain="docs.example.com"/);
+  assert.doesNotMatch(html, /\/_favicon\//);
+});
+
+test('buildFaviconImg uses remote native favicon urls before event fallback', () => {
   const docs = buildFaviconImg('docs.example.com', 'chip-favicon', 'https://docs.example.com/favicon.ico');
-  assert.match(docs, /favicon-placeholder/);
-  assert.doesNotMatch(docs, /<img/);
-  assert.doesNotMatch(docs, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(docs, /<img class="chip-favicon"/);
+  assert.match(docs, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(docs, /data-favicon-domain="docs.example.com"/);
 
   const acm = buildFaviconImg('dl.acm.org', 'chip-favicon', 'https://dl.acm.org/favicon.ico');
-  assert.match(acm, /favicon-placeholder/);
-  assert.doesNotMatch(acm, /<img/);
-  assert.doesNotMatch(acm, /https:\/\/dl\.acm\.org\/favicon\.ico/);
+  assert.match(acm, /<img class="chip-favicon"/);
+  assert.match(acm, /https:\/\/dl\.acm\.org\/favicon\.ico/);
+  assert.match(acm, /data-favicon-domain="dl.acm.org"/);
 });
 
 test('buildFaviconImg keeps embedded favicon urls', () => {

@@ -61,6 +61,7 @@ const {
 } = window.TabOutAppViewModels || {};
 const {
   buildFaviconImg,
+  buildFaviconPlaceholder,
   buildSessionFilename,
   cleanTitle,
   escapeHtml,
@@ -1016,6 +1017,7 @@ const dashboardEventBindings = typeof createDashboardEventBindings === 'function
       getMoreMenuItems,
       getStateSnapshot: getDashboardStateSnapshot,
       handleImportSessionFiles: files => importedSessionController.handleImportSessionFiles(files),
+      buildFaviconPlaceholder,
       renderMoreMenu,
       scheduleDashboardRender: () => {
         latestDashboardRenderPromise = scheduleDashboardRender();

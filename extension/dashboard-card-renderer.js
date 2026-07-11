@@ -71,7 +71,7 @@
       } catch {}
 
       return `<div class="page-chip clickable tab-title-tooltip${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" data-tooltip="${safeTitle}" aria-label="${safeTitle}">
-      ${buildFaviconImg(domain, 'chip-favicon', tab.url)}
+      ${buildFaviconImg(domain, 'chip-favicon', tab.url, tab.favIconUrl)}
       <span class="chip-text">${escapeHtml(label)}</span>${dupeTag}
       ${ageTag ? `<span class="chip-age">${ageTag}</span>` : ''}
       <div class="chip-actions">

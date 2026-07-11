@@ -68,6 +68,7 @@ test('validateDashboardModules accepts the dashboard module surface used by app.
     },
     TabOutDashboardViewUtils: {
       buildFaviconImg: fn,
+      buildFaviconPlaceholder: fn,
       buildSessionFilename: fn,
       cleanTitle: fn,
       escapeHtml: fn,

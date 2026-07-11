@@ -42,6 +42,7 @@
     ],
     TabOutDashboardViewUtils: [
       'buildFaviconImg',
+      'buildFaviconPlaceholder',
       'buildSessionFilename',
       'cleanTitle',
       'escapeHtml',

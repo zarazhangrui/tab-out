@@ -33,7 +33,8 @@
       const faviconHtml = buildFaviconImg(
         domain,
         'chip-favicon',
-        item.source === 'open' ? item.url : ''
+        item.source === 'open' ? item.url : '',
+        item.source === 'open' ? item.favIconUrl : ''
       );
 
       let actions = '';

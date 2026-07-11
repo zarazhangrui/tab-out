@@ -47,7 +47,7 @@
   function isSafeRenderableFaviconUrl(url) {
     if (!url || typeof url !== 'string') return false;
     if (/^https:\/\/t\d\.gstatic\.com\/faviconV2\b/i.test(url)) return false;
-    return /^(data:|chrome:)/i.test(url);
+    return /^(https?:|data:|chrome:)/i.test(url);
   }
 
   function isBlockedRemoteFaviconUrl(url) {
@@ -86,18 +86,30 @@
     return getExtensionAssetUrl(`/_favicon/?pageUrl=${encodeURIComponent(pageUrl)}&size=32`);
   }
 
-  function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '') {
-    const resolvedFaviconUrl = isChromeFaviconPageUrl(faviconUrl)
-      ? buildChromeFaviconUrl(faviconUrl)
-      : (isSafeRenderableFaviconUrl(faviconUrl) ? faviconUrl : '');
+  function buildFaviconImg(domain, className = 'chip-favicon', pageUrl = '', fallbackFaviconUrl = '') {
+    const resolvedFaviconUrl = isSafeRenderableFaviconUrl(fallbackFaviconUrl)
+      ? fallbackFaviconUrl
+      : (
+          isChromeFaviconPageUrl(pageUrl)
+            ? buildChromeFaviconUrl(pageUrl)
+            : (isSafeRenderableFaviconUrl(pageUrl) ? pageUrl : '')
+        );
     if (resolvedFaviconUrl) {
-      return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
+      const safeDomain = escapeHtml(String(domain || '').replace(/^www\./, '').trim());
+      return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="" data-favicon-domain="${safeDomain}" data-favicon-class="${escapeHtml(className)}">`;
     }
 
     const domainLabel = String(domain || '').replace(/^www\./, '').trim();
     const placeholderLetter = escapeHtml((domainLabel[0] || '?').toUpperCase());
     const placeholderTitle = escapeHtml(domainLabel || 'Unknown site');
     return `<span class="${className} favicon-placeholder" aria-hidden="true" title="${placeholderTitle}">${placeholderLetter}</span>`;
+  }
+
+  function buildFaviconPlaceholder(domain, className = 'chip-favicon') {
+    const domainLabel = String(domain || '').replace(/^www\./, '').trim();
+    const placeholderLetter = escapeHtml((domainLabel[0] || '?').toUpperCase());
+    const placeholderTitle = escapeHtml(domainLabel || 'Unknown site');
+    return `<span class="${escapeHtml(className)} favicon-placeholder" aria-hidden="true" title="${placeholderTitle}">${placeholderLetter}</span>`;
   }
 
   function normalizeSearchText(value) {
@@ -348,6 +360,7 @@
 
   const dashboardViewUtils = {
     buildFaviconImg,
+    buildFaviconPlaceholder,
     buildChromeFaviconUrl,
     buildSessionFilename,
     capitalize,

@@ -64,8 +64,9 @@ test('domain card renderer emits CSP-safe HTML', () => {
   });
 
   assertCspSafeHtml(html);
-  assert.match(html, /\/_favicon\/\?pageUrl=https%3A%2F%2Fdocs\.example\.com%2Fguide&amp;size=32/);
-  assert.doesNotMatch(html, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(html, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(html, /data-favicon-domain="docs.example.com"/);
+  assert.match(html, /data-favicon-class="chip-favicon"/);
 });
 
 test('search renderer emits CSP-safe result HTML', async () => {
