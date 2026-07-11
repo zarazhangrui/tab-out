@@ -1,6 +1,7 @@
 'use strict';
 
 const SESSION_FILE_VERSION = 1;
+const RESTORABLE_URL_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
 function normalizeId(value) {
   if (typeof value === 'string' && value.trim()) return value.trim();
@@ -23,10 +24,22 @@ function createDerivedId(prefix, seed, index = 0) {
   return `${prefix}-${hashText(`${seed}::${index}`)}`;
 }
 
+function isRestorableUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return false;
+
+  try {
+    return RESTORABLE_URL_PROTOCOLS.has(new URL(url.trim()).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeSessionTab(tab, context = {}) {
   if (!tab || typeof tab.url !== 'string' || !tab.url.trim()) return null;
 
   const url = tab.url.trim();
+  if (!isRestorableUrl(url)) return null;
+
   const title = typeof tab.title === 'string' && tab.title.trim() ? tab.title.trim() : url;
   const id = normalizeId(tab.id)
     || normalizeId(tab.tabId)
@@ -247,6 +260,7 @@ const sessionUtils = {
   SESSION_FILE_VERSION,
   createSessionExport,
   dedupeSessionGroups,
+  isRestorableUrl,
   parseImportedSession,
   searchImportedSessionTabs,
   planRestoreTabs,

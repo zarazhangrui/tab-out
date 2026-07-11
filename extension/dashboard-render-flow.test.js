@@ -31,11 +31,14 @@ test('renderStaticDashboard renders sections in order', async () => {
     getImportedSession: async () => { calls.push('getImportedSession'); },
     getSearchQuery: () => 'docs',
     renderAutoRefreshToggle: () => { calls.push('renderAutoRefreshToggle'); },
+    renderLanguageToggle: () => { calls.push('renderLanguageToggle'); },
+    renderThemeToggle: () => { calls.push('renderThemeToggle'); },
     renderImportedSessionSection: () => { calls.push('renderImportedSessionSection'); },
     renderLaterListColumn: async () => { calls.push('renderLaterListColumn'); },
     renderMoreMenu: () => { calls.push('renderMoreMenu'); },
     renderOpenTabsSectionFromState: options => { calls.push(['renderOpenTabsSectionFromState', options]); },
     renderSearchResults: async ctx => { calls.push(['renderSearchResults', ctx]); },
+    renderStaticText: () => { calls.push('renderStaticText'); },
   });
 
   const greeting = { textContent: '' };
@@ -55,7 +58,10 @@ test('renderStaticDashboard renders sections in order', async () => {
   assert.equal(dateDisplay.textContent, 'Friday');
   assert.equal(searchInput.value, 'docs');
   assert.deepEqual(calls, [
+    'renderStaticText',
     'renderAutoRefreshToggle',
+    'renderLanguageToggle',
+    'renderThemeToggle',
     'renderMoreMenu',
     'fetchOpenTabs',
     ['renderOpenTabsSectionFromState', { includeImportedSection: false }],
@@ -79,11 +85,14 @@ test('renderStaticDashboard stops early when render becomes stale', async () => 
     getImportedSession: async () => { calls.push('getImportedSession'); },
     getSearchQuery: () => '',
     renderAutoRefreshToggle: () => { calls.push('renderAutoRefreshToggle'); },
+    renderLanguageToggle: () => { calls.push('renderLanguageToggle'); },
+    renderThemeToggle: () => { calls.push('renderThemeToggle'); },
     renderImportedSessionSection: () => { calls.push('renderImportedSessionSection'); },
     renderLaterListColumn: async () => { calls.push('renderLaterListColumn'); },
     renderMoreMenu: () => { calls.push('renderMoreMenu'); },
     renderOpenTabsSectionFromState: options => { calls.push(['renderOpenTabsSectionFromState', options]); },
     renderSearchResults: async () => { calls.push('renderSearchResults'); },
+    renderStaticText: () => { calls.push('renderStaticText'); },
   });
 
   await withFakeDocument({
@@ -98,8 +107,44 @@ test('renderStaticDashboard stops early when render becomes stale', async () => 
   });
 
   assert.deepEqual(calls, [
+    'renderStaticText',
     'renderAutoRefreshToggle',
+    'renderLanguageToggle',
+    'renderThemeToggle',
     'renderMoreMenu',
     'fetchOpenTabs',
   ]);
+});
+
+test('renderStaticDashboard uses localized greeting and date providers', async () => {
+  const flow = createDashboardRenderFlow({
+    fetchOpenTabs: async () => {},
+    getDateDisplay: () => '2026年7月11日星期六',
+    getGreeting: () => '下午好',
+    getImportedSession: async () => {},
+    getSearchQuery: () => '',
+    renderAutoRefreshToggle: () => {},
+    renderLanguageToggle: () => {},
+    renderThemeToggle: () => {},
+    renderImportedSessionSection: () => {},
+    renderLaterListColumn: async () => {},
+    renderMoreMenu: () => {},
+    renderOpenTabsSectionFromState: () => {},
+    renderSearchResults: async () => {},
+    renderStaticText: () => {},
+  });
+
+  const greeting = { textContent: '' };
+  const dateDisplay = { textContent: '' };
+
+  await withFakeDocument({
+    greeting,
+    dateDisplay,
+    globalSearchInput: { value: '' },
+  }, async () => {
+    await flow.renderStaticDashboard();
+  });
+
+  assert.equal(greeting.textContent, '下午好');
+  assert.equal(dateDisplay.textContent, '2026年7月11日星期六');
 });

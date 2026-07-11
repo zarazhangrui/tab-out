@@ -6,6 +6,22 @@ const assert = require('node:assert/strict');
 const {
   createDashboardHeaderUi,
 } = require('./dashboard-header-ui.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
+
+function createHeaderUi(overrides = {}) {
+  const i18n = createTestI18n(overrides.language || 'en');
+  return createDashboardHeaderUi({
+    getAutoRefreshEnabled: overrides.getAutoRefreshEnabled || (() => false),
+    getLanguagePreference: overrides.getLanguagePreference || (() => overrides.language || 'en'),
+    getMoreMenuOpen: overrides.getMoreMenuOpen || (() => false),
+    getTabMovingEnabled: overrides.getTabMovingEnabled || (() => false),
+    getThemePreference: overrides.getThemePreference || (() => 'system'),
+    getNextLanguage: i18n.getNextLanguage,
+    t: i18n.t,
+  });
+}
 
 function withFakeDocument(fakeDocument, run) {
   const previousDocument = global.document;
@@ -33,9 +49,8 @@ test('renderAutoRefreshToggle reflects current enabled state', async () => {
     },
   };
 
-  const headerUi = createDashboardHeaderUi({
+  const headerUi = createHeaderUi({
     getAutoRefreshEnabled: () => enabled,
-    getMoreMenuOpen: () => false,
   });
 
   await withFakeDocument({
@@ -86,8 +101,7 @@ test('renderMoreMenu and focusMoreMenuItem follow menu state', async () => {
     { focus() { focusCalls.push(1); } },
   ];
 
-  const headerUi = createDashboardHeaderUi({
-    getAutoRefreshEnabled: () => false,
+  const headerUi = createHeaderUi({
     getMoreMenuOpen: () => open,
   });
 
@@ -116,4 +130,137 @@ test('renderMoreMenu and focusMoreMenuItem follow menu state', async () => {
     assert.equal(toggle.attributes['aria-expanded'], 'false');
     assert.equal(panel.style.display, 'none');
   });
+});
+
+test('renderThemeToggle applies and labels stored theme preference', async () => {
+  let preference = 'system';
+  const root = {
+    dataset: {},
+    style: {},
+  };
+  const toggle = {
+    attributes: {},
+    textContent: '',
+    classList: {
+      added: new Set(),
+      toggle(name, force) {
+        if (force) {
+          this.added.add(name);
+          return;
+        }
+        this.added.delete(name);
+      },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+  const previousWindow = global.window;
+  global.window = {
+    matchMedia(query) {
+      return {
+        matches: query === '(prefers-color-scheme: dark)',
+      };
+    },
+  };
+
+  const headerUi = createHeaderUi({
+    getThemePreference: () => preference,
+  });
+
+  try {
+    await withFakeDocument({
+      documentElement: root,
+      getElementById(id) {
+        return id === 'themeToggle' ? toggle : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    }, async () => {
+      headerUi.renderThemeToggle();
+      assert.equal(toggle.textContent, 'Theme: System');
+      assert.equal(toggle.attributes['aria-label'], 'Theme: System. Currently following your browser theme.');
+      assert.equal(root.dataset.themePreference, 'system');
+      assert.equal(root.dataset.theme, undefined);
+      assert.equal(root.style.colorScheme, 'light dark');
+      assert.equal(toggle.classList.added.has('save-tabs'), false);
+
+      preference = 'dark';
+      headerUi.renderThemeToggle();
+      assert.equal(toggle.textContent, 'Theme: Dark');
+      assert.equal(toggle.attributes['aria-label'], 'Theme: Dark.');
+      assert.equal(root.dataset.themePreference, 'dark');
+      assert.equal(root.dataset.theme, 'dark');
+      assert.equal(root.style.colorScheme, 'dark');
+      assert.equal(toggle.classList.added.has('save-tabs'), false);
+
+      preference = 'light';
+      headerUi.renderThemeToggle();
+      assert.equal(toggle.textContent, 'Theme: Light');
+      assert.equal(root.dataset.themePreference, 'light');
+      assert.equal(root.dataset.theme, 'light');
+      assert.equal(root.style.colorScheme, 'light');
+      assert.equal(toggle.classList.added.has('save-tabs'), false);
+    });
+  } finally {
+    global.window = previousWindow;
+  }
+});
+
+test('renderTabMovingToggle reflects advanced moving setting', async () => {
+  let enabled = false;
+  const toggle = {
+    attributes: {},
+    textContent: '',
+    classList: {
+      added: new Set(),
+      toggle(name, force) {
+        if (force) {
+          this.added.add(name);
+          return;
+        }
+        this.added.delete(name);
+      },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+
+  const headerUi = createHeaderUi({
+    getTabMovingEnabled: () => enabled,
+  });
+
+  await withFakeDocument({
+    getElementById(id) {
+      return id === 'tabMovingToggle' ? toggle : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  }, async () => {
+    headerUi.renderTabMovingToggle();
+    assert.equal(toggle.textContent, 'Tab moving: Off');
+    assert.equal(toggle.attributes['aria-label'], 'Advanced tab moving disabled.');
+    assert.equal(toggle.classList.added.has('save-tabs'), false);
+    assert.equal(toggle.classList.added.has('danger'), true);
+
+    enabled = true;
+    headerUi.renderTabMovingToggle();
+    assert.equal(toggle.textContent, 'Tab moving: On');
+    assert.equal(toggle.attributes['aria-label'], 'Advanced tab moving enabled.');
+    assert.equal(toggle.classList.added.has('save-tabs'), true);
+    assert.equal(toggle.classList.added.has('danger'), false);
+  });
+});
+
+test('getNextThemePreference switches visibly from system theme', () => {
+  const headerUi = createHeaderUi({
+    getThemePreference: () => 'system',
+  });
+
+  assert.equal(headerUi.getNextThemePreference('system'), 'light');
+  assert.equal(headerUi.getNextThemePreference('light'), 'dark');
+  assert.equal(headerUi.getNextThemePreference('dark'), 'system');
 });

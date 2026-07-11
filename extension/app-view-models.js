@@ -22,6 +22,7 @@ function buildSearchResultsModel({
       url: tab.url,
       favIconUrl: tab.favIconUrl || '',
       source: 'open',
+      sourceLabelKey: 'source.open',
       sourceLabel: 'Open tab',
     });
   }
@@ -37,6 +38,7 @@ function buildSearchResultsModel({
         url: match.url,
         isOpen: openUrlSet.has(match.url),
         source: 'imported',
+        sourceLabelKey: 'source.imported',
         sourceLabel: 'Imported tab',
         groupLabel: match.groupLabel || friendlyDomain(match.groupDomain),
       });
@@ -51,6 +53,7 @@ function buildSearchResultsModel({
       url: item.url,
       source: 'later',
       isArchived: !!item.completed,
+      sourceLabelKey: item.completed ? 'source.laterArchived' : 'source.later',
       sourceLabel: item.completed ? 'Later archived' : 'Later list',
     });
   }

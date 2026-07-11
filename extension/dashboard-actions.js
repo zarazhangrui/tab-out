@@ -22,14 +22,20 @@
     focusTabById,
     friendlyDomain,
     getAutoRefreshEnabled,
+    getCurrentWindowId = () => null,
     getDashboardStateSnapshot,
     getDomainGroupByStableId,
+    getLanguagePreference = () => 'en',
     getMoreMenuOpen,
+    getNextLanguagePreference = language => (language === 'zh' ? 'en' : 'zh'),
+    getNextThemePreference,
     getTabUrl,
+    getThemePreference,
     hasActiveSearch,
     importedSessionController,
     isRealTabUrl,
     laterListController,
+    moveTabsToCurrentWindow,
     playCloseSound,
     removeKnownTabsFromState,
     removeOpenTabOptimistically,
@@ -37,17 +43,25 @@
     renderAutoRefreshToggle,
     renderImportedSessionSection,
     renderLaterListColumn,
+    renderLanguageToggle,
     renderMoreMenu,
+    renderStaticText = () => {},
+    renderTabMovingToggle,
+    renderThemeToggle,
     reconcileOpenTabsFromBrowser,
     saveTabForLater,
     scheduleDashboardAndWait,
     scheduleSearchAndWait,
     sessionImportInputSelector = '#sessionImportInput',
     setAutoRefreshSetting,
+    setLanguagePreferenceSetting,
     setMoreMenuOpen,
+    setTabMovingSetting,
+    setThemePreferenceSetting,
     showToast,
     suppressRemovedTabRefresh,
     shootConfetti,
+    t = key => key,
   }) {
     const BULK_CLOSE_THRESHOLDS = {
       'close-all-open-tabs': {
@@ -140,7 +154,7 @@
       'manual-refresh': async () => {
         closeMoreMenu();
         await scheduleDashboardAndWait();
-        showToast('Refreshed');
+        showToast(t('toast.refreshed'));
       },
       'toggle-more-menu': async () => {
         setMoreMenuOpen(!getMoreMenuOpen());
@@ -153,7 +167,42 @@
         await setAutoRefreshSetting(!getAutoRefreshEnabled());
         renderAutoRefreshToggle();
         closeMoreMenu();
-        showToast(`Auto refresh ${getAutoRefreshEnabled() ? 'enabled' : 'disabled'}`);
+        showToast(t('toast.autoRefresh', {
+          state: t(getAutoRefreshEnabled() ? 'menu.on' : 'menu.off'),
+        }));
+      },
+      'toggle-theme': async () => {
+        const nextPreference = getNextThemePreference(getThemePreference());
+        await setThemePreferenceSetting(nextPreference);
+        renderThemeToggle();
+        closeMoreMenu();
+        showToast(t('toast.theme', {
+          theme: t(`menu.theme.${nextPreference}`),
+        }));
+      },
+      'toggle-language': async () => {
+        const nextLanguage = getNextLanguagePreference(getLanguagePreference());
+        await setLanguagePreferenceSetting(nextLanguage);
+        renderStaticText();
+        renderAutoRefreshToggle();
+        renderLanguageToggle();
+        renderTabMovingToggle();
+        renderThemeToggle();
+        await scheduleDashboardAndWait();
+        closeMoreMenu();
+        showToast(t('toast.language', {
+          language: t(`language.${nextLanguage}`),
+        }));
+      },
+      'toggle-tab-moving': async () => {
+        const snapshot = getDashboardStateSnapshot();
+        await setTabMovingSetting(!snapshot.tabMovingEnabled);
+        renderTabMovingToggle();
+        await scheduleDashboardAndWait();
+        closeMoreMenu();
+        showToast(t('toast.tabMoving', {
+          state: t(snapshot.tabMovingEnabled ? 'menu.off' : 'menu.on'),
+        }));
       },
       'trigger-import-session': async () => {
         const input = document.querySelector(sessionImportInputSelector);
@@ -164,7 +213,10 @@
         const payload = createSessionExport(getDashboardStateSnapshot().domainGroups);
         closeMoreMenu();
         downloadJsonFile(buildSessionFilename('all-tabs'), payload);
-        showToast(`Exported ${payload.groups.length} group${payload.groups.length !== 1 ? 's' : ''}`);
+        showToast(t('toast.exportedGroups', {
+          count: payload.groups.length,
+          groupLabel: t(payload.groups.length === 1 ? 'common.group.one' : 'common.group.other'),
+        }));
       },
       'export-imported-session': async () => importedSessionController.handleExportImportedSession(),
       'clear-imported-session': async () => importedSessionController.handleClearImportedSession(),
@@ -187,7 +239,7 @@
         });
         if (!result || !result.closedCount) {
           await scheduleDashboardAndWait();
-          showToast('No extra Tab Out tabs to close');
+          showToast(t('toast.noExtraTabOut'));
           return;
         }
         playCloseSound();
@@ -196,7 +248,7 @@
           tabUrls: [],
         });
         checkTabOutDupes();
-        showToast('Closed extra Tab Out tabs');
+        showToast(t('toast.closedExtraTabOut'));
       },
       'expand-chips': async ({ actionEl }) => {
         const overflowContainer = actionEl.parentElement.querySelector('.page-chips-overflow');
@@ -224,7 +276,7 @@
 
         if (focused) return;
 
-        showToast('This tab is no longer open');
+        showToast(t('toast.targetGone'));
         await reconcileOpenTabsFromBrowser();
       },
       'open-later-item': async ({ actionEl }) => {
@@ -266,6 +318,18 @@
           actionEl.dataset.importedTabId
         );
       },
+      'move-tab-here': async ({ actionEl, event }) => {
+        if (event && typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        const tabId = actionEl.dataset.tabId;
+        if (!tabId || typeof moveTabsToCurrentWindow !== 'function') return;
+        const result = await moveTabsToCurrentWindow([tabId]);
+        await reconcileOpenTabsFromBrowser();
+        showToast(result && result.movedCount > 0
+          ? t('toast.movedHere', { count: result.movedCount, tabLabel: t(result.movedCount === 1 ? 'common.tab.one' : 'common.tab.other') })
+          : t('toast.targetAlreadyHere'));
+      },
       'close-single-tab': async ({ actionEl, event }) => {
         event.stopPropagation();
         const tabId = actionEl.dataset.tabId;
@@ -274,7 +338,7 @@
         const chip = actionEl.closest('.page-chip');
         const result = await closeOpenTab(tabId, tabUrl);
         if (!result) {
-          showToast('This tab is no longer open');
+          showToast(t('toast.targetGone'));
           await reconcileOpenTabsFromBrowser();
           return;
         }
@@ -284,7 +348,7 @@
         }
         await removeOpenTabOptimistically({ tabId, tabUrl });
         await reconcileOpenTabsFromBrowser();
-        showToast('Tab closed');
+        showToast(t('toast.closedTab'));
       },
       'close-tab-url-dupes': async ({ actionEl, event }) => {
         event.stopPropagation();
@@ -302,7 +366,10 @@
           tabUrls: [tabUrl],
         });
         await reconcileOpenTabsFromBrowser();
-        showToast(`Closed ${result.closedCount} duplicate tab${result.closedCount !== 1 ? 's' : ''}`);
+        showToast(t('toast.closedTabDupes', {
+          count: result.closedCount,
+          tabLabel: t(result.closedCount === 1 ? 'common.tab.one' : 'common.tab.other'),
+        }));
       },
       'defer-single-tab': async ({ actionEl, event }) => {
         event.stopPropagation();
@@ -315,7 +382,7 @@
           await saveTabForLater({ url: tabUrl, title: tabTitle });
         } catch (err) {
           console.error('[tab-out] Failed to save tab:', err);
-          showToast('Failed to save tab');
+          showToast(t('toast.failedSave'));
           return;
         }
         await closeOpenTab(tabId, tabUrl);
@@ -325,7 +392,7 @@
         }
         await renderLaterListColumn();
         await removeOpenTabOptimistically({ tabId, tabUrl });
-        showToast('Added to Later list');
+        showToast(t('toast.addedToLater'));
       },
       'check-later': async ({ actionEl }) => {
         const id = actionEl.dataset.laterId;
@@ -349,7 +416,7 @@
             await scheduleSearchAndWait();
           }
         }
-        showToast('Moved to Archive');
+        showToast(t('toast.movedToArchive'));
       },
       'dismiss-later': async ({ actionEl }) => {
         const id = actionEl.dataset.laterId;
@@ -370,7 +437,7 @@
             await scheduleSearchAndWait();
           }
         }
-        showToast(removedItem && removedItem.completed ? 'Removed from Archive' : 'Removed from Later list');
+        showToast(removedItem && removedItem.completed ? t('toast.removedArchive') : t('toast.removedLater'));
       },
       'close-domain-tabs': async ({ actionEl }) => {
         const card = actionEl.closest('.mission-card');
@@ -400,14 +467,48 @@
         }
         await removeOpenTabsOptimistically({ tabIds: closedTabIds, tabUrls: urls });
         await reconcileOpenTabsFromBrowser();
-        showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+        showToast(t('toast.closedFromGroup', {
+          count: urls.length,
+          group: groupLabel,
+          tabLabel: t(urls.length === 1 ? 'common.tab.one' : 'common.tab.other'),
+        }));
+      },
+      'move-domain-tabs-here': async ({ actionEl }) => {
+        const group = getDomainGroupByStableId(actionEl.dataset.domainId);
+        if (!group || typeof moveTabsToCurrentWindow !== 'function') return;
+        const currentWindowId = getCurrentWindowId();
+        const tabIds = (group.tabs || [])
+          .filter(tab => (
+            typeof tab.id !== 'undefined' &&
+            typeof tab.windowId !== 'undefined' &&
+            currentWindowId !== null &&
+            Number(tab.windowId) !== Number(currentWindowId)
+          ))
+          .map(tab => tab.id);
+        const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
+        if (tabIds.length === 0) {
+          showToast(`${groupLabel} ${t('toast.targetAlreadyHere')}`);
+          return;
+        }
+        const result = await moveTabsToCurrentWindow(tabIds);
+        await reconcileOpenTabsFromBrowser();
+        showToast(result && result.movedCount > 0
+          ? t('toast.movedFromGroup', {
+              count: result.movedCount,
+              group: groupLabel,
+              tabLabel: t(result.movedCount === 1 ? 'common.tab.one' : 'common.tab.other'),
+            })
+          : `${groupLabel} ${t('toast.targetAlreadyHere')}`);
       },
       'export-domain-group': async ({ actionEl }) => {
         const group = getDomainGroupByStableId(actionEl.dataset.domainId);
         if (!group) return;
         const payload = createSessionExport([group]);
         downloadJsonFile(buildSessionFilename(group.label || group.domain || 'group'), payload);
-        showToast(`Exported ${group.label || friendlyDomain(group.domain)}`);
+        showToast(t('toast.exportedGroups', {
+          count: 1,
+          groupLabel: group.label || friendlyDomain(group.domain),
+        }));
       },
       'dedup-keep-one': async ({ actionEl }) => {
         const urlsEncoded = actionEl.dataset.dupeUrls || '';
@@ -420,7 +521,7 @@
           tabUrls: urls,
         });
         await reconcileOpenTabsFromBrowser();
-        showToast('Closed duplicates, kept one copy each');
+        showToast(t('toast.closedDuplicates'));
       },
       'close-all-dupes': async () => {
         const snapshot = getDashboardStateSnapshot();
@@ -441,7 +542,7 @@
           tabUrls: dupeUrls,
         });
         await reconcileOpenTabsFromBrowser();
-        showToast('Closed all dupes, kept one copy each');
+        showToast(t('toast.closedAllDupes'));
       },
       'close-all-open-tabs': async () => {
         const snapshot = getDashboardStateSnapshot();
@@ -468,7 +569,33 @@
         playCloseSound();
         await removeOpenTabsOptimistically({ tabIds: openTabIds, tabUrls: allUrls });
         await reconcileOpenTabsFromBrowser();
-        showToast('All tabs closed. Fresh start.');
+        showToast(t('toast.allTabsClosed'));
+      },
+      'move-all-tabs-here': async () => {
+        if (typeof moveTabsToCurrentWindow !== 'function') return;
+        const currentWindowId = getCurrentWindowId();
+        const snapshot = getDashboardStateSnapshot();
+        const tabIds = (snapshot.openTabs || [])
+          .filter(tab => (
+            typeof tab.id !== 'undefined' &&
+            typeof tab.windowId !== 'undefined' &&
+            currentWindowId !== null &&
+            Number(tab.windowId) !== Number(currentWindowId) &&
+            isRealTabUrl(getTabUrl(tab))
+          ))
+          .map(tab => tab.id);
+        if (tabIds.length === 0) {
+          showToast(t('toast.allAlreadyHere'));
+          return;
+        }
+        const result = await moveTabsToCurrentWindow(tabIds);
+        await reconcileOpenTabsFromBrowser();
+        showToast(result && result.movedCount > 0
+          ? t('toast.movedHere', {
+              count: result.movedCount,
+              tabLabel: t(result.movedCount === 1 ? 'common.tab.one' : 'common.tab.other'),
+            })
+          : t('toast.allAlreadyHere'));
       },
     };
   }

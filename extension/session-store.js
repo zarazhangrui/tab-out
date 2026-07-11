@@ -6,7 +6,12 @@
     autoRefreshEnabled: false,
     deferred: [],
     importedSession: null,
+    languagePreference: 'en',
+    tabMovingEnabled: false,
+    themePreference: 'system',
   };
+  const VALID_THEME_PREFERENCES = new Set(['system', 'light', 'dark']);
+  const VALID_LANGUAGE_PREFERENCES = new Set(['en', 'zh']);
 
   const storageQueues = new Map();
 
@@ -64,6 +69,21 @@
 
       if (!('importedSession' in nextState)) {
         nextState.importedSession = null;
+        changed = true;
+      }
+
+      if (!VALID_THEME_PREFERENCES.has(nextState.themePreference)) {
+        nextState.themePreference = STORAGE_DEFAULTS.themePreference;
+        changed = true;
+      }
+
+      if (!VALID_LANGUAGE_PREFERENCES.has(nextState.languagePreference)) {
+        nextState.languagePreference = STORAGE_DEFAULTS.languagePreference;
+        changed = true;
+      }
+
+      if (typeof nextState.tabMovingEnabled !== 'boolean') {
+        nextState.tabMovingEnabled = !!nextState.tabMovingEnabled;
         changed = true;
       }
 

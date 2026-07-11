@@ -3,6 +3,7 @@
 (function initLaterListController() {
   function createLaterListController({
     buildFaviconImg,
+    countLabel = (_key, count) => (Number(count) === 1 ? 'item' : 'items'),
     createStableId,
     escapeHtml,
     getState,
@@ -12,6 +13,7 @@
     scheduleSearchAndWait,
     setStorageValue,
     showToast,
+    t = key => key,
     timeAgo,
   }) {
     function setDeferredItemsCache(items) {
@@ -114,7 +116,7 @@
         <div class="later-item" data-later-id="${safeId}">
           <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${safeId}">
           <div class="later-info">
-            <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title" title="${safeTitle}">
+            <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title text-tooltip" data-tooltip="${safeTitle}" aria-label="${safeTitle}">
               ${buildFaviconImg(domain, 'deferred-favicon')}${safeTitle}
             </a>
             <div class="later-meta">
@@ -122,7 +124,7 @@
               <span>${escapeHtml(ago)}</span>
             </div>
           </div>
-          <button class="later-dismiss" data-action="dismiss-later" data-later-id="${safeId}" title="Remove">
+          <button class="later-dismiss" data-action="dismiss-later" data-later-id="${safeId}" data-tooltip="${t('action.remove')}" aria-label="${t('action.remove')}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>`;
@@ -134,7 +136,7 @@
       const safeTitle = escapeHtml(item.title || item.url);
       return `
         <div class="archive-item">
-          <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+          <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title text-tooltip" data-tooltip="${safeTitle}" aria-label="${safeTitle}">
             ${safeTitle}
           </a>
           <span class="archive-item-date">${escapeHtml(ago)}</span>
@@ -163,7 +165,7 @@
         column.style.display = 'block';
 
         if (active.length > 0) {
-          countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+          countEl.textContent = `${active.length} ${countLabel('common.item', active.length)}`;
           list.innerHTML = active.map(item => renderLaterItem(item)).join('');
           list.style.display = 'block';
           empty.style.display = 'none';
@@ -194,9 +196,13 @@
       }
       if (typeof showToast === 'function') {
         if (completed) {
-          showToast(cleared > 0 ? `Cleared ${cleared} archived item${cleared !== 1 ? 's' : ''}` : 'Archive already empty');
+          showToast(cleared > 0
+            ? t('toast.clearedArchive', { count: cleared, itemLabel: countLabel('common.item', cleared) })
+            : t('toast.archiveAlreadyEmpty'));
         } else {
-          showToast(cleared > 0 ? `Cleared ${cleared} item${cleared !== 1 ? 's' : ''} from Later list` : 'Later list already empty');
+          showToast(cleared > 0
+            ? t('toast.clearedLater', { count: cleared, itemLabel: countLabel('common.item', cleared) })
+            : t('toast.laterAlreadyEmpty'));
         }
       }
       return cleared;

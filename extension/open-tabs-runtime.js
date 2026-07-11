@@ -10,10 +10,13 @@
     getRealTabs,
     getRenderDomainCard,
     getRenderOpenTabsSectionCount,
+    getCurrentWindowId = () => null,
     getSearchQuery,
     getState,
+    getTabMovingEnabled = () => false,
     getTabUrl,
     renderSearchResults,
+    t = key => key,
   }) {
     function rebuildDomainGroupsFromState() {
       appState.setDomainGroups(
@@ -31,6 +34,14 @@
       const openTabsSectionCount = document.getElementById('openTabsSectionCount');
       const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
       const urlCounts = {};
+      const currentWindowId = getCurrentWindowId();
+      const tabMovingEnabled = !!getTabMovingEnabled();
+      const movableTabCount = realTabs.filter(tab => (
+        tabMovingEnabled &&
+        typeof tab.windowId !== 'undefined' &&
+        currentWindowId !== null &&
+        Number(tab.windowId) !== Number(currentWindowId)
+      )).length;
 
       rebuildDomainGroupsFromState();
       for (const tab of realTabs) {
@@ -43,13 +54,20 @@
       ), 0);
 
       if (state.domainGroups.length > 0 && openTabsSection && openTabsMissionsEl && openTabsSectionCount) {
-        if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
+        if (openTabsSectionTitle) openTabsSectionTitle.textContent = t('section.openTabs');
         openTabsSectionCount.innerHTML = getRenderOpenTabsSectionCount()(
           state.domainGroups.length,
           realTabs.length,
-          totalDuplicateTabs
+          totalDuplicateTabs,
+          {
+            movableTabCount,
+            tabMovingEnabled,
+          }
         );
-        openTabsMissionsEl.innerHTML = state.domainGroups.map(group => getRenderDomainCard()(group)).join('');
+        openTabsMissionsEl.innerHTML = state.domainGroups.map(group => getRenderDomainCard()(group, {
+          currentWindowId,
+          tabMovingEnabled,
+        })).join('');
         openTabsSection.style.display = 'block';
       } else if (openTabsSection) {
         openTabsSection.style.display = 'none';

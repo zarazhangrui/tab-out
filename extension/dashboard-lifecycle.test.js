@@ -11,16 +11,27 @@ function createHarness(overrides = {}) {
   const calls = {
     ensureStorageSchema: 0,
     getAutoRefreshSetting: 0,
+    getLanguagePreferenceSetting: 0,
+    getTabMovingSetting: 0,
+    getThemePreferenceSetting: 0,
+    getCurrentWindowId: 0,
     getCurrentTabId: 0,
     scheduleOpenTabsRefresh: 0,
     renderAutoRefreshToggle: 0,
+    renderLanguageToggle: 0,
+    renderTabMovingToggle: 0,
+    renderThemeToggle: 0,
     renderLaterListColumn: 0,
     scheduleDashboardRefresh: 0,
     scheduleDashboardRender: 0,
     scheduleSearchRender: 0,
     setAutoRefreshEnabled: [],
+    setCurrentWindowId: [],
     setDeferredItemsCache: [],
     setImportedSession: [],
+    setLanguagePreference: [],
+    setTabMovingEnabled: [],
+    setThemePreference: [],
     shouldSkipUpdatedTab: [],
     shouldSkipRemovedTab: [],
     warnings: [],
@@ -37,6 +48,16 @@ function createHarness(overrides = {}) {
     onRemoved: {
       addListener(handler) {
         tabsListeners.removed = handler;
+      },
+    },
+    onAttached: {
+      addListener(handler) {
+        tabsListeners.attached = handler;
+      },
+    },
+    onDetached: {
+      addListener(handler) {
+        tabsListeners.detached = handler;
       },
     },
     onUpdated: {
@@ -64,6 +85,26 @@ function createHarness(overrides = {}) {
       if (overrides.getAutoRefreshSettingError) throw overrides.getAutoRefreshSettingError;
       return true;
     },
+    getLanguagePreferenceSetting: async () => {
+      calls.getLanguagePreferenceSetting += 1;
+      if (overrides.getLanguagePreferenceSettingError) throw overrides.getLanguagePreferenceSettingError;
+      return 'en';
+    },
+    getTabMovingSetting: async () => {
+      calls.getTabMovingSetting += 1;
+      if (overrides.getTabMovingSettingError) throw overrides.getTabMovingSettingError;
+      return false;
+    },
+    getThemePreferenceSetting: async () => {
+      calls.getThemePreferenceSetting += 1;
+      if (overrides.getThemePreferenceSettingError) throw overrides.getThemePreferenceSettingError;
+      return 'system';
+    },
+    getCurrentWindowId: async () => {
+      calls.getCurrentWindowId += 1;
+      if (overrides.getCurrentWindowIdError) throw overrides.getCurrentWindowIdError;
+      return overrides.currentWindowId || 1;
+    },
     getCurrentTabId: overrides.currentTabId === undefined && !overrides.getCurrentTabIdError && !overrides.getCurrentTabId
       ? undefined
       : async () => {
@@ -77,6 +118,15 @@ function createHarness(overrides = {}) {
     getSearchQuery: () => overrides.searchQuery || '',
     renderAutoRefreshToggle: () => {
       calls.renderAutoRefreshToggle += 1;
+    },
+    renderLanguageToggle: () => {
+      calls.renderLanguageToggle += 1;
+    },
+    renderTabMovingToggle: () => {
+      calls.renderTabMovingToggle += 1;
+    },
+    renderThemeToggle: () => {
+      calls.renderThemeToggle += 1;
     },
     renderLaterListColumn: async () => {
       calls.renderLaterListColumn += 1;
@@ -101,11 +151,23 @@ function createHarness(overrides = {}) {
     setAutoRefreshEnabled: value => {
       calls.setAutoRefreshEnabled.push(value);
     },
+    setCurrentWindowId: value => {
+      calls.setCurrentWindowId.push(value);
+    },
     setDeferredItemsCache: items => {
       calls.setDeferredItemsCache.push(items);
     },
     setImportedSession: session => {
       calls.setImportedSession.push(session);
+    },
+    setLanguagePreference: value => {
+      calls.setLanguagePreference.push(value);
+    },
+    setTabMovingEnabled: value => {
+      calls.setTabMovingEnabled.push(value);
+    },
+    setThemePreference: value => {
+      calls.setThemePreference.push(value);
     },
     shouldSkipRemovedTab: tabId => {
       calls.shouldSkipRemovedTab.push(tabId);
@@ -243,6 +305,16 @@ test('bindBrowserListeners skips suppressed remove refresh', async () => {
   assert.deepEqual(calls.shouldSkipRemovedTab, [9]);
 });
 
+test('bindBrowserListeners refreshes when tabs move between windows', async () => {
+  const { calls, lifecycle, tabsApi, storageApi, tabsListeners } = createHarness();
+
+  lifecycle.bindBrowserListeners({ tabsApi, storageApi });
+  tabsListeners.attached(17, { newWindowId: 1, newPosition: 3 });
+  tabsListeners.detached(18, { oldWindowId: 2, oldPosition: 4 });
+
+  assert.equal(calls.scheduleOpenTabsRefresh, 2);
+});
+
 test('bindBrowserListeners reacts to storage changes', async () => {
   const { calls, lifecycle, tabsApi, storageApi, storageListeners } = createHarness({
     searchQuery: 'docs',
@@ -253,6 +325,9 @@ test('bindBrowserListeners reacts to storage changes', async () => {
     deferred: { newValue: [{ id: 'later-1' }] },
     importedSession: { newValue: { groups: [{ id: 'docs' }] } },
     autoRefreshEnabled: { newValue: true },
+    languagePreference: { newValue: 'zh' },
+    tabMovingEnabled: { newValue: true },
+    themePreference: { newValue: 'dark' },
   }, 'local');
 
   await Promise.resolve();
@@ -263,6 +338,12 @@ test('bindBrowserListeners reacts to storage changes', async () => {
   assert.deepEqual(calls.setImportedSession, [{ groups: [{ id: 'docs' }] }]);
   assert.deepEqual(calls.setAutoRefreshEnabled, [true]);
   assert.equal(calls.renderAutoRefreshToggle, 1);
+  assert.deepEqual(calls.setLanguagePreference, ['zh']);
+  assert.equal(calls.renderLanguageToggle, 1);
+  assert.deepEqual(calls.setTabMovingEnabled, [true]);
+  assert.equal(calls.renderTabMovingToggle, 1);
+  assert.deepEqual(calls.setThemePreference, ['dark']);
+  assert.equal(calls.renderThemeToggle, 1);
   assert.equal(calls.scheduleDashboardRender, 1);
 });
 
@@ -273,6 +354,14 @@ test('initialize loads schema and settings then schedules first render', async (
 
   assert.equal(calls.ensureStorageSchema, 1);
   assert.equal(calls.getAutoRefreshSetting, 1);
+  assert.equal(calls.getLanguagePreferenceSetting, 1);
+  assert.equal(calls.getTabMovingSetting, 1);
+  assert.equal(calls.getCurrentWindowId, 1);
+  assert.deepEqual(calls.setCurrentWindowId, [1]);
+  assert.equal(calls.getThemePreferenceSetting, 1);
+  assert.equal(calls.renderLanguageToggle, 1);
+  assert.equal(calls.renderTabMovingToggle, 1);
+  assert.equal(calls.renderThemeToggle, 1);
   assert.equal(calls.scheduleDashboardRender, 1);
   assert.deepEqual(calls.warnings, []);
 });

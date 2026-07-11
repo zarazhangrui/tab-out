@@ -4,18 +4,29 @@
   function createDashboardLifecycle({
     ensureStorageSchema,
     getAutoRefreshSetting,
+    getLanguagePreferenceSetting,
+    getTabMovingSetting,
+    getThemePreferenceSetting,
     getCurrentTabId,
+    getCurrentWindowId,
     getNormalizeDeferredItems,
     getNormalizeImportedSessionData,
     getSearchQuery,
     renderAutoRefreshToggle,
+    renderLanguageToggle,
+    renderTabMovingToggle,
+    renderThemeToggle,
     renderLaterListColumn,
     scheduleOpenTabsRefresh,
     scheduleDashboardRender,
     scheduleSearchRender,
     setAutoRefreshEnabled,
+    setCurrentWindowId,
     setDeferredItemsCache,
     setImportedSession,
+    setLanguagePreference,
+    setTabMovingEnabled,
+    setThemePreference,
     shouldSkipRemovedTab,
     shouldSkipUpdatedTab = () => false,
     tabCreateMergeWindowMs = 800,
@@ -82,9 +93,13 @@
       if (typeof getCurrentTabId !== 'function') return;
 
       currentDashboardTabIdPromise = (async () => {
-        const tabId = await getCurrentTabId();
+        const currentTab = await getCurrentTabId();
+        const tabId = currentTab && typeof currentTab === 'object' ? currentTab.id : currentTab;
         if (typeof tabId === 'undefined' || tabId === null) return;
         currentDashboardTabId = Number(tabId);
+        if (currentTab && typeof currentTab === 'object' && typeof setCurrentWindowId === 'function') {
+          setCurrentWindowId(currentTab.windowId);
+        }
       })().catch(err => {
         logger.warn('[tab-out] Failed to identify dashboard tab:', err);
       });
@@ -145,6 +160,18 @@
         });
       }
 
+      if (safeTabsApi && safeTabsApi.onAttached) {
+        safeTabsApi.onAttached.addListener(() => {
+          scheduleOpenTabsRefresh();
+        });
+      }
+
+      if (safeTabsApi && safeTabsApi.onDetached) {
+        safeTabsApi.onDetached.addListener(() => {
+          scheduleOpenTabsRefresh();
+        });
+      }
+
       if (safeTabsApi && safeTabsApi.onUpdated) {
         safeTabsApi.onUpdated.addListener((tabId, changeInfo, tab) => {
           handleUpdatedTab(tabId, changeInfo, tab);
@@ -179,6 +206,23 @@
             renderAutoRefreshToggle();
           }
 
+          if (changes.themePreference) {
+            setThemePreference(changes.themePreference.newValue);
+            renderThemeToggle();
+          }
+
+          if (changes.languagePreference) {
+            setLanguagePreference(changes.languagePreference.newValue);
+            renderLanguageToggle();
+            shouldRender = true;
+          }
+
+          if (changes.tabMovingEnabled) {
+            setTabMovingEnabled(!!changes.tabMovingEnabled.newValue);
+            renderTabMovingToggle();
+            shouldRender = true;
+          }
+
           if (shouldRender) {
             scheduleDashboardRender();
           }
@@ -193,6 +237,27 @@
             await ensureStorageSchema();
           }
           await getAutoRefreshSetting();
+          if (getLanguagePreferenceSetting) {
+            await getLanguagePreferenceSetting();
+          }
+          if (getTabMovingSetting) {
+            await getTabMovingSetting();
+          }
+          if (getCurrentWindowId && typeof setCurrentWindowId === 'function') {
+            setCurrentWindowId(await getCurrentWindowId());
+          }
+          if (getThemePreferenceSetting) {
+            await getThemePreferenceSetting();
+          }
+          if (renderLanguageToggle) {
+            renderLanguageToggle();
+          }
+          if (renderTabMovingToggle) {
+            renderTabMovingToggle();
+          }
+          if (renderThemeToggle) {
+            renderThemeToggle();
+          }
         } catch (err) {
           logger.warn('[tab-out] Initialization fallback path triggered:', err);
         }

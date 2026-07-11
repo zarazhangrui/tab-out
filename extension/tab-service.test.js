@@ -13,6 +13,7 @@ function createHarness(initialTabs = []) {
   const updates = [];
   const windowUpdates = [];
   const created = [];
+  const moved = [];
 
   const tabsApi = {
     async query() {
@@ -30,6 +31,16 @@ function createHarness(initialTabs = []) {
     async create(payload) {
       created.push(payload);
       return payload;
+    },
+    async move(tabIds, payload) {
+      const ids = Array.isArray(tabIds) ? tabIds.map(Number) : [Number(tabIds)];
+      moved.push({ tabIds: ids, payload });
+      tabs = tabs.map(tab => (
+        ids.includes(Number(tab.id))
+          ? { ...tab, windowId: payload.windowId }
+          : tab
+      ));
+      return ids.map(id => tabs.find(tab => Number(tab.id) === id)).filter(Boolean);
     },
   };
 
@@ -53,6 +64,7 @@ function createHarness(initialTabs = []) {
     updates,
     windowUpdates,
     created,
+    moved,
   };
 }
 
@@ -117,9 +129,12 @@ test('isRealTabUrl filters browser-internal pages', () => {
   const { service } = createHarness();
 
   assert.equal(service.isRealTabUrl('https://example.com'), true);
+  assert.equal(service.isRealTabUrl('file:///Users/lucas/Desktop/spec.pdf'), true);
   assert.equal(service.isRealTabUrl('chrome://settings'), false);
   assert.equal(service.isRealTabUrl('chrome-extension://abc/index.html'), false);
   assert.equal(service.isRealTabUrl('about:blank'), false);
+  assert.equal(service.isRealTabUrl('javascript:alert(1)'), false);
+  assert.equal(service.isRealTabUrl('data:text/html,<script>alert(1)</script>'), false);
 });
 
 test('isTabOutUrl recognizes extension new tab and chrome newtab', () => {
@@ -263,4 +278,27 @@ test('closeTabOutDupes calls beforeRemove before removing tabs', async () => {
     { type: 'beforeRemove', tabIds: [2, 3] },
     { type: 'afterClose', removed: [2, 3] },
   ]);
+});
+
+test('moveTabsToCurrentWindow moves only tabs outside the current window', async () => {
+  const { service, moved } = createHarness([
+    { id: 1, url: 'https://docs.example.com/current', windowId: 1 },
+    { id: 2, url: 'https://docs.example.com/remote', windowId: 2 },
+    { id: 3, url: 'https://docs.example.com/remote-2', windowId: 3 },
+  ]);
+
+  const result = await service.moveTabsToCurrentWindow([1, 2, 3, 99]);
+
+  assert.deepEqual(moved, [
+    {
+      tabIds: [2, 3],
+      payload: { windowId: 1, index: -1 },
+    },
+  ]);
+  assert.deepEqual(result, {
+    movedCount: 2,
+    skippedCount: 1,
+    tabIds: [2, 3],
+    windowId: 1,
+  });
 });

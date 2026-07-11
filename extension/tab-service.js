@@ -15,14 +15,14 @@
   }
 
   function isRealTabUrl(url) {
-    const safeUrl = String(url || '');
-    return (
-      !safeUrl.startsWith('chrome://') &&
-      !safeUrl.startsWith('chrome-extension://') &&
-      !safeUrl.startsWith('about:') &&
-      !safeUrl.startsWith('edge://') &&
-      !safeUrl.startsWith('brave://')
-    );
+    const safeUrl = String(url || '').trim();
+    if (!safeUrl) return false;
+
+    try {
+      return ['http:', 'https:', 'file:'].includes(new URL(safeUrl).protocol);
+    } catch {
+      return false;
+    }
   }
 
   function isTabOutUrl(url) {
@@ -300,6 +300,48 @@
     };
   }
 
+  async function moveTabsToCurrentWindow(tabIds = []) {
+    const requestedIds = (Array.isArray(tabIds) ? tabIds : [tabIds])
+      .map(value => Number(value))
+      .filter(value => Number.isFinite(value));
+    if (requestedIds.length === 0) {
+      const currentWindow = await windowsApi.getCurrent();
+      return {
+        movedCount: 0,
+        skippedCount: 0,
+        tabIds: [],
+        windowId: currentWindow.id,
+      };
+    }
+
+    const requestedIdSet = new Set(requestedIds);
+    const allTabs = await queryRawTabs();
+    const currentWindow = await windowsApi.getCurrent();
+    const movableTabs = allTabs.filter(tab => (
+      requestedIdSet.has(Number(tab.id)) &&
+      Number(tab.windowId) !== Number(currentWindow.id)
+    ));
+    const movableIds = movableTabs.map(tab => Number(tab.id));
+    const skippedCount = allTabs.filter(tab => (
+      requestedIdSet.has(Number(tab.id)) &&
+      Number(tab.windowId) === Number(currentWindow.id)
+    )).length;
+
+    if (movableIds.length > 0) {
+      await tabsApi.move(movableIds, {
+        windowId: currentWindow.id,
+        index: -1,
+      });
+    }
+
+    return {
+      movedCount: movableIds.length,
+      skippedCount,
+      tabIds: movableIds,
+      windowId: currentWindow.id,
+    };
+  }
+
     return {
     closeDuplicateTabs,
     closeTab,
@@ -315,6 +357,7 @@
     isRealTabUrl,
     isTabOutTab,
     isTabOutUrl,
+    moveTabsToCurrentWindow,
     queryDashboardTabs,
     queryRawTabs,
   };

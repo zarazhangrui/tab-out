@@ -3,16 +3,118 @@
 (function initDashboardHeaderUi() {
   function createDashboardHeaderUi({
     getAutoRefreshEnabled,
+    getLanguagePreference = () => 'en',
     getMoreMenuOpen,
+    getTabMovingEnabled = () => false,
+    getThemePreference = () => 'system',
+    getNextLanguage = language => (language === 'zh' ? 'en' : 'zh'),
+    t = key => key,
   }) {
+    const THEME_LABELS = {
+      system: 'System',
+      light: 'Light',
+      dark: 'Dark',
+    };
+    const VALID_THEME_PREFERENCES = new Set(Object.keys(THEME_LABELS));
+
+    function normalizeThemePreference(preference) {
+      return VALID_THEME_PREFERENCES.has(preference) ? preference : 'system';
+    }
+
+    function getSystemTheme() {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return 'light';
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function getAppliedTheme(preference = getThemePreference()) {
+      const normalized = normalizeThemePreference(preference);
+      return normalized === 'system' ? getSystemTheme() : normalized;
+    }
+
+    function getNextThemePreference(preference = getThemePreference()) {
+      const normalized = normalizeThemePreference(preference);
+      if (normalized === 'system') return 'light';
+      if (normalized === 'light') return 'dark';
+      return 'system';
+    }
+
+    function applyThemePreference(preference = getThemePreference()) {
+      const root = typeof document !== 'undefined' ? document.documentElement : null;
+      if (!root || !root.dataset) return;
+
+      const normalized = normalizeThemePreference(preference);
+      root.dataset.themePreference = normalized;
+      if (normalized === 'system') {
+        delete root.dataset.theme;
+        if (root.style) root.style.colorScheme = 'light dark';
+        return;
+      }
+
+      root.dataset.theme = normalized;
+      if (root.style) root.style.colorScheme = normalized;
+    }
+
     function renderAutoRefreshToggle() {
       const toggle = document.getElementById('autoRefreshToggle');
       if (!toggle) return;
 
       const autoRefreshEnabled = !!getAutoRefreshEnabled();
-      toggle.textContent = `Auto refresh: ${autoRefreshEnabled ? 'On' : 'Off'}`;
+      toggle.textContent = t('menu.autoRefresh', {
+        state: t(autoRefreshEnabled ? 'menu.on' : 'menu.off'),
+      });
       toggle.classList.toggle('save-tabs', autoRefreshEnabled);
       toggle.classList.toggle('danger', !autoRefreshEnabled);
+    }
+
+    function renderThemeToggle() {
+      applyThemePreference();
+
+      const toggle = document.getElementById('themeToggle');
+      if (!toggle) return;
+
+      const preference = normalizeThemePreference(getThemePreference());
+      const label = t(`menu.theme.${preference}`);
+      toggle.textContent = t('menu.theme', { theme: label });
+      toggle.classList.toggle('save-tabs', false);
+      toggle.classList.toggle('danger', false);
+      toggle.setAttribute(
+        'aria-label',
+        preference === 'system'
+          ? `${t('menu.theme', { theme: label })}. Currently following your browser theme.`
+          : `${t('menu.theme', { theme: label })}.`
+      );
+    }
+
+    function renderLanguageToggle() {
+      const toggle = document.getElementById('languageToggle');
+      if (!toggle) return;
+
+      const language = getLanguagePreference() === 'zh' ? 'zh' : 'en';
+      const nextLanguage = getNextLanguage(language);
+      const languageLabel = t(`language.${language}`);
+      const nextLanguageLabel = t(`language.${nextLanguage}`);
+      toggle.textContent = t('menu.language', { language: languageLabel });
+      toggle.classList.toggle('save-tabs', false);
+      toggle.classList.toggle('danger', false);
+      toggle.setAttribute('aria-label', `${t('menu.language', { language: languageLabel })}. Switch to ${nextLanguageLabel}.`);
+    }
+
+    function renderTabMovingToggle() {
+      const toggle = document.getElementById('tabMovingToggle');
+      if (!toggle) return;
+
+      const tabMovingEnabled = !!getTabMovingEnabled();
+      toggle.textContent = t('menu.tabMoving', {
+        state: t(tabMovingEnabled ? 'menu.on' : 'menu.off'),
+      });
+      toggle.classList.toggle('save-tabs', tabMovingEnabled);
+      toggle.classList.toggle('danger', !tabMovingEnabled);
+      toggle.setAttribute(
+        'aria-label',
+        `Advanced tab moving ${tabMovingEnabled ? 'enabled' : 'disabled'}.`
+      );
     }
 
     function renderMoreMenu() {
@@ -39,10 +141,16 @@
     }
 
     return {
+      applyThemePreference,
       focusMoreMenuItem,
+      getAppliedTheme,
       getMoreMenuItems,
+      getNextThemePreference,
       renderAutoRefreshToggle,
+      renderLanguageToggle,
       renderMoreMenu,
+      renderTabMovingToggle,
+      renderThemeToggle,
     };
   }
 

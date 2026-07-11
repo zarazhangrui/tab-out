@@ -6,6 +6,9 @@ const {
   buildImportedGroupViewModel,
   buildImportedTabViewModel,
 } = require('./app-view-models.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
 
 global.window = global.window || {};
 require('./imported-session-controller.js');
@@ -15,6 +18,7 @@ const {
 } = window.TabOutImportedSessionController;
 
 function createHarness(overrides = {}) {
+  const i18n = createTestI18n(overrides.language || 'en');
   const state = {
     importedSession: overrides.initialImportedSession || null,
   };
@@ -32,6 +36,7 @@ function createHarness(overrides = {}) {
     buildImportedTabViewModel: overrides.buildImportedTabViewModel,
     buildSessionFilename: scope => `tab-out-${scope}.json`,
     buildFaviconImg: domain => `[icon:${domain || ''}]`,
+    countLabel: i18n.countLabel,
     createSessionExport: groups => ({ groups }),
     dedupeSessionGroups: groups => groups,
     createTab: async (url, options) => {
@@ -84,6 +89,7 @@ function createHarness(overrides = {}) {
     showToast: message => {
       calls.showToast.push(message);
     },
+    t: i18n.t,
   });
 
   return { controller, calls, state };
@@ -267,6 +273,51 @@ test('renderImportedSessionSection shows opened count badge for open imported ta
   assert.match(countEl.textContent, /2 tabs/);
   assert.match(metaEl.textContent, /formatted:2026-07-10T09:00:00.000Z/);
   assert.match(missionsEl.innerHTML, /1 opened/);
-  assert.match(missionsEl.innerHTML, /<span class="chip-inline-status">Opened<\/span>/);
+  assert.match(missionsEl.innerHTML, /class="page-chip clickable tab-title-tooltip"/);
+  assert.match(missionsEl.innerHTML, /data-tooltip="Guide"/);
+  assert.doesNotMatch(missionsEl.innerHTML, /title="Guide"/);
+  assert.match(missionsEl.innerHTML, /class="chip-inline-status chip-open-status"/);
+  assert.match(missionsEl.innerHTML, /data-tooltip="Already open"/);
+  assert.match(missionsEl.innerHTML, /aria-label="Already open"/);
+  assert.doesNotMatch(missionsEl.innerHTML, />Opened</);
   assert.match(missionsEl.innerHTML, /data-action="restore-imported-group"/);
+});
+
+test('renderImportedSessionSection localizes imported open status icon', async () => {
+  const { controller } = createHarness({
+    buildImportedGroupViewModel,
+    buildImportedTabViewModel,
+    language: 'zh',
+    initialImportedSession: {
+      groups: [
+        {
+          id: 'docs',
+          domain: 'docs.example.com',
+          label: 'Docs',
+          tabs: [
+            { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+          ],
+        },
+      ],
+    },
+    realTabs: [
+      { id: 1, url: 'https://docs.example.com/guide' },
+    ],
+  });
+
+  const section = { style: { display: 'none' } };
+  const missionsEl = { innerHTML: '' };
+
+  await withFakeDocument({
+    importedSessionSection: section,
+    importedSessionCount: { textContent: '' },
+    importedSessionMeta: { textContent: '' },
+    importedSessionMissions: missionsEl,
+  }, async () => {
+    controller.renderImportedSessionSection();
+  });
+
+  assert.match(missionsEl.innerHTML, /class="chip-inline-status chip-open-status"/);
+  assert.match(missionsEl.innerHTML, /data-tooltip="已打开"/);
+  assert.match(missionsEl.innerHTML, /aria-label="已打开"/);
 });

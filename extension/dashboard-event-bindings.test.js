@@ -6,8 +6,12 @@ const assert = require('node:assert/strict');
 const {
   createDashboardEventBindings,
 } = require('./dashboard-event-bindings.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
 
 function createHarness(overrides = {}) {
+  const i18n = createTestI18n();
   const calls = {
     closeMoreMenu: [],
     focusMoreMenuItem: [],
@@ -66,6 +70,7 @@ function createHarness(overrides = {}) {
     showToast: message => {
       calls.showToast.push(message);
     },
+    t: i18n.t,
   });
 
   bindings.bind(documentRef);

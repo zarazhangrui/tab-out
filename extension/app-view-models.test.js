@@ -47,6 +47,7 @@ test('buildSearchResultsModel keeps imported tab metadata and open state', () =>
       url: 'https://docs.example.com/guide',
       favIconUrl: '',
       source: 'open',
+      sourceLabelKey: 'source.open',
       sourceLabel: 'Open tab',
     },
     {
@@ -57,6 +58,7 @@ test('buildSearchResultsModel keeps imported tab metadata and open state', () =>
       url: 'https://docs.example.com/guide',
       isOpen: true,
       source: 'imported',
+      sourceLabelKey: 'source.imported',
       sourceLabel: 'Imported tab',
       groupLabel: 'Docs',
     },

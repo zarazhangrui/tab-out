@@ -128,6 +128,26 @@ test('parseImportedSession normalizes group metadata and tab titles', () => {
   assert.ok(parsed.groups[0].tabs.every(tab => /^tab-/.test(tab.id)));
 });
 
+test('parseImportedSession drops script-like URLs that would violate extension CSP', () => {
+  const parsed = parseImportedSession(JSON.stringify({
+    groups: [
+      {
+        domain: 'docs.example.com',
+        tabs: [
+          { url: 'javascript:alert(1)', title: 'Script URL' },
+          { url: 'data:text/html,<script>alert(1)</script>', title: 'Data URL' },
+          { url: 'https://docs.example.com/guide', title: 'Guide' },
+        ],
+      },
+    ],
+  }));
+
+  assert.deepEqual(
+    parsed.groups[0].tabs.map(tab => tab.url),
+    ['https://docs.example.com/guide']
+  );
+});
+
 test('planRestoreTabs skips already open and duplicate queued urls', () => {
   const plan = planRestoreTabs([
     {

@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const {
   createDashboardSearchRenderer,
 } = require('./dashboard-search-renderer.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
 
 function makeElement() {
   return {
@@ -41,10 +44,12 @@ function withMockDocument(fn) {
 }
 
 function createRenderer(overrides = {}) {
+  const i18n = createTestI18n();
   return createDashboardSearchRenderer({
     buildFaviconImg: (domain, className = 'chip-favicon') => `[icon:${className}:${domain || ''}]`,
     buildSearchResultsModel: overrides.buildSearchResultsModel || (() => []),
     checkTabOutDupes: overrides.checkTabOutDupes || (() => {}),
+    countLabel: i18n.countLabel,
     escapeHtml: value => String(value ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -59,6 +64,7 @@ function createRenderer(overrides = {}) {
     normalizeSearchText: value => String(value || '').trim().toLowerCase(),
     searchImportedSessionTabs: overrides.searchImportedSessionTabs || (() => []),
     searchTextMatches: overrides.searchTextMatches || (() => true),
+    t: i18n.t,
   });
 }
 

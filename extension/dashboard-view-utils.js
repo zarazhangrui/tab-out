@@ -47,11 +47,49 @@
   function isSafeRenderableFaviconUrl(url) {
     if (!url || typeof url !== 'string') return false;
     if (/^https:\/\/t\d\.gstatic\.com\/faviconV2\b/i.test(url)) return false;
-    return /^(https?:|data:|chrome:)/i.test(url);
+    return /^(data:|chrome:)/i.test(url);
+  }
+
+  function isBlockedRemoteFaviconUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (/^https:\/\/t\d\.gstatic\.com\/faviconV2\b/i.test(url)) return true;
+
+    try {
+      return /\/favicon\.ico$/i.test(new URL(url).pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  function isChromeFaviconPageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (isBlockedRemoteFaviconUrl(url)) return false;
+
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function getExtensionAssetUrl(path) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.getURL === 'function') {
+      return chrome.runtime.getURL(path);
+    }
+
+    return path;
+  }
+
+  function buildChromeFaviconUrl(pageUrl) {
+    return getExtensionAssetUrl(`/_favicon/?pageUrl=${encodeURIComponent(pageUrl)}&size=32`);
   }
 
   function buildFaviconImg(domain, className = 'chip-favicon', faviconUrl = '') {
-    const resolvedFaviconUrl = isSafeRenderableFaviconUrl(faviconUrl) ? faviconUrl : '';
+    const resolvedFaviconUrl = isChromeFaviconPageUrl(faviconUrl)
+      ? buildChromeFaviconUrl(faviconUrl)
+      : (isSafeRenderableFaviconUrl(faviconUrl) ? faviconUrl : '');
     if (resolvedFaviconUrl) {
       return `<img class="${className}" src="${escapeHtml(resolvedFaviconUrl)}" alt="">`;
     }
@@ -310,6 +348,7 @@
 
   const dashboardViewUtils = {
     buildFaviconImg,
+    buildChromeFaviconUrl,
     buildSessionFilename,
     capitalize,
     cleanTitle,

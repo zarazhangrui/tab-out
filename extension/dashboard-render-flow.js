@@ -8,11 +8,14 @@
     getImportedSession,
     getSearchQuery,
     renderAutoRefreshToggle,
+    renderLanguageToggle,
+    renderThemeToggle,
     renderImportedSessionSection,
     renderLaterListColumn,
     renderMoreMenu,
     renderOpenTabsSectionFromState,
     renderSearchResults,
+    renderStaticText = () => {},
   }) {
     async function renderStaticDashboard(renderCtx = {}) {
       const { isStale = () => false } = renderCtx;
@@ -25,7 +28,10 @@
       if (dateEl) dateEl.textContent = getDateDisplay();
       const searchQuery = getSearchQuery();
       if (searchInput && searchInput.value !== searchQuery) searchInput.value = searchQuery;
+      renderStaticText();
       renderAutoRefreshToggle();
+      renderLanguageToggle();
+      renderThemeToggle();
       renderMoreMenu();
 
       await fetchOpenTabs();

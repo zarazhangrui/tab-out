@@ -6,8 +6,12 @@ const assert = require('node:assert/strict');
 const {
   createDashboardActions,
 } = require('./dashboard-actions.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
 
 function createHarness(overrides = {}) {
+  const i18n = createTestI18n();
   let moreMenuOpen = overrides.moreMenuOpen || false;
   const querySelectorAllMap = overrides.querySelectorAllMap || {};
   const querySelectorMap = overrides.querySelectorMap || {};
@@ -28,6 +32,7 @@ function createHarness(overrides = {}) {
     focusMoreMenuItem: [],
     focusTab: [],
     focusTabById: [],
+    moveTabsToCurrentWindow: [],
     playCloseSound: 0,
     removeKnownTabsFromState: [],
     removeOpenTabOptimistically: [],
@@ -35,12 +40,19 @@ function createHarness(overrides = {}) {
     renderAutoRefreshToggle: 0,
     renderImportedSessionSection: 0,
     renderLaterListColumn: 0,
+    renderLanguageToggle: 0,
     renderMoreMenu: 0,
+    renderStaticText: 0,
+    renderTabMovingToggle: 0,
+    renderThemeToggle: 0,
     reconcileOpenTabsFromBrowser: 0,
     saveTabForLater: [],
     scheduleDashboardAndWait: 0,
     scheduleSearchAndWait: 0,
     setAutoRefreshSetting: [],
+    setLanguagePreferenceSetting: [],
+    setTabMovingSetting: [],
+    setThemePreferenceSetting: [],
     showToast: [],
     suppressRemovedTabRefresh: [],
     shootConfetti: [],
@@ -114,7 +126,9 @@ function createHarness(overrides = {}) {
     },
     friendlyDomain: value => `friendly:${value}`,
     getAutoRefreshEnabled: () => !!overrides.autoRefreshEnabled,
+    getCurrentWindowId: () => overrides.currentWindowId || 1,
     getDashboardStateSnapshot: () => overrides.dashboardStateSnapshot || {
+      tabMovingEnabled: !!overrides.tabMovingEnabled,
       domainGroups: [{ domain: 'docs.example.com' }],
       openTabs: [
         { id: 1, url: 'https://docs.example.com/guide' },
@@ -122,12 +136,25 @@ function createHarness(overrides = {}) {
       ],
     },
     getDomainGroupByStableId: () => overrides.domainGroup || null,
+    getLanguagePreference: () => overrides.languagePreference || 'en',
     getMoreMenuOpen: () => moreMenuOpen,
+    getNextLanguagePreference: i18n.getNextLanguage,
+    getNextThemePreference: overrides.getNextThemePreference || (() => overrides.nextThemePreference || 'dark'),
     getTabUrl: tab => tab.url || '',
+    getThemePreference: () => overrides.themePreference || 'system',
     hasActiveSearch: () => !!overrides.hasActiveSearch,
     importedSessionController,
     isRealTabUrl: url => /^https?:/.test(url),
     laterListController,
+    moveTabsToCurrentWindow: async tabIds => {
+      calls.moveTabsToCurrentWindow.push(tabIds);
+      return overrides.moveTabsToCurrentWindowResult || {
+        movedCount: Array.isArray(tabIds) ? tabIds.length : 0,
+        skippedCount: 0,
+        tabIds,
+        windowId: overrides.currentWindowId || 1,
+      };
+    },
     playCloseSound: () => { calls.playCloseSound += 1; },
     removeKnownTabsFromState: input => { calls.removeKnownTabsFromState.push(input); },
     removeOpenTabOptimistically: async input => { calls.removeOpenTabOptimistically.push(input); },
@@ -135,7 +162,11 @@ function createHarness(overrides = {}) {
     renderAutoRefreshToggle: () => { calls.renderAutoRefreshToggle += 1; },
     renderImportedSessionSection: () => { calls.renderImportedSessionSection += 1; },
     renderLaterListColumn: async () => { calls.renderLaterListColumn += 1; },
+    renderLanguageToggle: () => { calls.renderLanguageToggle += 1; },
     renderMoreMenu: () => { calls.renderMoreMenu += 1; },
+    renderStaticText: () => { calls.renderStaticText += 1; },
+    renderTabMovingToggle: () => { calls.renderTabMovingToggle += 1; },
+    renderThemeToggle: () => { calls.renderThemeToggle += 1; },
     reconcileOpenTabsFromBrowser: async () => { calls.reconcileOpenTabsFromBrowser += 1; },
     saveTabForLater: async input => {
       calls.saveTabForLater.push(input);
@@ -144,13 +175,17 @@ function createHarness(overrides = {}) {
     scheduleDashboardAndWait: async () => { calls.scheduleDashboardAndWait += 1; },
     scheduleSearchAndWait: async () => { calls.scheduleSearchAndWait += 1; },
     setAutoRefreshSetting: async value => { calls.setAutoRefreshSetting.push(value); },
+    setLanguagePreferenceSetting: async value => { calls.setLanguagePreferenceSetting.push(value); },
+    setTabMovingSetting: async value => { calls.setTabMovingSetting.push(value); },
     setMoreMenuOpen: value => {
       moreMenuOpen = value;
       return moreMenuOpen;
     },
+    setThemePreferenceSetting: async value => { calls.setThemePreferenceSetting.push(value); },
     showToast: message => { calls.showToast.push(message); },
     suppressRemovedTabRefresh: tabIds => { calls.suppressRemovedTabRefresh.push(tabIds); },
     shootConfetti: (...args) => { calls.shootConfetti.push(args); },
+    t: i18n.t,
   });
 
   return {
@@ -202,6 +237,82 @@ test('toggle-more-menu updates state, rerenders menu, and focuses first item whe
   } finally {
     global.setTimeout = previousSetTimeout;
   }
+});
+
+test('toggle-theme stores next theme preference and updates menu state', async () => {
+  const { actions, calls } = createHarness({
+    nextThemePreference: 'dark',
+    themePreference: 'system',
+  });
+
+  await actions['toggle-theme']();
+
+  assert.deepEqual(calls.setThemePreferenceSetting, ['dark']);
+  assert.equal(calls.renderThemeToggle, 1);
+  assert.equal(calls.closeMoreMenu, 1);
+  assert.deepEqual(calls.showToast, ['Dark theme enabled']);
+});
+
+test('move-tab-here moves one tab to current window and refreshes view', async () => {
+  const { actions, calls } = createHarness({
+    moveTabsToCurrentWindowResult: { movedCount: 1, skippedCount: 0, tabIds: [9], windowId: 1 },
+  });
+
+  await actions['move-tab-here']({
+    actionEl: {
+      dataset: { tabId: '9' },
+    },
+    event: { stopPropagation() {} },
+  });
+
+  assert.deepEqual(calls.moveTabsToCurrentWindow, [['9']]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['Moved 1 tab here']);
+});
+
+test('move-domain-tabs-here moves only group tabs outside current window', async () => {
+  const { actions, calls } = createHarness({
+    currentWindowId: 1,
+    domainGroup: {
+      domain: 'docs.example.com',
+      tabs: [
+        { id: 1, windowId: 1, url: 'https://docs.example.com/current' },
+        { id: 2, windowId: 2, url: 'https://docs.example.com/remote' },
+      ],
+    },
+    moveTabsToCurrentWindowResult: { movedCount: 1, skippedCount: 0, tabIds: [2], windowId: 1 },
+  });
+
+  await actions['move-domain-tabs-here']({
+    actionEl: {
+      dataset: { domainId: 'domain-docs-example-com' },
+    },
+  });
+
+  assert.deepEqual(calls.moveTabsToCurrentWindow, [[2]]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['Moved 1 tab from friendly:docs.example.com here']);
+});
+
+test('move-all-tabs-here moves all tabs outside current window', async () => {
+  const { actions, calls } = createHarness({
+    currentWindowId: 1,
+    dashboardStateSnapshot: {
+      domainGroups: [],
+      openTabs: [
+        { id: 1, windowId: 1, url: 'https://docs.example.com/current' },
+        { id: 2, windowId: 2, url: 'https://docs.example.com/remote' },
+        { id: 3, windowId: 3, url: 'https://later.example.com/remote' },
+      ],
+    },
+    moveTabsToCurrentWindowResult: { movedCount: 2, skippedCount: 0, tabIds: [2, 3], windowId: 1 },
+  });
+
+  await actions['move-all-tabs-here']();
+
+  assert.deepEqual(calls.moveTabsToCurrentWindow, [[2, 3]]);
+  assert.equal(calls.reconcileOpenTabsFromBrowser, 1);
+  assert.deepEqual(calls.showToast, ['Moved 2 tabs here']);
 });
 
 test('close-tabout-dupes uses local state cleanup without full dashboard refresh', async () => {

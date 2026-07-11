@@ -6,8 +6,12 @@ const assert = require('node:assert/strict');
 const {
   createOpenTabsRuntime,
 } = require('./open-tabs-runtime.js');
+const {
+  createTestI18n,
+} = require('./test-i18n-helper.js');
 
 function createHarness(overrides = {}) {
+  const i18n = createTestI18n();
   const state = {
     domainGroups: overrides.initialDomainGroups || [],
     openTabs: overrides.initialOpenTabs || [],
@@ -66,6 +70,7 @@ function createHarness(overrides = {}) {
     renderSearchResults: async () => {
       calls.renderSearchResults += 1;
     },
+    t: i18n.t,
   });
 
   return {

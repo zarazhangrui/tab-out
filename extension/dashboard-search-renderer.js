@@ -5,6 +5,7 @@
     buildFaviconImg,
     buildSearchResultsModel,
     checkTabOutDupes,
+    countLabel = (_key, count) => (Number(count) === 1 ? 'result' : 'results'),
     escapeHtml,
     friendlyDomain,
     getImportedSession,
@@ -14,6 +15,7 @@
     normalizeSearchText,
     searchImportedSessionTabs,
     searchTextMatches,
+    t = key => key,
   }) {
     function buildSearchResultItem(item) {
       const safeId = escapeHtml(item.id || '');
@@ -21,7 +23,7 @@
       const safeGroupId = escapeHtml(item.groupId || '');
       const safeUrl = escapeHtml(item.url || '');
       const safeTitle = escapeHtml(item.title || item.url || '');
-      const safeSourceLabel = escapeHtml(item.sourceLabel || '');
+      const safeSourceLabel = escapeHtml(item.sourceLabelKey ? t(item.sourceLabelKey) : (item.sourceLabel || ''));
       const safeDisplayTitle = escapeHtml(item.title || item.url || '');
       const safeGroupLabel = escapeHtml(item.groupLabel || '');
       const sourceBadgeClass = item.source === 'imported' ? ' imported' : item.source === 'later' ? ' later' : '';
@@ -31,32 +33,32 @@
       const faviconHtml = buildFaviconImg(
         domain,
         'chip-favicon',
-        item.source === 'open' ? item.favIconUrl : ''
+        item.source === 'open' ? item.url : ''
       );
 
       let actions = '';
       if (item.source === 'open') {
         actions = `
-          <button class="action-btn" data-action="focus-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">Focus</button>
-          <button class="action-btn close-tabs" data-action="close-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">Close</button>
-          <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">Later</button>
+          <button class="action-btn" data-action="focus-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">${t('action.focus')}</button>
+          <button class="action-btn close-tabs" data-action="close-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}">${t('action.close')}</button>
+          <button class="action-btn save-tabs" data-action="defer-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}">${t('action.later')}</button>
         `;
       } else if (item.source === 'imported') {
-        const primaryLabel = item.isOpen ? 'Open' : 'Restore';
+        const primaryLabel = item.isOpen ? t('action.open') : t('action.restore');
         actions = `
           <button class="action-btn save-tabs" data-action="restore-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}" data-tab-url="${safeUrl}">${primaryLabel}</button>
-          <button class="action-btn danger" data-action="clear-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}">Clear</button>
+          <button class="action-btn danger" data-action="clear-imported-tab" data-imported-group-id="${safeGroupId}" data-imported-tab-id="${safeTabId}">${t('action.clear')}</button>
         `;
       } else {
         actions = item.isArchived
           ? `
-            <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">Open</button>
-            <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">Remove</button>
+            <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">${t('action.open')}</button>
+            <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">${t('action.remove')}</button>
           `
           : `
-            <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">Open</button>
-            <button class="action-btn save-tabs" data-action="check-later" data-later-id="${safeId}">Done</button>
-            <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">Remove</button>
+            <button class="action-btn" data-action="open-later-item" data-later-url="${safeUrl}">${t('action.open')}</button>
+            <button class="action-btn save-tabs" data-action="check-later" data-later-id="${safeId}">${t('action.done')}</button>
+            <button class="action-btn danger" data-action="dismiss-later" data-later-id="${safeId}">${t('action.remove')}</button>
           `;
       }
 
@@ -127,10 +129,10 @@
       if (laterColumn) laterColumn.style.display = 'none';
       if (tabOutDupeBanner) tabOutDupeBanner.style.display = 'none';
 
-      searchCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
+      searchCount.textContent = `${results.length} ${countLabel('common.result', results.length)}`;
       searchResults.innerHTML = results.length > 0
         ? results.map(buildSearchResultItem).join('')
-        : '<div class="search-empty">No matching tabs across open tabs, imported session, or later list.</div>';
+        : `<div class="search-empty">${t('search.empty')}</div>`;
       if (isStale()) return false;
       searchSection.style.display = 'block';
       return true;

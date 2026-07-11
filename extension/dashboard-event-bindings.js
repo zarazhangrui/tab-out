@@ -15,6 +15,7 @@
     setMoreMenuOpen,
     setSearchQuery,
     showToast,
+    t = key => key,
   }) {
     function bind(documentRef) {
       if (!documentRef || typeof documentRef.addEventListener !== 'function') {
@@ -36,7 +37,7 @@
             });
           } catch (err) {
             console.error(`[tab-out] Action failed: ${action}`, err);
-            showToast('Action failed, refreshing view');
+            showToast(t('toast.actionFailed'));
             scheduleDashboardRender();
           }
           return;

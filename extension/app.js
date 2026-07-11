@@ -42,10 +42,12 @@ const {
   getTabUrl,
   isRealTabUrl,
   isTabOutTab,
+  moveTabsToCurrentWindow: moveTabsToCurrentWindowInChrome,
   queryDashboardTabs,
   queryRawTabs,
 } = window.TabOutTabService || {};
 const { createSessionStore } = window.TabOutSessionStore || {};
+const { createDashboardI18n } = window.TabOutDashboardI18n || {};
 const { createRenderScheduler: createRenderSchedulerFromModule } = window.TabOutDashboardRuntime || {};
 const { createDashboardHeaderUi } = window.TabOutDashboardHeaderUi || {};
 const { createDashboardEventBindings } = window.TabOutDashboardEventBindings || {};
@@ -86,6 +88,10 @@ const { createImportedSessionController } = window.TabOutImportedSessionControll
 
 let dashboardRefreshTimer = null;
 let autoRefreshEnabled = false;
+let languagePreference = 'en';
+let tabMovingEnabled = false;
+let themePreference = 'system';
+let currentWindowId = null;
 let globalSearchQuery = '';
 let searchDebounceTimer = null;
 let moreMenuOpen = false;
@@ -114,6 +120,12 @@ const getStorageValue = sessionStore && typeof sessionStore.getStorageValue === 
         ? []
         : key === 'autoRefreshEnabled'
           ? false
+          : key === 'languagePreference'
+            ? 'en'
+          : key === 'tabMovingEnabled'
+            ? false
+          : key === 'themePreference'
+            ? 'system'
           : null;
       const result = await chrome.storage.local.get(key);
       return Object.prototype.hasOwnProperty.call(result, key) ? result[key] : fallback;
@@ -181,6 +193,9 @@ const ensureStorageSchema = sessionStore && typeof sessionStore.ensureStorageSch
         autoRefreshEnabled: !!(await getStorageValue('autoRefreshEnabled')),
         deferred: (await getStorageValue('deferred')) || [],
         importedSession: (await getStorageValue('importedSession')) || null,
+        languagePreference: (await getStorageValue('languagePreference')) || 'en',
+        tabMovingEnabled: !!(await getStorageValue('tabMovingEnabled')),
+        themePreference: (await getStorageValue('themePreference')) || 'system',
       };
       await chrome.storage.local.set({
         ...state,
@@ -216,6 +231,23 @@ const appState = typeof createAppState === 'function'
       },
     };
 const state = appState.getState();
+const dashboardI18n = typeof createDashboardI18n === 'function'
+  ? createDashboardI18n({
+      getLanguage: () => languagePreference,
+    })
+  : null;
+const t = dashboardI18n && typeof dashboardI18n.t === 'function'
+  ? dashboardI18n.t
+  : key => key;
+const countLabel = dashboardI18n && typeof dashboardI18n.countLabel === 'function'
+  ? dashboardI18n.countLabel
+  : (_key, count) => (Number(count) === 1 ? 'item' : 'items');
+const getNextLanguagePreference = dashboardI18n && typeof dashboardI18n.getNextLanguage === 'function'
+  ? dashboardI18n.getNextLanguage
+  : language => (language === 'zh' ? 'en' : 'zh');
+const normalizeLanguagePreference = dashboardI18n && typeof dashboardI18n.normalizeLanguage === 'function'
+  ? dashboardI18n.normalizeLanguage
+  : language => (language === 'zh' ? 'zh' : 'en');
 const dashboardUiEffects = typeof createDashboardUiEffects === 'function'
   ? createDashboardUiEffects({
       onCardRemoved: checkAndShowEmptyState,
@@ -239,7 +271,12 @@ const downloadJsonFile = dashboardUiEffects && typeof dashboardUiEffects.downloa
 const dashboardHeaderUi = typeof createDashboardHeaderUi === 'function'
   ? createDashboardHeaderUi({
       getAutoRefreshEnabled: () => autoRefreshEnabled,
+      getLanguagePreference: () => languagePreference,
       getMoreMenuOpen: () => moreMenuOpen,
+      getTabMovingEnabled: () => tabMovingEnabled,
+      getThemePreference: () => themePreference,
+      getNextLanguage: getNextLanguagePreference,
+      t,
     })
   : null;
 const openTabsController = typeof createOpenTabsController === 'function'
@@ -254,6 +291,7 @@ const openTabsController = typeof createOpenTabsController === 'function'
 const laterListController = typeof createLaterListController === 'function'
   ? createLaterListController({
       buildFaviconImg,
+      countLabel,
       createStableId,
       escapeHtml,
       getState: () => state,
@@ -263,6 +301,7 @@ const laterListController = typeof createLaterListController === 'function'
       scheduleSearchAndWait,
       setStorageValue,
       showToast,
+      t,
       timeAgo: formatTimeAgo,
     })
   : null;
@@ -272,6 +311,7 @@ const importedSessionController = typeof createImportedSessionController === 'fu
       buildImportedTabViewModel: buildImportedTabViewModelFromModule,
       buildSessionFilename,
       buildFaviconImg,
+      countLabel,
       createSessionExport: sessionCreateSessionExport,
       dedupeSessionGroups: sessionDedupeSessionGroups,
       createTab: createTabInChrome,
@@ -292,6 +332,7 @@ const importedSessionController = typeof createImportedSessionController === 'fu
       queueStorageUpdate,
       syncImportedSessionSearchResults,
       showToast,
+      t,
     })
   : null;
 const dashboardSearchRenderer = typeof createDashboardSearchRenderer === 'function'
@@ -299,6 +340,7 @@ const dashboardSearchRenderer = typeof createDashboardSearchRenderer === 'functi
       buildFaviconImg,
       buildSearchResultsModel: buildSearchResultsModelFromModule,
       checkTabOutDupes,
+      countLabel,
       escapeHtml,
       friendlyDomain: friendlyDomainLabel,
       getImportedSession,
@@ -308,18 +350,21 @@ const dashboardSearchRenderer = typeof createDashboardSearchRenderer === 'functi
       normalizeSearchText: normalizeDashboardSearchText,
       searchImportedSessionTabs: sessionSearchImportedSessionTabs,
       searchTextMatches: searchDashboardTextMatches,
+      t,
     })
   : null;
 const dashboardCardRenderer = typeof createDashboardCardRenderer === 'function'
   ? createDashboardCardRenderer({
       buildFaviconImg,
       cleanTitle,
+      countLabel,
       escapeHtml,
       friendlyDomain: friendlyDomainLabel,
       getDomainGroupActionId,
       shortTimeAgo: formatShortTimeAgo,
       smartTitle,
       stripTitleNoise,
+      t,
     })
   : null;
 const renderOpenTabsSectionCount = dashboardCardRenderer && typeof dashboardCardRenderer.renderOpenTabsSectionCount === 'function'
@@ -440,10 +485,58 @@ async function setAutoRefreshSetting(enabled) {
   await setStorageValue('autoRefreshEnabled', autoRefreshEnabled);
 }
 
+async function getLanguagePreferenceSetting() {
+  languagePreference = normalizeLanguagePreference(await getStorageValue('languagePreference'));
+  return languagePreference;
+}
+
+async function setLanguagePreferenceSetting(preference) {
+  languagePreference = normalizeLanguagePreference(preference);
+  await setStorageValue('languagePreference', languagePreference);
+  return languagePreference;
+}
+
+async function getTabMovingSetting() {
+  tabMovingEnabled = !!(await getStorageValue('tabMovingEnabled'));
+  return tabMovingEnabled;
+}
+
+async function setTabMovingSetting(enabled) {
+  tabMovingEnabled = !!enabled;
+  await setStorageValue('tabMovingEnabled', tabMovingEnabled);
+  return tabMovingEnabled;
+}
+
+function normalizeThemePreference(preference) {
+  return ['system', 'light', 'dark'].includes(preference) ? preference : 'system';
+}
+
+async function getThemePreferenceSetting() {
+  themePreference = normalizeThemePreference(await getStorageValue('themePreference'));
+  return themePreference;
+}
+
+async function setThemePreferenceSetting(preference) {
+  themePreference = normalizeThemePreference(preference);
+  await setStorageValue('themePreference', themePreference);
+  return themePreference;
+}
 
 const renderAutoRefreshToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderAutoRefreshToggle === 'function'
   ? dashboardHeaderUi.renderAutoRefreshToggle
   : () => {};
+const renderThemeToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderThemeToggle === 'function'
+  ? dashboardHeaderUi.renderThemeToggle
+  : () => {};
+const renderLanguageToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderLanguageToggle === 'function'
+  ? dashboardHeaderUi.renderLanguageToggle
+  : () => {};
+const renderTabMovingToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderTabMovingToggle === 'function'
+  ? dashboardHeaderUi.renderTabMovingToggle
+  : () => {};
+const getNextThemePreference = dashboardHeaderUi && typeof dashboardHeaderUi.getNextThemePreference === 'function'
+  ? dashboardHeaderUi.getNextThemePreference
+  : preference => (preference === 'dark' ? 'light' : 'dark');
 const renderMoreMenu = dashboardHeaderUi && typeof dashboardHeaderUi.renderMoreMenu === 'function'
   ? dashboardHeaderUi.renderMoreMenu
   : () => {};
@@ -453,6 +546,87 @@ const getMoreMenuItems = dashboardHeaderUi && typeof dashboardHeaderUi.getMoreMe
 const focusMoreMenuItem = dashboardHeaderUi && typeof dashboardHeaderUi.focusMoreMenuItem === 'function'
   ? dashboardHeaderUi.focusMoreMenuItem
   : () => {};
+
+function getLocalizedGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return t('greeting.morning');
+  if (hour < 17) return t('greeting.afternoon');
+  return t('greeting.evening');
+}
+
+function getLocalizedDateDisplay() {
+  if (languagePreference === 'zh') {
+    return new Date().toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'long',
+    });
+  }
+
+  return getDashboardDateDisplay();
+}
+
+function renderStaticText() {
+  const staticText = {
+    globalSearchInput: {
+      ariaLabel: t('aria.search'),
+      placeholder: t('placeholder.search'),
+    },
+    moreMenuPanel: { ariaLabel: t('aria.moreActions') },
+    searchSection: null,
+    searchCount: null,
+    importedSessionTitle: { text: t('section.importedSession') },
+    openTabsSectionTitle: { text: t('section.openTabs') },
+    laterCount: null,
+    laterEmpty: { text: t('state.laterEmpty') },
+    statTabs: null,
+  };
+
+  const searchHeading = document.querySelector('#searchSection h2');
+  if (searchHeading) searchHeading.textContent = t('section.searchResults');
+  const laterHeading = document.querySelector('#laterColumn h2');
+  if (laterHeading) laterHeading.textContent = t('section.laterList');
+  const statLabel = document.querySelector('.stat-label');
+  if (statLabel) statLabel.textContent = t('footer.openTabs');
+  const moreMenuToggle = document.getElementById('moreMenuToggle');
+  if (moreMenuToggle) {
+    const textNode = Array.from(moreMenuToggle.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (textNode) textNode.textContent = ` ${t('menu.more')} `;
+  }
+  const clearLaterList = document.querySelector('[data-action="clear-later-list"]');
+  if (clearLaterList) clearLaterList.textContent = t('action.clearAll');
+  const archiveToggle = document.getElementById('archiveToggle');
+  if (archiveToggle) {
+    const textNode = Array.from(archiveToggle.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (textNode) textNode.textContent = ` ${t('common.archive')} `;
+  }
+  const clearArchive = document.querySelector('[data-action="clear-later-archive"]');
+  if (clearArchive) clearArchive.textContent = t('action.clear');
+  const closeExtras = document.querySelector('[data-action="close-tabout-dupes"]');
+  if (closeExtras) closeExtras.textContent = t('action.closeExtras');
+  const exportImported = document.querySelector('[data-action="export-imported-session"]');
+  if (exportImported) exportImported.textContent = t('action.exportAll');
+  const restoreImported = document.querySelector('[data-action="restore-imported-session"]');
+  if (restoreImported) restoreImported.textContent = t('action.restoreAll');
+  const clearImported = document.querySelector('[data-action="clear-imported-session"]');
+  if (clearImported) clearImported.textContent = t('action.clear');
+  const manualRefresh = document.querySelector('[data-action="manual-refresh"]');
+  if (manualRefresh) manualRefresh.textContent = t('action.refresh');
+  const importFile = document.querySelector('[data-action="trigger-import-session"]');
+  if (importFile) importFile.textContent = t('action.importFile');
+  const exportAll = document.querySelector('[data-action="export-all-groups"]');
+  if (exportAll) exportAll.textContent = t('action.exportAll');
+
+  for (const [id, config] of Object.entries(staticText)) {
+    if (!config) continue;
+    const element = document.getElementById(id);
+    if (!element) continue;
+    if (config.text) element.textContent = config.text;
+    if (config.placeholder) element.setAttribute('placeholder', config.placeholder);
+    if (config.ariaLabel) element.setAttribute('aria-label', config.ariaLabel);
+  }
+}
 
 function closeMoreMenu({ restoreFocus = false } = {}) {
   if (!moreMenuOpen) return;
@@ -661,12 +835,15 @@ function getDashboardStateSnapshot() {
   const realTabs = getRealTabs();
   return {
     autoRefreshEnabled,
+    currentWindowId,
     deferredItemsCache: state.deferredItemsCache,
     domainGroups: state.domainGroups,
     importedSession: state.importedSession,
+    languagePreference,
     moreMenuOpen,
     openTabs: state.openTabs,
     realTabs,
+    tabMovingEnabled,
   };
 }
 
@@ -718,10 +895,13 @@ const openTabsRuntime = typeof createOpenTabsRuntime === 'function'
       getRealTabs,
       getRenderDomainCard: () => renderDomainCard,
       getRenderOpenTabsSectionCount: () => renderOpenTabsSectionCount,
+      getCurrentWindowId: () => currentWindowId,
       getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
       getState: () => state,
+      getTabMovingEnabled: () => tabMovingEnabled,
       getTabUrl,
       renderSearchResults: scheduleSearchAndWait,
+      t,
     })
   : null;
 const renderOpenTabsSectionFromState = openTabsRuntime && typeof openTabsRuntime.renderOpenTabsSectionFromState === 'function'
@@ -742,16 +922,19 @@ const reconcileOpenTabsFromBrowser = openTabsRuntime && typeof openTabsRuntime.r
 const dashboardRenderFlow = typeof createDashboardRenderFlow === 'function'
   ? createDashboardRenderFlow({
       fetchOpenTabs,
-      getDateDisplay: getDashboardDateDisplay,
-      getGreeting: getDashboardGreeting,
+      getDateDisplay: getLocalizedDateDisplay,
+      getGreeting: getLocalizedGreeting,
       getImportedSession,
       getSearchQuery: () => globalSearchQuery,
       renderAutoRefreshToggle,
+      renderLanguageToggle,
+      renderThemeToggle,
       renderImportedSessionSection,
       renderLaterListColumn,
       renderMoreMenu,
       renderOpenTabsSectionFromState,
       renderSearchResults,
+      renderStaticText,
     })
   : null;
 const renderStaticDashboard = dashboardRenderFlow && typeof dashboardRenderFlow.renderStaticDashboard === 'function'
@@ -784,14 +967,20 @@ const actionHandlers = typeof createDashboardActions === 'function'
       focusTabById: focusTabByIdInChrome,
       friendlyDomain: friendlyDomainLabel,
       getAutoRefreshEnabled: () => autoRefreshEnabled,
+      getCurrentWindowId: () => currentWindowId,
       getDashboardStateSnapshot,
       getDomainGroupByStableId,
+      getLanguagePreference: () => languagePreference,
       getMoreMenuOpen,
+      getNextLanguagePreference,
+      getNextThemePreference,
       getTabUrl,
+      getThemePreference: () => themePreference,
       hasActiveSearch,
       importedSessionController,
       isRealTabUrl,
       laterListController,
+      moveTabsToCurrentWindow: moveTabsToCurrentWindowInChrome,
       playCloseSound,
       removeKnownTabsFromState,
       removeOpenTabOptimistically,
@@ -799,16 +988,24 @@ const actionHandlers = typeof createDashboardActions === 'function'
       renderAutoRefreshToggle,
       renderImportedSessionSection,
       renderLaterListColumn,
+      renderLanguageToggle,
       renderMoreMenu,
+      renderTabMovingToggle,
+      renderThemeToggle,
+      renderStaticText,
       reconcileOpenTabsFromBrowser,
       saveTabForLater,
       scheduleDashboardAndWait,
       scheduleSearchAndWait,
       setAutoRefreshSetting,
+      setLanguagePreferenceSetting,
       setMoreMenuOpen,
+      setTabMovingSetting,
+      setThemePreferenceSetting,
       showToast,
       suppressRemovedTabRefresh,
       shootConfetti,
+      t,
     })
   : {};
 const dashboardEventBindings = typeof createDashboardEventBindings === 'function'
@@ -834,24 +1031,35 @@ const dashboardEventBindings = typeof createDashboardEventBindings === 'function
         return globalSearchQuery;
       },
       showToast,
+      t,
     })
   : null;
 const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
   ? createDashboardLifecycle({
       ensureStorageSchema,
       getAutoRefreshSetting,
+      getLanguagePreferenceSetting,
+      getTabMovingSetting,
+      getThemePreferenceSetting,
       getCurrentTabId: async () => {
         const currentTab = await chrome.tabs.getCurrent();
-        if (currentTab && currentTab.id) return currentTab.id;
+        if (currentTab && currentTab.id) return currentTab;
 
         const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
         const activeTabOutTab = activeTabs.find(tab => isTabOutTab(tab));
-        return activeTabOutTab && activeTabOutTab.id;
+        return activeTabOutTab || null;
+      },
+      getCurrentWindowId: async () => {
+        const currentWindow = await chrome.windows.getCurrent();
+        return currentWindow && currentWindow.id;
       },
       getNormalizeDeferredItems: () => normalizeDeferredItems,
       getNormalizeImportedSessionData: () => normalizeImportedSessionData,
       getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
       renderAutoRefreshToggle,
+      renderLanguageToggle,
+      renderTabMovingToggle,
+      renderThemeToggle,
       renderLaterListColumn,
       scheduleOpenTabsRefresh,
       scheduleDashboardRender: () => {
@@ -866,8 +1074,24 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
         autoRefreshEnabled = !!value;
         return autoRefreshEnabled;
       },
+      setCurrentWindowId: value => {
+        currentWindowId = typeof value === 'undefined' || value === null ? null : Number(value);
+        return currentWindowId;
+      },
       setDeferredItemsCache,
       setImportedSession: session => appState.setImportedSession(session),
+      setLanguagePreference: value => {
+        languagePreference = normalizeLanguagePreference(value);
+        return languagePreference;
+      },
+      setTabMovingEnabled: value => {
+        tabMovingEnabled = !!value;
+        return tabMovingEnabled;
+      },
+      setThemePreference: value => {
+        themePreference = normalizeThemePreference(value);
+        return themePreference;
+      },
       shouldSkipRemovedTab: tabId => {
         if (!suppressedRemovedTabIds.has(tabId)) return false;
         suppressedRemovedTabIds.delete(tabId);

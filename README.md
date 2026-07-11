@@ -13,7 +13,7 @@ No server. No account. No external API calls. Just a Chrome extension.
 Send your coding agent (Claude Code, Codex, etc.) this repo and say **"install this"**:
 
 ```
-https://github.com/zarazhangrui/tab-out
+https://github.com/mrfoolish/tab-out
 ```
 
 The agent will walk you through it. Takes about 1 minute.
@@ -40,7 +40,7 @@ The agent will walk you through it. Takes about 1 minute.
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/zarazhangrui/tab-out.git
+git clone https://github.com/mrfoolish/tab-out.git
 ```
 
 **2. Load the Chrome extension**
@@ -88,4 +88,4 @@ MIT
 
 ---
 
-Built by [Zara](https://x.com/zarazhangrui)
+Fork maintained at [mrfoolish/tab-out](https://github.com/mrfoolish/tab-out). Original project by [Zara](https://x.com/zarazhangrui).

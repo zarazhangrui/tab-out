@@ -32,10 +32,28 @@ test('buildFaviconImg uses a local placeholder when favicon url is absent or blo
   assert.doesNotMatch(blocked, /<img/);
 });
 
-test('buildFaviconImg keeps safe native favicon urls', () => {
-  const html = buildFaviconImg('docs.example.com', 'chip-favicon', 'https://docs.example.com/favicon.ico');
+test('buildFaviconImg uses Chrome favicon endpoint for page urls', () => {
+  const html = buildFaviconImg('docs.example.com', 'chip-favicon', 'https://docs.example.com/guide');
   assert.match(html, /<img class="chip-favicon"/);
-  assert.match(html, /https:\/\/docs\.example\.com\/favicon\.ico/);
+  assert.match(html, /\/_favicon\/\?pageUrl=https%3A%2F%2Fdocs\.example\.com%2Fguide&amp;size=32/);
+});
+
+test('buildFaviconImg blocks remote native favicon urls', () => {
+  const docs = buildFaviconImg('docs.example.com', 'chip-favicon', 'https://docs.example.com/favicon.ico');
+  assert.match(docs, /favicon-placeholder/);
+  assert.doesNotMatch(docs, /<img/);
+  assert.doesNotMatch(docs, /https:\/\/docs\.example\.com\/favicon\.ico/);
+
+  const acm = buildFaviconImg('dl.acm.org', 'chip-favicon', 'https://dl.acm.org/favicon.ico');
+  assert.match(acm, /favicon-placeholder/);
+  assert.doesNotMatch(acm, /<img/);
+  assert.doesNotMatch(acm, /https:\/\/dl\.acm\.org\/favicon\.ico/);
+});
+
+test('buildFaviconImg keeps embedded favicon urls', () => {
+  const html = buildFaviconImg('docs.example.com', 'chip-favicon', 'data:image/png;base64,abc');
+  assert.match(html, /<img class="chip-favicon"/);
+  assert.match(html, /data:image\/png;base64,abc/);
 });
 
 test('buildSessionFilename uses local timestamp shape and sanitized scope', () => {
