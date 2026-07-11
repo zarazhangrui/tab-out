@@ -50,6 +50,7 @@ const { createSessionStore } = window.TabOutSessionStore || {};
 const { createDashboardI18n } = window.TabOutDashboardI18n || {};
 const { createRenderScheduler: createRenderSchedulerFromModule } = window.TabOutDashboardRuntime || {};
 const { createDashboardHeaderUi } = window.TabOutDashboardHeaderUi || {};
+const { createDashboardStaticTextRenderer } = window.TabOutDashboardStaticText || {};
 const { createDashboardEventBindings } = window.TabOutDashboardEventBindings || {};
 const { createDashboardLifecycle } = window.TabOutDashboardLifecycle || {};
 const { createDashboardRenderFlow } = window.TabOutDashboardRenderFlow || {};
@@ -589,6 +590,12 @@ const getMoreMenuItems = dashboardHeaderUi && typeof dashboardHeaderUi.getMoreMe
 const focusMoreMenuItem = dashboardHeaderUi && typeof dashboardHeaderUi.focusMoreMenuItem === 'function'
   ? dashboardHeaderUi.focusMoreMenuItem
   : () => {};
+const dashboardStaticTextRenderer = typeof createDashboardStaticTextRenderer === 'function'
+  ? createDashboardStaticTextRenderer({
+      getCustomGroupController: () => customGroupController,
+      t,
+    })
+  : null;
 
 function getLocalizedGreeting() {
   const hour = new Date().getHours();
@@ -610,112 +617,9 @@ function getLocalizedDateDisplay() {
   return getDashboardDateDisplay();
 }
 
-function renderStaticText() {
-  const staticText = {
-    globalSearchInput: {
-      ariaLabel: t('aria.search'),
-      placeholder: t('placeholder.search'),
-    },
-    moreMenuPanel: { ariaLabel: t('aria.moreActions') },
-    searchSection: null,
-    searchCount: null,
-    importedSessionTitle: { text: t('section.importedSession') },
-    openTabsSectionTitle: { text: t('section.openTabs') },
-    laterCount: null,
-    laterEmpty: { text: t('state.laterEmpty') },
-    statTabs: null,
-  };
-
-  const searchHeading = document.querySelector('#searchSection h2');
-  if (searchHeading) searchHeading.textContent = t('section.searchResults');
-  const laterHeading = document.querySelector('#laterColumn h2');
-  if (laterHeading) laterHeading.textContent = t('section.laterList');
-  const statLabel = document.querySelector('.stat-label');
-  if (statLabel) statLabel.textContent = t('footer.openTabs');
-  const moreMenuToggle = document.getElementById('moreMenuToggle');
-  if (moreMenuToggle) {
-    const textNode = Array.from(moreMenuToggle.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-    if (textNode) textNode.textContent = ` ${t('menu.more')} `;
-  }
-  const clearLaterList = document.querySelector('[data-action="clear-later-list"]');
-  if (clearLaterList) clearLaterList.textContent = t('action.clearAll');
-  const archiveToggle = document.getElementById('archiveToggle');
-  if (archiveToggle) {
-    const textNode = Array.from(archiveToggle.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-    if (textNode) textNode.textContent = ` ${t('common.archive')} `;
-  }
-  const clearArchive = document.querySelector('[data-action="clear-later-archive"]');
-  if (clearArchive) clearArchive.textContent = t('action.clear');
-  const closeExtras = document.querySelector('[data-action="close-tabout-dupes"]');
-  if (closeExtras) closeExtras.textContent = t('action.closeExtras');
-  const exportImported = document.querySelector('[data-action="export-imported-session"]');
-  if (exportImported) exportImported.textContent = t('action.exportAll');
-  const restoreImported = document.querySelector('[data-action="restore-imported-session"]');
-  if (restoreImported) restoreImported.textContent = t('action.restoreAll');
-  const clearImported = document.querySelector('[data-action="clear-imported-session"]');
-  if (clearImported) clearImported.textContent = t('action.clear');
-  const manualRefresh = document.querySelector('[data-action="manual-refresh"]');
-  if (manualRefresh) manualRefresh.textContent = t('action.refresh');
-  const importFile = document.querySelector('[data-action="trigger-import-session"]');
-  if (importFile) importFile.textContent = t('action.importFile');
-  const exportAll = document.querySelector('[data-action="export-all-groups"]');
-  if (exportAll) exportAll.textContent = t('action.exportAll');
-  const customGroups = document.querySelector('[data-action="open-custom-groups"]');
-  if (customGroups) customGroups.textContent = t('menu.customGroups');
-  const customGroupTitle = document.getElementById('customGroupTitle');
-  if (customGroupTitle) customGroupTitle.textContent = t('customGroups.title');
-  const customGroupDescription = document.getElementById('customGroupDescription');
-  if (customGroupDescription) customGroupDescription.textContent = t('customGroups.description');
-  const customGroupEnabledLabel = document.getElementById('customGroupEnabledLabel');
-  if (customGroupEnabledLabel) customGroupEnabledLabel.textContent = t('customGroups.enabled');
-  const customGroupLabelLabel = document.getElementById('customGroupLabelLabel');
-  if (customGroupLabelLabel) customGroupLabelLabel.textContent = t('customGroups.groupLabel');
-  const customGroupLabel = document.getElementById('customGroupLabel');
-  if (customGroupLabel) customGroupLabel.setAttribute('placeholder', t('customGroups.placeholder.groupLabel'));
-  const customGroupKeyLabel = document.getElementById('customGroupKeyLabel');
-  if (customGroupKeyLabel) customGroupKeyLabel.textContent = t('customGroups.groupKey');
-  const customGroupKey = document.getElementById('customGroupKey');
-  if (customGroupKey) customGroupKey.setAttribute('placeholder', t('customGroups.placeholder.groupKey'));
-  const customGroupHostnameLabel = document.getElementById('customGroupHostnameLabel');
-  if (customGroupHostnameLabel) customGroupHostnameLabel.textContent = t('customGroups.hostname');
-  const customGroupHostname = document.getElementById('customGroupHostname');
-  if (customGroupHostname) customGroupHostname.setAttribute('placeholder', t('customGroups.placeholder.hostname'));
-  const customGroupHostnameEndsWithLabel = document.getElementById('customGroupHostnameEndsWithLabel');
-  if (customGroupHostnameEndsWithLabel) customGroupHostnameEndsWithLabel.textContent = t('customGroups.hostnameEndsWith');
-  const customGroupHostnameEndsWith = document.getElementById('customGroupHostnameEndsWith');
-  if (customGroupHostnameEndsWith) customGroupHostnameEndsWith.setAttribute('placeholder', t('customGroups.placeholder.hostnameEndsWith'));
-  const customGroupPathPrefixLabel = document.getElementById('customGroupPathPrefixLabel');
-  if (customGroupPathPrefixLabel) customGroupPathPrefixLabel.textContent = t('customGroups.pathPrefix');
-  const customGroupPathPrefix = document.getElementById('customGroupPathPrefix');
-  if (customGroupPathPrefix) customGroupPathPrefix.setAttribute('placeholder', t('customGroups.placeholder.pathPrefix'));
-  const customGroupResetButton = document.getElementById('customGroupResetButton');
-  if (customGroupResetButton) customGroupResetButton.textContent = t('action.reset');
-  const customGroupSaveButton = document.getElementById('customGroupSaveButton');
-  const customGroupRuleId = document.getElementById('customGroupRuleId');
-  if (customGroupSaveButton) {
-    customGroupSaveButton.textContent = customGroupRuleId && customGroupRuleId.value
-      ? t('action.saveRule')
-      : t('action.addRule');
-  }
-  const customGroupImportButton = document.getElementById('customGroupImportButton');
-  if (customGroupImportButton) customGroupImportButton.textContent = t('action.importRules');
-  const customGroupExportButton = document.getElementById('customGroupExportButton');
-  if (customGroupExportButton) customGroupExportButton.textContent = t('action.exportRules');
-  const customGroupCloseButton = document.querySelector('[data-action="close-custom-groups"]');
-  if (customGroupCloseButton) customGroupCloseButton.setAttribute('aria-label', t('customGroups.close'));
-  if (customGroupController && typeof customGroupController.renderPanel === 'function') {
-    customGroupController.renderPanel();
-  }
-
-  for (const [id, config] of Object.entries(staticText)) {
-    if (!config) continue;
-    const element = document.getElementById(id);
-    if (!element) continue;
-    if (config.text) element.textContent = config.text;
-    if (config.placeholder) element.setAttribute('placeholder', config.placeholder);
-    if (config.ariaLabel) element.setAttribute('aria-label', config.ariaLabel);
-  }
-}
+const renderStaticText = dashboardStaticTextRenderer && typeof dashboardStaticTextRenderer.renderStaticText === 'function'
+  ? dashboardStaticTextRenderer.renderStaticText
+  : () => {};
 
 function closeMoreMenu({ restoreFocus = false } = {}) {
   if (!moreMenuOpen) return;

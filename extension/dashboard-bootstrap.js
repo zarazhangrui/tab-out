@@ -31,6 +31,7 @@
     TabOutDashboardI18n: ['createDashboardI18n'],
     TabOutDashboardRuntime: ['createRenderScheduler'],
     TabOutDashboardHeaderUi: ['createDashboardHeaderUi'],
+    TabOutDashboardStaticText: ['createDashboardStaticTextRenderer'],
     TabOutDashboardEventBindings: ['createDashboardEventBindings'],
     TabOutDashboardLifecycle: ['createDashboardLifecycle'],
     TabOutDashboardRenderFlow: ['createDashboardRenderFlow'],

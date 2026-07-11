@@ -57,6 +57,7 @@ test('validateDashboardModules accepts the dashboard module surface used by app.
     TabOutDashboardI18n: { createDashboardI18n: fn },
     TabOutDashboardRuntime: { createRenderScheduler: fn },
     TabOutDashboardHeaderUi: { createDashboardHeaderUi: fn },
+    TabOutDashboardStaticText: { createDashboardStaticTextRenderer: fn },
     TabOutDashboardEventBindings: { createDashboardEventBindings: fn },
     TabOutDashboardLifecycle: { createDashboardLifecycle: fn },
     TabOutDashboardRenderFlow: { createDashboardRenderFlow: fn },
