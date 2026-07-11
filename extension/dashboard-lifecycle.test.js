@@ -11,6 +11,7 @@ function createHarness(overrides = {}) {
   const calls = {
     ensureStorageSchema: 0,
     getAutoRefreshSetting: 0,
+    getCustomGroupRulesSetting: 0,
     getLanguagePreferenceSetting: 0,
     getTabMovingSetting: 0,
     getThemePreferenceSetting: 0,
@@ -26,6 +27,7 @@ function createHarness(overrides = {}) {
     scheduleDashboardRender: 0,
     scheduleSearchRender: 0,
     setAutoRefreshEnabled: [],
+    setCustomGroupRules: [],
     setCurrentWindowId: [],
     setDeferredItemsCache: [],
     setImportedSession: [],
@@ -84,6 +86,11 @@ function createHarness(overrides = {}) {
       calls.getAutoRefreshSetting += 1;
       if (overrides.getAutoRefreshSettingError) throw overrides.getAutoRefreshSettingError;
       return true;
+    },
+    getCustomGroupRulesSetting: async () => {
+      calls.getCustomGroupRulesSetting += 1;
+      if (overrides.getCustomGroupRulesSettingError) throw overrides.getCustomGroupRulesSettingError;
+      return overrides.customGroupRules || [];
     },
     getLanguagePreferenceSetting: async () => {
       calls.getLanguagePreferenceSetting += 1;
@@ -150,6 +157,9 @@ function createHarness(overrides = {}) {
     },
     setAutoRefreshEnabled: value => {
       calls.setAutoRefreshEnabled.push(value);
+    },
+    setCustomGroupRules: value => {
+      calls.setCustomGroupRules.push(value);
     },
     setCurrentWindowId: value => {
       calls.setCurrentWindowId.push(value);
@@ -327,6 +337,7 @@ test('bindBrowserListeners reacts to storage changes', async () => {
     autoRefreshEnabled: { newValue: true },
     languagePreference: { newValue: 'zh' },
     tabMovingEnabled: { newValue: true },
+    customGroupRules: { newValue: [{ id: 'workspace' }] },
     themePreference: { newValue: 'dark' },
   }, 'local');
 
@@ -338,6 +349,7 @@ test('bindBrowserListeners reacts to storage changes', async () => {
   assert.deepEqual(calls.setImportedSession, [{ groups: [{ id: 'docs' }] }]);
   assert.deepEqual(calls.setAutoRefreshEnabled, [true]);
   assert.equal(calls.renderAutoRefreshToggle, 1);
+  assert.deepEqual(calls.setCustomGroupRules, [[{ id: 'workspace' }]]);
   assert.deepEqual(calls.setLanguagePreference, ['zh']);
   assert.equal(calls.renderLanguageToggle, 1);
   assert.deepEqual(calls.setTabMovingEnabled, [true]);
@@ -354,6 +366,7 @@ test('initialize loads schema and settings then schedules first render', async (
 
   assert.equal(calls.ensureStorageSchema, 1);
   assert.equal(calls.getAutoRefreshSetting, 1);
+  assert.equal(calls.getCustomGroupRulesSetting, 1);
   assert.equal(calls.getLanguagePreferenceSetting, 1);
   assert.equal(calls.getTabMovingSetting, 1);
   assert.equal(calls.getCurrentWindowId, 1);

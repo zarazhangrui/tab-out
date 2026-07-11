@@ -30,6 +30,10 @@ test('storage defaults use English language preference', () => {
   assert.equal(STORAGE_DEFAULTS.languagePreference, 'en');
 });
 
+test('storage defaults include empty custom group rules', () => {
+  assert.deepEqual(STORAGE_DEFAULTS.customGroupRules, []);
+});
+
 test('migrateStoredState normalizes theme preference', () => {
   const store = createStore();
 
@@ -37,6 +41,7 @@ test('migrateStoredState normalizes theme preference', () => {
     storageSchemaVersion: 1,
     deferred: [],
     importedSession: null,
+    customGroupRules: [],
     languagePreference: 'en',
     autoRefreshEnabled: false,
     tabMovingEnabled: false,
@@ -46,6 +51,7 @@ test('migrateStoredState normalizes theme preference', () => {
       storageSchemaVersion: 1,
       deferred: [],
       importedSession: null,
+      customGroupRules: [],
       languagePreference: 'en',
       autoRefreshEnabled: false,
       tabMovingEnabled: false,
@@ -81,6 +87,7 @@ test('migrateStoredState normalizes advanced tab moving setting', () => {
     storageSchemaVersion: 1,
     deferred: [],
     importedSession: null,
+    customGroupRules: [],
     autoRefreshEnabled: false,
     languagePreference: 'en',
     themePreference: 'system',
@@ -107,6 +114,7 @@ test('migrateStoredState normalizes language preference', () => {
     storageSchemaVersion: 1,
     deferred: [],
     importedSession: null,
+    customGroupRules: [],
     autoRefreshEnabled: false,
     languagePreference: 'zh',
     tabMovingEnabled: false,
@@ -126,4 +134,63 @@ test('migrateStoredState normalizes language preference', () => {
   });
   assert.equal(invalid.state.languagePreference, 'en');
   assert.equal(invalid.changed, true);
+});
+
+test('migrateStoredState normalizes custom group rules', () => {
+  const store = createStore();
+
+  const migrated = store.migrateStoredState({
+    storageSchemaVersion: 1,
+    deferred: [],
+    importedSession: null,
+    autoRefreshEnabled: false,
+    languagePreference: 'en',
+    tabMovingEnabled: false,
+    themePreference: 'system',
+    customGroupRules: [
+      {
+        enabled: true,
+        groupKey: 'workspace',
+        groupLabel: 'Workspace',
+        hostnameEndsWith: 'Google.COM',
+        note: 'remove me',
+      },
+      {
+        id: 'github-issues',
+        enabled: false,
+        groupKey: 'github-issues',
+        groupLabel: 'GitHub Issues',
+        hostname: 'github.com',
+        pathPrefix: 'mrfoolish/tab-out/issues',
+      },
+      {
+        enabled: true,
+        groupKey: '',
+        groupLabel: 'Invalid',
+        hostname: 'invalid.example.com',
+      },
+    ],
+  });
+
+  assert.equal(migrated.changed, true);
+  assert.deepEqual(migrated.state.customGroupRules, [
+    {
+      id: 'custom-group-1',
+      enabled: true,
+      groupKey: 'workspace',
+      groupLabel: 'Workspace',
+      hostname: '',
+      hostnameEndsWith: 'google.com',
+      pathPrefix: '',
+    },
+    {
+      id: 'github-issues',
+      enabled: false,
+      groupKey: 'github-issues',
+      groupLabel: 'GitHub Issues',
+      hostname: 'github.com',
+      hostnameEndsWith: '',
+      pathPrefix: '/mrfoolish/tab-out/issues',
+    },
+  ]);
 });

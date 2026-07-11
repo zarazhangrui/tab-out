@@ -108,3 +108,125 @@ test('buildDomainGroups still sorts new groups by tab count when no previous ord
     ['alpha.example.com', 'beta.example.com', 'zeta.example.com']
   );
 });
+
+test('buildDomainGroups applies custom hostname rules with exact close metadata', () => {
+  const tabs = [
+    { title: 'Mail', url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQbdrA' },
+    { title: 'Docs', url: 'https://docs.google.com/document/d/abc' },
+    { title: 'Calendar', url: 'https://calendar.google.com/calendar/u/0/r' },
+  ];
+
+  const groups = buildDomainGroups({
+    tabs,
+    customGroupRules: [
+      {
+        id: 'google-workspace',
+        enabled: true,
+        groupKey: 'google-workspace',
+        groupLabel: 'Google Workspace',
+        hostname: 'mail.google.com',
+      },
+    ],
+  });
+
+  const customGroup = groups.find(group => group.domain === 'google-workspace');
+  assert.ok(customGroup);
+  assert.equal(customGroup.label, 'Google Workspace');
+  assert.equal(customGroup.closeMode, 'exact');
+  assert.deepEqual(customGroup.tabs.map(tab => tab.title), ['Mail']);
+});
+
+test('buildDomainGroups applies custom hostname suffix rules before default host grouping', () => {
+  const tabs = [
+    { title: 'Doc', url: 'https://docs.google.com/document/d/abc' },
+    { title: 'Sheet', url: 'https://sheets.google.com/spreadsheets/d/abc' },
+    { title: 'Example', url: 'https://example.com/' },
+  ];
+
+  const groups = buildDomainGroups({
+    tabs,
+    customGroupRules: [
+      {
+        id: 'workspace-suite',
+        enabled: true,
+        groupKey: 'workspace-suite',
+        groupLabel: 'Workspace Suite',
+        hostnameEndsWith: '.google.com',
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    groups.map(group => group.domain),
+    ['workspace-suite', 'example.com']
+  );
+  assert.deepEqual(
+    groups.find(group => group.domain === 'workspace-suite').tabs.map(tab => tab.title),
+    ['Doc', 'Sheet']
+  );
+});
+
+test('buildDomainGroups lets custom path prefixes split tabs on the same hostname', () => {
+  const tabs = [
+    { title: 'Issue', url: 'https://github.com/mrfoolish/tab-out/issues/1' },
+    { title: 'Pull request', url: 'https://github.com/mrfoolish/tab-out/pull/2' },
+    { title: 'Code', url: 'https://github.com/mrfoolish/tab-out' },
+  ];
+
+  const groups = buildDomainGroups({
+    tabs,
+    customGroupRules: [
+      {
+        id: 'tab-out-issues',
+        enabled: true,
+        groupKey: 'tab-out-issues',
+        groupLabel: 'Tab Out Issues',
+        hostname: 'github.com',
+        pathPrefix: '/mrfoolish/tab-out/issues',
+      },
+      {
+        id: 'tab-out-pulls',
+        enabled: true,
+        groupKey: 'tab-out-pulls',
+        groupLabel: 'Tab Out Pull Requests',
+        hostname: 'github.com',
+        pathPrefix: '/mrfoolish/tab-out/pull',
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    groups.map(group => group.domain),
+    ['tab-out-issues', 'tab-out-pulls', 'github.com']
+  );
+  assert.deepEqual(groups.find(group => group.domain === 'tab-out-issues').tabs.map(tab => tab.title), ['Issue']);
+  assert.deepEqual(groups.find(group => group.domain === 'tab-out-pulls').tabs.map(tab => tab.title), ['Pull request']);
+  assert.deepEqual(groups.find(group => group.domain === 'github.com').tabs.map(tab => tab.title), ['Code']);
+});
+
+test('buildDomainGroups ignores disabled or incomplete custom group rules', () => {
+  const tabs = [
+    { title: 'Docs', url: 'https://docs.google.com/document/d/abc' },
+  ];
+
+  const groups = buildDomainGroups({
+    tabs,
+    customGroupRules: [
+      {
+        id: 'disabled',
+        enabled: false,
+        groupKey: 'disabled',
+        groupLabel: 'Disabled',
+        hostname: 'docs.google.com',
+      },
+      {
+        id: 'missing-match',
+        enabled: true,
+        groupKey: 'missing-match',
+        groupLabel: 'Missing match',
+      },
+    ],
+  });
+
+  assert.deepEqual(groups.map(group => group.domain), ['docs.google.com']);
+});

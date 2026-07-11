@@ -11,6 +11,7 @@
     getRenderDomainCard,
     getRenderOpenTabsSectionCount,
     getCurrentWindowId = () => null,
+    getCustomGroupRules = () => [],
     getSearchQuery,
     getState,
     getTabMovingEnabled = () => false,
@@ -21,7 +22,12 @@
     function rebuildDomainGroupsFromState() {
       appState.setDomainGroups(
         typeof buildDomainGroups === 'function'
-          ? buildDomainGroups({ tabs: getRealTabs(), getTabUrl, previousGroups: getState().domainGroups })
+          ? buildDomainGroups({
+              tabs: getRealTabs(),
+              getTabUrl,
+              previousGroups: getState().domainGroups,
+              customGroupRules: getCustomGroupRules(),
+            })
           : []
       );
     }

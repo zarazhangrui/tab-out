@@ -67,6 +67,7 @@
     TabOutOpenTabsController: ['createOpenTabsController'],
     TabOutLaterListController: ['createLaterListController'],
     TabOutImportedSessionController: ['createImportedSessionController'],
+    TabOutCustomGroupController: ['createCustomGroupController'],
   };
 
   function validateDashboardModules(modules) {

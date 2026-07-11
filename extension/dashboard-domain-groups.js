@@ -46,8 +46,57 @@
     return landingSuffixes.some(suffix => domain.endsWith(suffix));
   }
 
-  function buildDomainGroups({ tabs = [], getTabUrl, previousGroups = [] } = {}) {
+  function normalizeCustomGroupRule(rule) {
+    if (!rule || typeof rule !== 'object') return null;
+    if (rule.enabled === false) return null;
+
+    const groupKey = String(rule.groupKey || '').trim();
+    const groupLabel = String(rule.groupLabel || '').trim();
+    const hostname = String(rule.hostname || '').trim().toLowerCase();
+    const hostnameEndsWith = String(rule.hostnameEndsWith || '').trim().toLowerCase();
+    const rawPathPrefix = String(rule.pathPrefix || '').trim();
+    const pathPrefix = rawPathPrefix && !rawPathPrefix.startsWith('/')
+      ? `/${rawPathPrefix}`
+      : rawPathPrefix;
+    if (!groupKey || !groupLabel || (!hostname && !hostnameEndsWith)) return null;
+
+    return {
+      groupKey,
+      groupLabel,
+      hostname,
+      hostnameEndsWith,
+      pathPrefix,
+    };
+  }
+
+  function normalizeCustomGroupRules(rules) {
+    return (Array.isArray(rules) ? rules : [])
+      .map(normalizeCustomGroupRule)
+      .filter(Boolean);
+  }
+
+  function matchCustomGroupRule(url, rules) {
+    if (!rules || rules.length === 0) return null;
+
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      return rules.find(rule => {
+        const hostMatch = rule.hostname
+          ? hostname === rule.hostname
+          : hostname.endsWith(rule.hostnameEndsWith);
+        if (!hostMatch) return false;
+        if (rule.pathPrefix) return parsed.pathname.startsWith(rule.pathPrefix);
+        return true;
+      }) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function buildDomainGroups({ tabs = [], getTabUrl, previousGroups = [], customGroupRules = [] } = {}) {
     const sourceTabs = Array.isArray(tabs) ? tabs : [];
+    const customRules = normalizeCustomGroupRules(customGroupRules);
     const groupMap = {};
     const landingTabs = [];
     const previousOrder = new Map(
@@ -61,6 +110,21 @@
 
         if (isLandingPage(url)) {
           landingTabs.push(tab);
+          continue;
+        }
+
+        const customRule = matchCustomGroupRule(url, customRules);
+        if (customRule) {
+          if (!groupMap[customRule.groupKey]) {
+            groupMap[customRule.groupKey] = {
+              domain: customRule.groupKey,
+              label: customRule.groupLabel,
+              customGroup: true,
+              closeMode: 'exact',
+              tabs: [],
+            };
+          }
+          groupMap[customRule.groupKey].tabs.push(tab);
           continue;
         }
 
@@ -93,6 +157,10 @@
       const bIsLanding = b.domain === '__landing-pages__';
       if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
 
+      const aIsCustom = !!a.customGroup;
+      const bIsCustom = !!b.customGroup;
+      if (aIsCustom !== bIsCustom) return aIsCustom ? -1 : 1;
+
       const aIsPriority = isLandingDomain(a.domain);
       const bIsPriority = isLandingDomain(b.domain);
       if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
@@ -110,6 +178,8 @@
   const dashboardDomainGroups = {
     buildDomainGroups,
     isLandingPage,
+    matchCustomGroupRule,
+    normalizeCustomGroupRules,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

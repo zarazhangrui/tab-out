@@ -93,5 +93,6 @@ test('validateDashboardModules accepts the dashboard module surface used by app.
     TabOutOpenTabsController: { createOpenTabsController: fn },
     TabOutLaterListController: { createLaterListController: fn },
     TabOutImportedSessionController: { createImportedSessionController: fn },
+    TabOutCustomGroupController: { createCustomGroupController: fn },
   }));
 });

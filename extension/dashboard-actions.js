@@ -32,6 +32,7 @@
     getTabUrl,
     getThemePreference,
     hasActiveSearch,
+    customGroupController,
     importedSessionController,
     isRealTabUrl,
     laterListController,
@@ -52,6 +53,7 @@
     saveTabForLater,
     scheduleDashboardAndWait,
     scheduleSearchAndWait,
+    customGroupImportInputSelector = '#customGroupImportInput',
     sessionImportInputSelector = '#sessionImportInput',
     setAutoRefreshSetting,
     setLanguagePreferenceSetting,
@@ -203,6 +205,44 @@
         showToast(t('toast.tabMoving', {
           state: t(snapshot.tabMovingEnabled ? 'menu.off' : 'menu.on'),
         }));
+      },
+      'open-custom-groups': async () => {
+        if (!customGroupController || typeof customGroupController.openPanel !== 'function') return;
+        customGroupController.openPanel();
+      },
+      'close-custom-groups': async () => {
+        if (!customGroupController || typeof customGroupController.closePanel !== 'function') return;
+        customGroupController.closePanel();
+      },
+      'reset-custom-group-form': async () => {
+        if (!customGroupController || typeof customGroupController.resetForm !== 'function') return;
+        customGroupController.resetForm();
+      },
+      'save-custom-group-rule': async () => {
+        if (!customGroupController || typeof customGroupController.saveRule !== 'function') return;
+        await customGroupController.saveRule();
+      },
+      'trigger-custom-group-import': async () => {
+        const input = document.querySelector(customGroupImportInputSelector);
+        if (input) input.click();
+      },
+      'import-custom-group-rules': async ({ actionEl }) => {
+        if (!customGroupController || typeof customGroupController.importRulesFromFiles !== 'function') return;
+        const files = Array.from(actionEl.files || []);
+        if (files.length === 0) return;
+        await customGroupController.importRulesFromFiles(files);
+      },
+      'export-custom-group-rules': async () => {
+        if (!customGroupController || typeof customGroupController.exportRules !== 'function') return;
+        customGroupController.exportRules();
+      },
+      'edit-custom-group-rule': async ({ actionEl }) => {
+        if (!customGroupController || typeof customGroupController.editRule !== 'function') return;
+        customGroupController.editRule(actionEl.dataset.ruleId);
+      },
+      'delete-custom-group-rule': async ({ actionEl }) => {
+        if (!customGroupController || typeof customGroupController.deleteRule !== 'function') return;
+        await customGroupController.deleteRule(actionEl.dataset.ruleId);
       },
       'trigger-import-session': async () => {
         const input = document.querySelector(sessionImportInputSelector);
@@ -454,7 +494,7 @@
         })) {
           return;
         }
-        const useExact = group.domain === '__landing-pages__' || !!group.label;
+        const useExact = group.domain === '__landing-pages__' || group.closeMode === 'exact';
         if (useExact) {
           await closeTabsExact(urls);
         } else {

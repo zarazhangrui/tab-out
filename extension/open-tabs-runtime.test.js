@@ -66,6 +66,7 @@ function createHarness(overrides = {}) {
     },
     getSearchQuery: () => overrides.searchQuery || '',
     getState: () => state,
+    getCustomGroupRules: () => overrides.customGroupRules || [],
     getTabUrl: tab => tab.url || '',
     renderSearchResults: async () => {
       calls.renderSearchResults += 1;
@@ -157,6 +158,37 @@ test('removeOpenTabOptimistically updates state and refreshes search when active
   assert.equal(state.openTabs.length, 1);
   assert.deepEqual(calls.setOpenTabs[0], [{ id: 2, url: 'https://docs.example.com/api' }]);
   assert.equal(calls.renderSearchResults, 1);
+});
+
+test('renderOpenTabsSectionFromState passes custom group rules into grouping', async () => {
+  const customGroupRules = [
+    {
+      id: 'workspace',
+      enabled: true,
+      groupKey: 'workspace',
+      groupLabel: 'Workspace',
+      hostnameEndsWith: '.google.com',
+    },
+  ];
+  const { runtime, calls } = createHarness({
+    customGroupRules,
+    initialOpenTabs: [
+      { id: 1, url: 'https://docs.google.com/document/d/abc' },
+    ],
+  });
+
+  await withFakeDocument({
+    openTabsSection: { style: {} },
+    openTabsMissions: { innerHTML: '' },
+    openTabsSectionCount: { innerHTML: '' },
+    openTabsSectionTitle: { textContent: '' },
+    statTabs: { textContent: '' },
+  }, async () => {
+    runtime.renderOpenTabsSectionFromState();
+  });
+
+  assert.equal(calls.buildDomainGroups.length, 1);
+  assert.deepEqual(calls.buildDomainGroups[0].customGroupRules, customGroupRules);
 });
 
 test('reconcileOpenTabsFromBrowser refetches tabs and rerenders search when needed', async () => {

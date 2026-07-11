@@ -79,6 +79,30 @@
       });
 
       documentRef.addEventListener('change', async event => {
+        if (event.target.id === 'customGroupImportInput') {
+          const files = Array.from(event.target.files || []);
+          if (files.length === 0) return;
+
+          const handler = getActionHandlers()['import-custom-group-rules'];
+          if (typeof handler !== 'function') return;
+
+          try {
+            await handler({
+              action: 'import-custom-group-rules',
+              actionEl: event.target,
+              event,
+              snapshot: getStateSnapshot(),
+            });
+          } catch (err) {
+            console.error('[tab-out] Failed to import custom grouping rules:', err);
+            showToast(t('toast.customGroupImportFailed'));
+            scheduleDashboardRender();
+          } finally {
+            event.target.value = '';
+          }
+          return;
+        }
+
         if (event.target.id !== 'sessionImportInput') return;
 
         const files = Array.from(event.target.files || []);
@@ -103,8 +127,47 @@
         }, getSearchDebounceMs());
       });
 
+      documentRef.addEventListener('submit', async event => {
+        if (!event.target || event.target.id !== 'customGroupForm') return;
+        event.preventDefault();
+        const handler = getActionHandlers()['save-custom-group-rule'];
+        if (typeof handler !== 'function') return;
+        try {
+          await handler({
+            action: 'save-custom-group-rule',
+            actionEl: event.target,
+            event,
+            snapshot: getStateSnapshot(),
+          });
+        } catch (err) {
+          console.error('[tab-out] Failed to save custom grouping rule:', err);
+          showToast(t('toast.actionFailed'));
+          scheduleDashboardRender();
+        }
+      });
+
       documentRef.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
+          const customGroupPanel = documentRef.getElementById('customGroupPanel');
+          const customGroupPanelOpen = !!(
+            customGroupPanel &&
+            (
+              (customGroupPanel.classList && typeof customGroupPanel.classList.contains === 'function' && customGroupPanel.classList.contains('open')) ||
+              (customGroupPanel.style && customGroupPanel.style.display === 'block')
+            )
+          );
+          if (customGroupPanelOpen) {
+            const handler = getActionHandlers()['close-custom-groups'];
+            if (typeof handler === 'function') {
+              handler({
+                action: 'close-custom-groups',
+                actionEl: customGroupPanel,
+                event,
+                snapshot: getStateSnapshot(),
+              });
+              return;
+            }
+          }
           closeMoreMenu({ restoreFocus: true });
           return;
         }

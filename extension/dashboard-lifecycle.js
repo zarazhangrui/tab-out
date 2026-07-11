@@ -4,6 +4,7 @@
   function createDashboardLifecycle({
     ensureStorageSchema,
     getAutoRefreshSetting,
+    getCustomGroupRulesSetting,
     getLanguagePreferenceSetting,
     getTabMovingSetting,
     getThemePreferenceSetting,
@@ -21,6 +22,7 @@
     scheduleDashboardRender,
     scheduleSearchRender,
     setAutoRefreshEnabled,
+    setCustomGroupRules,
     setCurrentWindowId,
     setDeferredItemsCache,
     setImportedSession,
@@ -206,6 +208,15 @@
             renderAutoRefreshToggle();
           }
 
+          if (changes.customGroupRules) {
+            if (typeof setCustomGroupRules === 'function') {
+              setCustomGroupRules(Array.isArray(changes.customGroupRules.newValue)
+                ? changes.customGroupRules.newValue
+                : []);
+            }
+            shouldRender = true;
+          }
+
           if (changes.themePreference) {
             setThemePreference(changes.themePreference.newValue);
             renderThemeToggle();
@@ -239,6 +250,9 @@
           await getAutoRefreshSetting();
           if (getLanguagePreferenceSetting) {
             await getLanguagePreferenceSetting();
+          }
+          if (getCustomGroupRulesSetting) {
+            await getCustomGroupRulesSetting();
           }
           if (getTabMovingSetting) {
             await getTabMovingSetting();

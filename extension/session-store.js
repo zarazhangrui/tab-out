@@ -4,6 +4,7 @@
   const STORAGE_SCHEMA_VERSION = 1;
   const STORAGE_DEFAULTS = {
     autoRefreshEnabled: false,
+    customGroupRules: [],
     deferred: [],
     importedSession: null,
     languagePreference: 'en',
@@ -48,6 +49,76 @@
       return { items: normalized, changed };
     }
 
+    function normalizeHostname(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function normalizePathPrefix(value) {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return '';
+      return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    }
+
+    function normalizeCustomGroupRules(rules) {
+      const source = Array.isArray(rules) ? rules : [];
+      let changed = !Array.isArray(rules);
+      const normalized = [];
+
+      source.forEach(rule => {
+        if (!rule || typeof rule !== 'object') {
+          changed = true;
+          return;
+        }
+
+        const nextRule = {
+          id: String(rule.id || '').trim() || createStableId('custom-group'),
+          enabled: rule.enabled !== false,
+          groupKey: String(rule.groupKey || '').trim(),
+          groupLabel: String(rule.groupLabel || '').trim(),
+          hostname: normalizeHostname(rule.hostname),
+          hostnameEndsWith: normalizeHostname(rule.hostnameEndsWith),
+          pathPrefix: normalizePathPrefix(rule.pathPrefix),
+        };
+
+        if (!nextRule.groupKey || !nextRule.groupLabel || (!nextRule.hostname && !nextRule.hostnameEndsWith)) {
+          changed = true;
+          return;
+        }
+
+        normalized.push(nextRule);
+
+        const expected = {
+          id: String(rule.id || '').trim() || nextRule.id,
+          enabled: rule.enabled !== false,
+          groupKey: String(rule.groupKey || '').trim(),
+          groupLabel: String(rule.groupLabel || '').trim(),
+          hostname: normalizeHostname(rule.hostname),
+          hostnameEndsWith: normalizeHostname(rule.hostnameEndsWith),
+          pathPrefix: normalizePathPrefix(rule.pathPrefix),
+        };
+        if (
+          !rule.id ||
+          JSON.stringify(expected) !== JSON.stringify({
+            id: rule.id,
+            enabled: Object.prototype.hasOwnProperty.call(rule, 'enabled') ? rule.enabled : true,
+            groupKey: rule.groupKey,
+            groupLabel: rule.groupLabel,
+            hostname: rule.hostname || '',
+            hostnameEndsWith: rule.hostnameEndsWith || '',
+            pathPrefix: rule.pathPrefix || '',
+          })
+        ) {
+          changed = true;
+        }
+      });
+
+      if (normalized.length !== source.filter(rule => rule && typeof rule === 'object').length) {
+        changed = true;
+      }
+
+      return { rules: normalized, changed };
+    }
+
     function migrateStoredState(rawState = {}) {
       const source = rawState && typeof rawState === 'object' ? rawState : {};
       const currentVersion = Number(source.storageSchemaVersion) || 0;
@@ -84,6 +155,12 @@
 
       if (typeof nextState.tabMovingEnabled !== 'boolean') {
         nextState.tabMovingEnabled = !!nextState.tabMovingEnabled;
+        changed = true;
+      }
+
+      const customGroupRulesResult = normalizeCustomGroupRules(nextState.customGroupRules);
+      nextState.customGroupRules = customGroupRulesResult.rules;
+      if (customGroupRulesResult.changed) {
         changed = true;
       }
 
@@ -149,6 +226,7 @@
       ensureStorageSchema,
       getStorageValue,
       migrateStoredState,
+      normalizeCustomGroupRules,
       normalizeDeferredItems,
       normalizeImportedSessionData,
       queueStorageUpdate,

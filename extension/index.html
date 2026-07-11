@@ -50,12 +50,68 @@
           <button class="more-menu-item" id="themeToggle" data-action="toggle-theme" role="menuitem">Theme: System</button>
           <button class="more-menu-item" id="languageToggle" data-action="toggle-language" role="menuitem">Language: English</button>
           <button class="more-menu-item" id="tabMovingToggle" data-action="toggle-tab-moving" role="menuitem">Tab moving: Off</button>
+          <button class="more-menu-item" id="customGroupsToggle" data-action="open-custom-groups" role="menuitem">Grouping rules</button>
           <button class="more-menu-item" data-action="trigger-import-session" role="menuitem">Import file</button>
           <button class="more-menu-item" data-action="export-all-groups" role="menuitem">Export all</button>
         </div>
       </div>
     </div>
   </header>
+
+  <section class="custom-group-panel hidden-by-default" id="customGroupPanel" aria-labelledby="customGroupTitle">
+    <div class="custom-group-panel-inner">
+      <div class="custom-group-panel-header">
+        <div>
+          <h2 id="customGroupTitle">Grouping rules</h2>
+          <p id="customGroupDescription">Move matching tabs into a named group before the normal domain grouping runs.</p>
+        </div>
+        <button class="chip-action chip-close" data-action="close-custom-groups" aria-label="Close grouping rules">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <form class="custom-group-form" id="customGroupForm">
+        <input type="hidden" id="customGroupRuleId">
+        <label class="custom-group-toggle">
+          <input type="checkbox" id="customGroupEnabled" checked>
+          <span id="customGroupEnabledLabel">Enabled</span>
+        </label>
+        <label>
+          <span id="customGroupLabelLabel">Group label</span>
+          <input type="text" id="customGroupLabel" autocomplete="off" placeholder="Google Workspace">
+        </label>
+        <label>
+          <span id="customGroupKeyLabel">Group key</span>
+          <input type="text" id="customGroupKey" autocomplete="off" placeholder="google-workspace">
+        </label>
+        <label>
+          <span id="customGroupHostnameLabel">Exact host</span>
+          <input type="text" id="customGroupHostname" autocomplete="off" placeholder="mail.google.com">
+        </label>
+        <label>
+          <span id="customGroupHostnameEndsWithLabel">Host suffix</span>
+          <input type="text" id="customGroupHostnameEndsWith" autocomplete="off" placeholder=".google.com">
+        </label>
+        <label>
+          <span id="customGroupPathPrefixLabel">Path prefix</span>
+          <input type="text" id="customGroupPathPrefix" autocomplete="off" placeholder="/mail">
+        </label>
+        <div class="custom-group-form-actions">
+          <button type="button" class="action-btn" id="customGroupResetButton" data-action="reset-custom-group-form">Reset</button>
+          <button type="button" class="action-btn save-tabs" id="customGroupSaveButton" data-action="save-custom-group-rule">Add rule</button>
+        </div>
+      </form>
+
+      <input type="file" id="customGroupImportInput" accept="application/json,.json" hidden>
+      <div class="custom-group-toolbar">
+        <button type="button" class="action-btn" id="customGroupImportButton" data-action="trigger-custom-group-import">Import rules</button>
+        <button type="button" class="action-btn" id="customGroupExportButton" data-action="export-custom-group-rules">Export rules</button>
+      </div>
+
+      <div class="custom-group-rule-list" id="customGroupRuleList"></div>
+      <div class="custom-group-empty hidden-by-default" id="customGroupEmpty">No custom grouping rules yet.</div>
+    </div>
+  </section>
 
   <div class="search-section hidden-by-default" id="searchSection">
     <div class="section-header">
@@ -206,6 +262,7 @@
 <script src="open-tabs-controller.js"></script>
 <script src="later-list-controller.js"></script>
 <script src="imported-session-controller.js"></script>
+<script src="custom-group-controller.js"></script>
 <script src="dashboard-bootstrap.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->

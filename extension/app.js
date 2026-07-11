@@ -86,9 +86,11 @@ const { createAppState } = window.TabOutAppState || {};
 const { createOpenTabsController } = window.TabOutOpenTabsController || {};
 const { createLaterListController } = window.TabOutLaterListController || {};
 const { createImportedSessionController } = window.TabOutImportedSessionController || {};
+const { createCustomGroupController } = window.TabOutCustomGroupController || {};
 
 let dashboardRefreshTimer = null;
 let autoRefreshEnabled = false;
+let customGroupRules = [];
 let languagePreference = 'en';
 let tabMovingEnabled = false;
 let themePreference = 'system';
@@ -121,13 +123,15 @@ const getStorageValue = sessionStore && typeof sessionStore.getStorageValue === 
         ? []
         : key === 'autoRefreshEnabled'
           ? false
-          : key === 'languagePreference'
-            ? 'en'
-          : key === 'tabMovingEnabled'
-            ? false
-          : key === 'themePreference'
-            ? 'system'
-          : null;
+          : key === 'customGroupRules'
+            ? []
+            : key === 'languagePreference'
+              ? 'en'
+              : key === 'tabMovingEnabled'
+                ? false
+                : key === 'themePreference'
+                  ? 'system'
+                  : null;
       const result = await chrome.storage.local.get(key);
       return Object.prototype.hasOwnProperty.call(result, key) ? result[key] : fallback;
     };
@@ -172,6 +176,12 @@ const normalizeImportedSessionData = sessionStore && typeof sessionStore.normali
         return { session: null, changed: true };
       }
     };
+const normalizeCustomGroupRules = sessionStore && typeof sessionStore.normalizeCustomGroupRules === 'function'
+  ? sessionStore.normalizeCustomGroupRules
+  : rules => {
+      const normalized = Array.isArray(rules) ? rules : [];
+      return { rules: normalized, changed: !Array.isArray(rules) };
+    };
 const setStorageValue = sessionStore && typeof sessionStore.setStorageValue === 'function'
   ? sessionStore.setStorageValue
   : async (key, value) => {
@@ -192,6 +202,7 @@ const ensureStorageSchema = sessionStore && typeof sessionStore.ensureStorageSch
   : async () => {
       const state = {
         autoRefreshEnabled: !!(await getStorageValue('autoRefreshEnabled')),
+        customGroupRules: (await getStorageValue('customGroupRules')) || [],
         deferred: (await getStorageValue('deferred')) || [],
         importedSession: (await getStorageValue('importedSession')) || null,
         languagePreference: (await getStorageValue('languagePreference')) || 'en',
@@ -332,6 +343,37 @@ const importedSessionController = typeof createImportedSessionController === 'fu
       setStorageValue,
       queueStorageUpdate,
       syncImportedSessionSearchResults,
+      showToast,
+      t,
+    })
+  : null;
+
+function setCustomGroupRulesState(rules) {
+  const { rules: normalizedRules } = normalizeCustomGroupRules(rules);
+  customGroupRules = normalizedRules;
+  return customGroupRules;
+}
+
+async function getCustomGroupRulesSetting() {
+  const { rules, changed } = normalizeCustomGroupRules(await getStorageValue('customGroupRules'));
+  customGroupRules = rules;
+  if (changed) {
+    await setStorageValue('customGroupRules', customGroupRules);
+  }
+  return customGroupRules;
+}
+
+const customGroupController = typeof createCustomGroupController === 'function'
+  ? createCustomGroupController({
+      buildSessionFilename,
+      createStableId,
+      escapeHtml,
+      getCustomGroupRules: () => customGroupRules,
+      setCustomGroupRules: setCustomGroupRulesState,
+      setStorageValue,
+      closeMoreMenu,
+      downloadJsonFile,
+      scheduleDashboardAndWait,
       showToast,
       t,
     })
@@ -618,6 +660,52 @@ function renderStaticText() {
   if (importFile) importFile.textContent = t('action.importFile');
   const exportAll = document.querySelector('[data-action="export-all-groups"]');
   if (exportAll) exportAll.textContent = t('action.exportAll');
+  const customGroups = document.querySelector('[data-action="open-custom-groups"]');
+  if (customGroups) customGroups.textContent = t('menu.customGroups');
+  const customGroupTitle = document.getElementById('customGroupTitle');
+  if (customGroupTitle) customGroupTitle.textContent = t('customGroups.title');
+  const customGroupDescription = document.getElementById('customGroupDescription');
+  if (customGroupDescription) customGroupDescription.textContent = t('customGroups.description');
+  const customGroupEnabledLabel = document.getElementById('customGroupEnabledLabel');
+  if (customGroupEnabledLabel) customGroupEnabledLabel.textContent = t('customGroups.enabled');
+  const customGroupLabelLabel = document.getElementById('customGroupLabelLabel');
+  if (customGroupLabelLabel) customGroupLabelLabel.textContent = t('customGroups.groupLabel');
+  const customGroupLabel = document.getElementById('customGroupLabel');
+  if (customGroupLabel) customGroupLabel.setAttribute('placeholder', t('customGroups.placeholder.groupLabel'));
+  const customGroupKeyLabel = document.getElementById('customGroupKeyLabel');
+  if (customGroupKeyLabel) customGroupKeyLabel.textContent = t('customGroups.groupKey');
+  const customGroupKey = document.getElementById('customGroupKey');
+  if (customGroupKey) customGroupKey.setAttribute('placeholder', t('customGroups.placeholder.groupKey'));
+  const customGroupHostnameLabel = document.getElementById('customGroupHostnameLabel');
+  if (customGroupHostnameLabel) customGroupHostnameLabel.textContent = t('customGroups.hostname');
+  const customGroupHostname = document.getElementById('customGroupHostname');
+  if (customGroupHostname) customGroupHostname.setAttribute('placeholder', t('customGroups.placeholder.hostname'));
+  const customGroupHostnameEndsWithLabel = document.getElementById('customGroupHostnameEndsWithLabel');
+  if (customGroupHostnameEndsWithLabel) customGroupHostnameEndsWithLabel.textContent = t('customGroups.hostnameEndsWith');
+  const customGroupHostnameEndsWith = document.getElementById('customGroupHostnameEndsWith');
+  if (customGroupHostnameEndsWith) customGroupHostnameEndsWith.setAttribute('placeholder', t('customGroups.placeholder.hostnameEndsWith'));
+  const customGroupPathPrefixLabel = document.getElementById('customGroupPathPrefixLabel');
+  if (customGroupPathPrefixLabel) customGroupPathPrefixLabel.textContent = t('customGroups.pathPrefix');
+  const customGroupPathPrefix = document.getElementById('customGroupPathPrefix');
+  if (customGroupPathPrefix) customGroupPathPrefix.setAttribute('placeholder', t('customGroups.placeholder.pathPrefix'));
+  const customGroupResetButton = document.getElementById('customGroupResetButton');
+  if (customGroupResetButton) customGroupResetButton.textContent = t('action.reset');
+  const customGroupSaveButton = document.getElementById('customGroupSaveButton');
+  const customGroupRuleId = document.getElementById('customGroupRuleId');
+  if (customGroupSaveButton) {
+    customGroupSaveButton.textContent = customGroupRuleId && customGroupRuleId.value
+      ? t('action.saveRule')
+      : t('action.addRule');
+  }
+  const customGroupImportButton = document.getElementById('customGroupImportButton');
+  if (customGroupImportButton) customGroupImportButton.textContent = t('action.importRules');
+  const customGroupExportButton = document.getElementById('customGroupExportButton');
+  if (customGroupExportButton) customGroupExportButton.textContent = t('action.exportRules');
+  const customGroupCloseButton = document.querySelector('[data-action="close-custom-groups"]');
+  if (customGroupCloseButton) customGroupCloseButton.setAttribute('aria-label', t('customGroups.close'));
+  if (customGroupController && typeof customGroupController.renderPanel === 'function') {
+    customGroupController.renderPanel();
+  }
 
   for (const [id, config] of Object.entries(staticText)) {
     if (!config) continue;
@@ -836,6 +924,7 @@ function getDashboardStateSnapshot() {
   const realTabs = getRealTabs();
   return {
     autoRefreshEnabled,
+    customGroupRules,
     currentWindowId,
     deferredItemsCache: state.deferredItemsCache,
     domainGroups: state.domainGroups,
@@ -897,6 +986,7 @@ const openTabsRuntime = typeof createOpenTabsRuntime === 'function'
       getRenderDomainCard: () => renderDomainCard,
       getRenderOpenTabsSectionCount: () => renderOpenTabsSectionCount,
       getCurrentWindowId: () => currentWindowId,
+      getCustomGroupRules: () => customGroupRules,
       getSearchQuery: () => normalizeDashboardSearchText(globalSearchQuery),
       getState: () => state,
       getTabMovingEnabled: () => tabMovingEnabled,
@@ -978,6 +1068,7 @@ const actionHandlers = typeof createDashboardActions === 'function'
       getTabUrl,
       getThemePreference: () => themePreference,
       hasActiveSearch,
+      customGroupController,
       importedSessionController,
       isRealTabUrl,
       laterListController,
@@ -1040,6 +1131,7 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
   ? createDashboardLifecycle({
       ensureStorageSchema,
       getAutoRefreshSetting,
+      getCustomGroupRulesSetting,
       getLanguagePreferenceSetting,
       getTabMovingSetting,
       getThemePreferenceSetting,
@@ -1076,6 +1168,7 @@ const dashboardLifecycle = typeof createDashboardLifecycle === 'function'
         autoRefreshEnabled = !!value;
         return autoRefreshEnabled;
       },
+      setCustomGroupRules: setCustomGroupRulesState,
       setCurrentWindowId: value => {
         currentWindowId = typeof value === 'undefined' || value === null ? null : Number(value);
         return currentWindowId;

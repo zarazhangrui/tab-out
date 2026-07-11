@@ -39,6 +39,9 @@ function createHarness(overrides = {}) {
       };
     },
     getElementById(id) {
+      if (id === 'customGroupPanel') {
+        return overrides.customGroupPanel || null;
+      }
       if (id === 'archiveBody') {
         return overrides.archiveBody || null;
       }
@@ -247,4 +250,92 @@ test('change imports selected files and resets input value', async () => {
 
   assert.equal(calls.handleImportSessionFiles.length, 1);
   assert.equal(target.value, '');
+});
+
+test('change imports custom group rule files through action handler', async () => {
+  const handled = [];
+  const { listeners } = createHarness({
+    actionHandlers: {
+      'import-custom-group-rules': async input => {
+        handled.push({
+          action: input.action,
+          fileCount: Array.from(input.actionEl.files || []).length,
+        });
+      },
+    },
+  });
+  const target = {
+    id: 'customGroupImportInput',
+    files: [{ name: 'rules.json' }],
+    value: 'filled',
+  };
+
+  await listeners.change({ target });
+
+  assert.deepEqual(handled, [{
+    action: 'import-custom-group-rules',
+    fileCount: 1,
+  }]);
+  assert.equal(target.value, '');
+});
+
+test('submit on custom group form routes to save action', async () => {
+  const handled = [];
+  const { listeners } = createHarness({
+    actionHandlers: {
+      'save-custom-group-rule': async input => {
+        handled.push(input.action);
+      },
+    },
+  });
+  let prevented = 0;
+
+  await listeners.submit({
+    target: { id: 'customGroupForm' },
+    preventDefault() {
+      prevented += 1;
+    },
+  });
+
+  assert.equal(prevented, 1);
+  assert.deepEqual(handled, ['save-custom-group-rule']);
+});
+
+test('escape closes custom group panel before closing the more menu', () => {
+  const handled = [];
+  const { calls, listeners } = createHarness({
+    customGroupPanel: {
+      style: { display: 'block' },
+      classList: { contains: () => true },
+    },
+    actionHandlers: {
+      'close-custom-groups': input => {
+        handled.push(input.action);
+      },
+    },
+  });
+
+  listeners.keydown({
+    key: 'Escape',
+    target: {},
+  });
+
+  assert.deepEqual(handled, ['close-custom-groups']);
+  assert.deepEqual(calls.closeMoreMenu, []);
+});
+
+test('escape closes the more menu when custom group panel is not open', () => {
+  const { calls, listeners } = createHarness({
+    customGroupPanel: {
+      style: {},
+      classList: { contains: () => false },
+    },
+  });
+
+  listeners.keydown({
+    key: 'Escape',
+    target: {},
+  });
+
+  assert.deepEqual(calls.closeMoreMenu, [{ restoreFocus: true }]);
 });

@@ -26,6 +26,15 @@ function createHarness(overrides = {}) {
     closeTabsByUrls: [],
     closeTabsExact: [],
     createTab: [],
+    customGroupClosePanel: 0,
+    customGroupDeleteRule: [],
+    customGroupEditRule: [],
+    customGroupExportRules: 0,
+    customGroupImportRulesFromFiles: [],
+    customGroupImportInputClicks: 0,
+    customGroupOpenPanel: 0,
+    customGroupResetForm: 0,
+    customGroupSaveRule: 0,
     dismissSavedTab: [],
     downloadJsonFile: [],
     focusExactTabByUrl: [],
@@ -70,6 +79,17 @@ function createHarness(overrides = {}) {
 
   const laterListController = {
     async handleClearSavedTabsByState(input) { return input; },
+  };
+
+  const customGroupController = overrides.customGroupController || {
+    openPanel() { calls.customGroupOpenPanel += 1; },
+    closePanel() { calls.customGroupClosePanel += 1; },
+    resetForm() { calls.customGroupResetForm += 1; },
+    async saveRule() { calls.customGroupSaveRule += 1; },
+    editRule(ruleId) { calls.customGroupEditRule.push(ruleId); },
+    async deleteRule(ruleId) { calls.customGroupDeleteRule.push(ruleId); },
+    exportRules() { calls.customGroupExportRules += 1; },
+    async importRulesFromFiles(files) { calls.customGroupImportRulesFromFiles.push(files); },
   };
 
   const actions = createDashboardActions({
@@ -143,6 +163,7 @@ function createHarness(overrides = {}) {
     getTabUrl: tab => tab.url || '',
     getThemePreference: () => overrides.themePreference || 'system',
     hasActiveSearch: () => !!overrides.hasActiveSearch,
+    customGroupController,
     importedSessionController,
     isRealTabUrl: url => /^https?:/.test(url),
     laterListController,
@@ -251,6 +272,54 @@ test('toggle-theme stores next theme preference and updates menu state', async (
   assert.equal(calls.renderThemeToggle, 1);
   assert.equal(calls.closeMoreMenu, 1);
   assert.deepEqual(calls.showToast, ['Dark theme enabled']);
+});
+
+test('custom group actions route to the custom group controller', async () => {
+  const { actions, calls } = createHarness();
+
+  await actions['open-custom-groups']();
+  await actions['close-custom-groups']();
+  await actions['reset-custom-group-form']();
+  await actions['save-custom-group-rule']();
+  actions['edit-custom-group-rule']({ actionEl: { dataset: { ruleId: 'workspace' } } });
+  await actions['delete-custom-group-rule']({ actionEl: { dataset: { ruleId: 'workspace' } } });
+  await actions['export-custom-group-rules']();
+
+  assert.equal(calls.customGroupOpenPanel, 1);
+  assert.equal(calls.customGroupClosePanel, 1);
+  assert.equal(calls.customGroupResetForm, 1);
+  assert.equal(calls.customGroupSaveRule, 1);
+  assert.deepEqual(calls.customGroupEditRule, ['workspace']);
+  assert.deepEqual(calls.customGroupDeleteRule, ['workspace']);
+  assert.equal(calls.customGroupExportRules, 1);
+});
+
+test('trigger-custom-group-import opens the hidden rules import input', async () => {
+  const importInput = {
+    click() {
+      this.clicked = true;
+    },
+  };
+  const { actions } = createHarness();
+
+  await withFakeDocument({
+    '#customGroupImportInput': importInput,
+  }, async () => {
+    await actions['trigger-custom-group-import']();
+  });
+
+  assert.equal(importInput.clicked, true);
+});
+
+test('import-custom-group-rules routes selected files to the custom group controller', async () => {
+  const { actions, calls } = createHarness();
+  const files = [{ name: 'rules.json' }];
+
+  await actions['import-custom-group-rules']({
+    actionEl: { files },
+  });
+
+  assert.deepEqual(calls.customGroupImportRulesFromFiles, [files]);
 });
 
 test('move-tab-here moves one tab to current window and refreshes view', async () => {
@@ -604,6 +673,59 @@ test('close-domain-tabs uses light confirmation for 10+ tabs before closing', as
     global.setTimeout = previousSetTimeout;
     global.clearTimeout = previousClearTimeout;
   }
+});
+
+test('close-domain-tabs uses exact closing for groups with explicit exact close mode', async () => {
+  const actionEl = {
+    dataset: { domainId: 'domain-workspace' },
+    closest: () => null,
+  };
+  const domainGroup = {
+    domain: 'workspace',
+    label: 'Workspace',
+    closeMode: 'exact',
+    tabs: [
+      { id: 1, url: 'https://docs.google.com/document/d/abc' },
+      { id: 2, url: 'https://sheets.google.com/spreadsheets/d/abc' },
+    ],
+  };
+
+  const { actions, calls } = createHarness({ domainGroup });
+
+  await actions['close-domain-tabs']({ actionEl });
+
+  assert.deepEqual(calls.closeTabsExact, [[
+    'https://docs.google.com/document/d/abc',
+    'https://sheets.google.com/spreadsheets/d/abc',
+  ]]);
+  assert.deepEqual(calls.closeTabsByUrls, []);
+  assert.deepEqual(calls.showToast, ['Closed 2 tabs from Workspace']);
+});
+
+test('close-domain-tabs does not infer exact closing from a display label alone', async () => {
+  const actionEl = {
+    dataset: { domainId: 'domain-docs-example-com' },
+    closest: () => null,
+  };
+  const domainGroup = {
+    domain: 'docs.example.com',
+    label: 'Docs',
+    tabs: [
+      { id: 1, url: 'https://docs.example.com/guide' },
+      { id: 2, url: 'https://docs.example.com/api' },
+    ],
+  };
+
+  const { actions, calls } = createHarness({ domainGroup });
+
+  await actions['close-domain-tabs']({ actionEl });
+
+  assert.deepEqual(calls.closeTabsByUrls, [[
+    'https://docs.example.com/guide',
+    'https://docs.example.com/api',
+  ]]);
+  assert.deepEqual(calls.closeTabsExact, []);
+  assert.deepEqual(calls.showToast, ['Closed 2 tabs from Docs']);
 });
 
 test('close-domain-tabs uses strong confirmation for 20+ tabs before closing', async () => {
