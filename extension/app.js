@@ -1916,3 +1916,46 @@ async function initBackgroundSettings() {
 }
 
 initBackgroundSettings();
+
+
+/* ================================================================
+   LIVE DASHBOARD UPDATES
+
+   The new tab page should reflect tab changes immediately — a tab closed in
+   another window, a new tab opened, a window switched — instead of going
+   stale until the page is reloaded. (The toolbar badge already updated live
+   via background.js; the dashboard itself did not.)
+
+   Re-rendering is debounced, and skipped while the user is typing in a field
+   so we never yank the UI out from under them.
+   ================================================================ */
+
+let dashboardRenderTimer = null;
+
+function scheduleDashboardRender(delay = 150) {
+  if (dashboardRenderTimer) clearTimeout(dashboardRenderTimer);
+  dashboardRenderTimer = setTimeout(() => {
+    // Don't disrupt the user mid-typing (search box, to-do, bg URL, archive).
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      scheduleDashboardRender(800); // retry shortly once they're done
+      return;
+    }
+    renderDashboard();
+  }, delay);
+}
+
+if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onCreated.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onRemoved.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onMoved.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onActivated.addListener(() => scheduleDashboardRender());
+  // Re-render only on a real URL/title change or page-finish — not on every
+  // intermediate "loading" event, which would thrash the DOM.
+  chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status === 'complete' || info.url || info.title) scheduleDashboardRender();
+  });
+  if (chrome.windows && chrome.windows.onFocusChanged) {
+    chrome.windows.onFocusChanged.addListener(() => scheduleDashboardRender());
+  }
+}
