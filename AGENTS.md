@@ -36,15 +36,15 @@ cd new-tab
 
 This is the one step that requires manual action from the user. Make it as easy as possible.
 
-**First**, print the full path to the `extension/` folder:
+**First**, print the full path to this repo folder — it contains `manifest.json`, so this folder *is* the extension:
 ```bash
-echo "Extension folder: $(cd extension && pwd)"
+echo "Extension folder: $(pwd)"
 ```
 
-**Then**, copy the `extension/` folder path to their clipboard:
-- macOS: `cd extension && pwd | pbcopy && echo "Path copied to clipboard"`
-- Linux: `cd extension && pwd | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)"`
-- Windows: `cd extension && echo %CD% | clip`
+**Then**, copy this folder's path to their clipboard:
+- macOS: `pwd | pbcopy && echo "Path copied to clipboard"`
+- Linux: `pwd | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)"`
+- Windows: `echo %CD% | clip`
 
 **Then**, open the extensions page:
 ```bash
@@ -62,10 +62,10 @@ open "chrome://extensions"
 >
 > You should see "Tab Out" appear in your extensions list.
 
-**Also**, open the file browser directly to the extension folder as a fallback:
-- macOS: `open extension/`
-- Linux: `xdg-open extension/`
-- Windows: `explorer extension\\`
+**Also**, open the file browser directly to this folder as a fallback:
+- macOS: `open .`
+- Linux: `xdg-open .`
+- Windows: `explorer .`
 
 ---
 

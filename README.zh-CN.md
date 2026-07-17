@@ -54,7 +54,7 @@ git clone https://github.com/sundoubleday/new-tab.git
 1. 打开 Chrome，访问 `chrome://extensions`
 2. 开启右上角的「开发者模式」
 3. 点击「加载已解压的扩展程序」
-4. 选择克隆仓库里的 `extension/` 文件夹
+4. 选择克隆下来的仓库文件夹（里面含 `manifest.json`），或下载 ZIP 解压后的顶层文件夹
 
 **3. 打开新标签页**
 
@@ -75,7 +75,9 @@ git clone https://github.com/sundoubleday/new-tab.git
 
 所有逻辑都在 Chrome 扩展里运行。无外部服务器、页面内容或保存的数据都不会离开你的机器——保存的标签页存在 `chrome.storage.local`。
 
-> **隐私说明：** 默认情况下，仪表盘会从 `google.com/s2/favicons` 拉取网站图标（每个域名一次请求），显示字体来自 Google Fonts，因此你打开的域名列表会发给 Google。页面内容和已保存项不会发送。如需完全离线，可屏蔽这两个域名，或自托管字体/图标。
+> **隐私说明：** 默认情况下，仪表盘会从 `google.com/s2/favicons` 拉取网站图标（仅首次请求；成功获取的图标会作为 data URL 缓存在 `chrome.storage.local` 中，之后该域名不再回源 Google），显示字体来自 Google Fonts，因此你打开的域名列表会发给 Google。页面内容和已保存项不会发送。如需完全离线，可屏蔽这两个域名，或自托管字体/图标。
+
+想调整哪些标签页算「首页」、或把多个域名合并成自定义分组？把 [`config.local.js.sample`](./config.local.js.sample) 复制为 `config.local.js`（已被 gitignore，不会提交），按示例修改即可。
 
 ---
 

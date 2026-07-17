@@ -54,7 +54,7 @@ git clone https://github.com/sundoubleday/new-tab.git
 1. Open Chrome and go to `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
+4. Select the cloned repo folder (it contains `manifest.json`) — or the top-level folder of the downloaded ZIP
 
 **3. Open a new tab**
 
@@ -75,7 +75,9 @@ You open a new tab
 
 Everything runs inside the Chrome extension. No external server, no tab content or saved data leaves your machine — saved tabs live in `chrome.storage.local`.
 
-> **Privacy note:** by default the dashboard pulls favicons from `google.com/s2/favicons` (one request per domain) and the display font from Google Fonts, so the list of domains you have open is sent to Google. No page contents or saved items are sent. To go fully offline, block those two hosts or self-host the font/favicons.
+> **Privacy note:** by default the dashboard pulls favicons from `google.com/s2/favicons` (the first time only — successfully fetched favicons are cached as data URLs in `chrome.storage.local`, so Google isn't re-hit for that domain afterwards) and the display font from Google Fonts, so the list of domains you have open is sent to Google. No page contents or saved items are sent. To go fully offline, block those two hosts or self-host the font/favicons.
+
+Want to tweak which tabs count as "homepages" or merge domains into custom groups? Copy [`config.local.js.sample`](./config.local.js.sample) to `config.local.js` (gitignored) and edit — the sample shows real examples.
 
 ---
 

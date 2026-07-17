@@ -632,6 +632,68 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/* === FAVICON-CACHE-START ===
+   FAVICON CACHING — shrink the Google dependency
+
+   Each domain's favicon is fetched from https://www.google.com/s2/favicons,
+   which sends the list of domains you have open to Google. To reduce that,
+   after the first fetch we convert the favicon to a data URL and cache it in
+   chrome.storage.local. Later renders use the cached data URL directly, so
+   Google is not re-hit for that domain.
+
+   Caveat: the canvas read only works if the favicon service sends CORS
+   headers. If it doesn't, the canvas is tainted and toDataURL() throws — we
+   then gracefully fall back to the live Google URL (the pre-existing
+   behavior). Domains that fail are remembered so we don't retry every render.
+   === FAVICON-CACHE-END === */
+const FAVICON_CACHE_KEY = 'faviconCache';
+const faviconCache = new Map();   // domain -> cached data URL
+const faviconFailed = new Set();  // domains whose favicon can't be cached (CORS)
+
+function getFaviconUrl(domain) {
+  if (!domain) return '';
+  if (faviconCache.has(domain)) return faviconCache.get(domain);
+  const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+  if (!faviconFailed.has(domain)) cacheFavicon(domain, googleUrl);
+  return googleUrl;
+}
+
+function cacheFavicon(domain, googleUrl) {
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 64;
+        canvas.height = img.naturalHeight || 64;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png'); // throws if canvas tainted
+        faviconCache.set(domain, dataUrl);
+        chrome.storage.local.set({ [FAVICON_CACHE_KEY]: Object.fromEntries(faviconCache) })
+          .catch(() => {});
+        // Re-render so subsequent renders use the cached data URL (no Google hit).
+        scheduleDashboardRender();
+      } catch {
+        faviconFailed.add(domain); // tainted canvas (no CORS) — keep using Google URL
+      }
+    };
+    img.onerror = () => { faviconFailed.add(domain); };
+    img.src = googleUrl;
+  } catch {
+    faviconFailed.add(domain);
+  }
+}
+
+async function loadFaviconCache() {
+  try {
+    const { [FAVICON_CACHE_KEY]: c = {} } = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+    if (c && typeof c === 'object') {
+      for (const [d, u] of Object.entries(c)) faviconCache.set(d, u);
+    }
+  } catch { /* storage unavailable — favicons just won't be cached */ }
+}
+
 function stripTitleNoise(title) {
   if (!title) return '';
   // Strip leading notification count: "(2) Title"
@@ -788,7 +850,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16` : '';
+    const faviconUrl = getFaviconUrl(domain);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${safeTitle}</span>${dupeTag}
@@ -869,7 +931,7 @@ function renderDomainCard(group) {
     const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16` : '';
+    const faviconUrl = getFaviconUrl(domain);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${safeTitle}</span>${dupeTag}
@@ -990,7 +1052,7 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16`;
+  const faviconUrl = getFaviconUrl(domain);
   const ago = timeAgo(item.savedAt);
   const safeTitle = escapeHtml(item.title || '');
   const safeUrl   = escapeHtml(item.url || '');
@@ -1089,7 +1151,7 @@ async function renderStaticDashboard() {
   const LANDING_PAGE_PATTERNS = [
     { hostname: 'mail.google.com', test: (p, h) =>
         !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'x.com',               pathExact: ['/home'] },
+    { hostname: 'x.com',               pathExact: ['/home', '/'] },
     { hostname: 'www.linkedin.com',    pathExact: ['/'] },
     { hostname: 'github.com',          pathExact: ['/'] },
     { hostname: 'www.youtube.com',     pathExact: ['/'] },
@@ -1508,7 +1570,7 @@ document.addEventListener('input', (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+loadFaviconCache().finally(() => renderDashboard());
 
 /* ================================================================
    SEARCH BOX — Baidu (default) / Google, engine saved in storage
