@@ -1,0 +1,51 @@
+/* ================================================================
+   Tab Out — Personal config (SAMPLE)
+
+   1. Copy this file to `config.local.js` in the SAME folder.
+   2. Edit to taste.
+   3. `config.local.js` is gitignored, so your personal rules are never
+      committed to GitHub. This sample IS committed so everyone has a
+      starting point.
+
+   Everything here is OPTIONAL. If `config.local.js` is absent,
+   Tab Out falls back to the built-in defaults.
+   ================================================================ */
+
+/* 1) EXTRA LANDING PAGES
+   ----------------------------------------------------------------
+   URLs to pull into the "Homepages" group, on top of the defaults
+   (Gmail, X, LinkedIn, GitHub, YouTube).
+
+   A rule matches by hostname (or `hostnameEndsWith` for wildcards) and
+   optionally filters by path:
+     - pathExact:  array of pathnames that count as the homepage
+     - pathPrefix: pathname must start with one of these
+     - test(path, url): custom predicate; return false to EXCLUDE a URL
+   If none of those are given, only the bare "/" path counts.
+*/
+const LOCAL_LANDING_PAGE_PATTERNS = [
+  // Treat the Notion workspace home as a homepage
+  { hostname: 'notion.so', pathExact: ['/'] },
+
+  // Any subdomain of your company as a homepage
+  { hostnameEndsWith: '.acme.com', pathExact: ['/'] },
+
+  // A single-page app whose "home" lives behind a hash route.
+  // Exclude content routes (e.g. "#/doc/") so they aren't grouped.
+  { hostname: 'app.example.com', test: (path, url) => !url.includes('#/doc/') },
+];
+
+/* 2) CUSTOM GROUPS
+   ----------------------------------------------------------------
+   Merge several domains into one card, or split one domain by path.
+
+   `groupKey`  — unique id for the group (also used for close-by-group)
+   `groupLabel`— the card title shown in the dashboard
+*/
+const LOCAL_CUSTOM_GROUPS = [
+  // Fold every Google domain into a single "Google" card
+  { hostnameEndsWith: '.google.com', groupKey: 'google', groupLabel: 'Google' },
+
+  // Put a specific project board on its own card
+  { hostname: 'linear.app', pathPrefix: '/team/roadmap', groupKey: 'roadmap', groupLabel: 'Roadmap' },
+];

@@ -5,4 +5,11 @@ node_modules/
 docs/superpowers/
 
 # Personal config (landing page patterns, etc.) — never push to GitHub
-extension/config.local.js
+config.local.js
+
+# Local validation artifacts (Playwright screenshots, scratch files)
+shot-*.png
+package.json
+package-lock.json
+--version.txt
+

@@ -26,8 +26,8 @@ Before doing anything technical, tell the user what they're about to get:
 ## Step 1 -- Clone the repo
 
 ```bash
-git clone https://github.com/zarazhangrui/tab-out.git
-cd tab-out
+git clone https://github.com/sundoubleday/new-tab.git
+cd new-tab
 ```
 
 ---
@@ -36,15 +36,15 @@ cd tab-out
 
 This is the one step that requires manual action from the user. Make it as easy as possible.
 
-**First**, print the full path to the `extension/` folder:
+**First**, print the full path to this repo folder — it contains `manifest.json`, so this folder *is* the extension:
 ```bash
-echo "Extension folder: $(cd extension && pwd)"
+echo "Extension folder: $(pwd)"
 ```
 
-**Then**, copy the `extension/` folder path to their clipboard:
-- macOS: `cd extension && pwd | pbcopy && echo "Path copied to clipboard"`
-- Linux: `cd extension && pwd | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)"`
-- Windows: `cd extension && echo %CD% | clip`
+**Then**, copy this folder's path to their clipboard:
+- macOS: `pwd | pbcopy && echo "Path copied to clipboard"`
+- Linux: `pwd | xclip -selection clipboard 2>/dev/null || echo "Path: $(pwd)"`
+- Windows: `echo %CD% | clip`
 
 **Then**, open the extensions page:
 ```bash
@@ -62,10 +62,10 @@ open "chrome://extensions"
 >
 > You should see "Tab Out" appear in your extensions list.
 
-**Also**, open the file browser directly to the extension folder as a fallback:
-- macOS: `open extension/`
-- Linux: `xdg-open extension/`
-- Windows: `explorer extension\\`
+**Also**, open the file browser directly to this folder as a fallback:
+- macOS: `open .`
+- Linux: `xdg-open .`
+- Windows: `explorer .`
 
 ---
 
@@ -93,4 +93,4 @@ Once the extension is loaded:
 - Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
 - 100% local. No data is sent to any external service.
-- To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.
+- To update: `cd new-tab && git pull`, then reload the extension in `chrome://extensions`.
