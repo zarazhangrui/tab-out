@@ -972,6 +972,9 @@ async function renderDeferredColumn() {
       archiveEl.style.display = 'none';
     }
 
+    // Re-apply an active archive-search filter that a re-render may have cleared.
+    applyArchiveFilter();
+
   } catch (err) {
     console.warn('[tab-out] Could not load saved tabs:', err);
     column.style.display = 'none';
@@ -1005,7 +1008,7 @@ function renderDeferredItem(item) {
           <span>${ago}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${safeId}" title="Dismiss">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -1027,6 +1030,30 @@ function renderArchiveItem(item) {
       </a>
       <span class="archive-item-date">${ago}</span>
     </div>`;
+}
+
+/**
+ * applyArchiveFilter()
+ *
+ * Re-applies the active archive-search query to the rendered archive list.
+ * Needed because a live dashboard re-render (tab/window events) reloads the
+ * full archive and would otherwise silently drop a user's active filter.
+ */
+function applyArchiveFilter() {
+  const searchEl    = document.getElementById('archiveSearch');
+  const archiveList = document.getElementById('archiveList');
+  if (!searchEl || !archiveList) return;
+
+  const q = searchEl.value.trim().toLowerCase();
+  if (q.length < 2) return;
+
+  getSavedTabs().then(({ archived }) => {
+    const results = archived.filter(item =>
+      (item.title || '').toLowerCase().includes(q) ||
+      (item.url  || '').toLowerCase().includes(q));
+    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
+      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+  }).catch(() => {});
 }
 
 
@@ -1472,33 +1499,9 @@ document.addEventListener('click', (e) => {
 });
 
 // ---- Archive search — filter archived items as user types ----
-document.addEventListener('input', async (e) => {
+document.addEventListener('input', (e) => {
   if (e.target.id !== 'archiveSearch') return;
-
-  const q = e.target.value.trim().toLowerCase();
-  const archiveList = document.getElementById('archiveList');
-  if (!archiveList) return;
-
-  try {
-    const { archived } = await getSavedTabs();
-
-    if (q.length < 2) {
-      // Show all archived items
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      return;
-    }
-
-    // Filter by title or URL containing the query string
-    const results = archived.filter(item =>
-      (item.title || '').toLowerCase().includes(q) ||
-      (item.url  || '').toLowerCase().includes(q)
-    );
-
-    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
-  } catch (err) {
-    console.warn('[tab-out] Archive search failed:', err);
-  }
+  applyArchiveFilter();
 });
 
 
