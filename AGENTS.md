@@ -26,8 +26,8 @@ Before doing anything technical, tell the user what they're about to get:
 ## Step 1 -- Clone the repo
 
 ```bash
-git clone https://github.com/zarazhangrui/tab-out.git
-cd tab-out
+git clone https://github.com/sundoubleday/new-tab.git
+cd new-tab
 ```
 
 ---
@@ -93,4 +93,4 @@ Once the extension is loaded:
 - Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
 - 100% local. No data is sent to any external service.
-- To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.
+- To update: `cd new-tab && git pull`, then reload the extension in `chrome://extensions`.

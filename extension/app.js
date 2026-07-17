@@ -228,7 +228,7 @@ async function closeTabOutDupes() {
 async function saveTabForLater(tab) {
   const { deferred = [] } = await chrome.storage.local.get('deferred');
   deferred.push({
-    id:        Date.now().toString(),
+    id:        Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     url:       tab.url,
     title:     tab.title,
     savedAt:   new Date().toISOString(),
@@ -611,6 +611,27 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * escapeHtml(str)
+ *
+ * Escapes the five HTML-special characters so a string can be safely
+ * interpolated into innerHTML / attributes.
+ *
+ * This is a SECURITY control: tab titles and saved-item titles are
+ * attacker-influenced (a webpage controls its own <title>). Without
+ * escaping, a title like `<img src=x onerror=...>` would execute script
+ * inside the extension page (which has access to chrome.tabs / chrome.storage).
+ */
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function stripTitleNoise(title) {
   if (!title) return '';
   // Strip leading notification count: "(2) Title"
@@ -763,14 +784,14 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -844,14 +865,14 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -951,6 +972,9 @@ async function renderDeferredColumn() {
       archiveEl.style.display = 'none';
     }
 
+    // Re-apply an active archive-search filter that a re-render may have cleared.
+    applyArchiveFilter();
+
   } catch (err) {
     console.warn('[tab-out] Could not load saved tabs:', err);
     column.style.display = 'none';
@@ -966,22 +990,25 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${escapeHtml(domain)}&sz=16`;
   const ago = timeAgo(item.savedAt);
+  const safeTitle = escapeHtml(item.title || '');
+  const safeUrl   = escapeHtml(item.url || '');
+  const safeId    = escapeHtml(item.id);
 
   return `
-    <div class="deferred-item" data-deferred-id="${item.id}">
-      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
+    <div class="deferred-item" data-deferred-id="${safeId}">
+      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${safeId}">
       <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+        <a href="${safeUrl}" target="_blank" rel="noopener" class="deferred-title" title="${safeTitle}">
+          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${safeTitle || safeUrl}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
           <span>${ago}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${safeId}" title="Dismiss">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -994,13 +1021,39 @@ function renderDeferredItem(item) {
  */
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+  const safeTitle = escapeHtml(item.title || '');
+  const safeUrl   = escapeHtml(item.url || '');
   return `
     <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
+      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+        ${safeTitle || safeUrl}
       </a>
       <span class="archive-item-date">${ago}</span>
     </div>`;
+}
+
+/**
+ * applyArchiveFilter()
+ *
+ * Re-applies the active archive-search query to the rendered archive list.
+ * Needed because a live dashboard re-render (tab/window events) reloads the
+ * full archive and would otherwise silently drop a user's active filter.
+ */
+function applyArchiveFilter() {
+  const searchEl    = document.getElementById('archiveSearch');
+  const archiveList = document.getElementById('archiveList');
+  if (!searchEl || !archiveList) return;
+
+  const q = searchEl.value.trim().toLowerCase();
+  if (q.length < 2) return;
+
+  getSavedTabs().then(({ archived }) => {
+    const results = archived.filter(item =>
+      (item.title || '').toLowerCase().includes(q) ||
+      (item.url  || '').toLowerCase().includes(q));
+    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
+      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+  }).catch(() => {});
 }
 
 
@@ -1446,33 +1499,9 @@ document.addEventListener('click', (e) => {
 });
 
 // ---- Archive search — filter archived items as user types ----
-document.addEventListener('input', async (e) => {
+document.addEventListener('input', (e) => {
   if (e.target.id !== 'archiveSearch') return;
-
-  const q = e.target.value.trim().toLowerCase();
-  const archiveList = document.getElementById('archiveList');
-  if (!archiveList) return;
-
-  try {
-    const { archived } = await getSavedTabs();
-
-    if (q.length < 2) {
-      // Show all archived items
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      return;
-    }
-
-    // Filter by title or URL containing the query string
-    const results = archived.filter(item =>
-      (item.title || '').toLowerCase().includes(q) ||
-      (item.url  || '').toLowerCase().includes(q)
-    );
-
-    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
-  } catch (err) {
-    console.warn('[tab-out] Archive search failed:', err);
-  }
+  applyArchiveFilter();
 });
 
 
@@ -1640,7 +1669,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
        19:00–05:59  -> dark
    - The toggle only changes the theme for the current tab;
      opening a new tab always re-applies the time-of-day default.
-   - Syncs across open Tab Out tabs via storage.onChanged.
+     (By design it is NOT synced across Tab Out tabs.)
    - The icon shows the mode you will switch TO:
        light mode  -> moon icon  (click to go dark)
        dark mode   -> sun icon   (click to go light)
@@ -1890,3 +1919,46 @@ async function initBackgroundSettings() {
 }
 
 initBackgroundSettings();
+
+
+/* ================================================================
+   LIVE DASHBOARD UPDATES
+
+   The new tab page should reflect tab changes immediately — a tab closed in
+   another window, a new tab opened, a window switched — instead of going
+   stale until the page is reloaded. (The toolbar badge already updated live
+   via background.js; the dashboard itself did not.)
+
+   Re-rendering is debounced, and skipped while the user is typing in a field
+   so we never yank the UI out from under them.
+   ================================================================ */
+
+let dashboardRenderTimer = null;
+
+function scheduleDashboardRender(delay = 150) {
+  if (dashboardRenderTimer) clearTimeout(dashboardRenderTimer);
+  dashboardRenderTimer = setTimeout(() => {
+    // Don't disrupt the user mid-typing (search box, to-do, bg URL, archive).
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      scheduleDashboardRender(800); // retry shortly once they're done
+      return;
+    }
+    renderDashboard();
+  }, delay);
+}
+
+if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onCreated.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onRemoved.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onMoved.addListener(() => scheduleDashboardRender());
+  chrome.tabs.onActivated.addListener(() => scheduleDashboardRender());
+  // Re-render only on a real URL/title change or page-finish — not on every
+  // intermediate "loading" event, which would thrash the DOM.
+  chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status === 'complete' || info.url || info.title) scheduleDashboardRender();
+  });
+  if (chrome.windows && chrome.windows.onFocusChanged) {
+    chrome.windows.onFocusChanged.addListener(() => scheduleDashboardRender());
+  }
+}

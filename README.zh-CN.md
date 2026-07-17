@@ -73,7 +73,9 @@ git clone https://github.com/sundoubleday/new-tab.git
   -> 关闭前把标签页保存到清单
 ```
 
-所有逻辑都在 Chrome 扩展里运行。无外部服务器、无 API 调用、数据不发往任何地方。保存的标签页存在 `chrome.storage.local`。
+所有逻辑都在 Chrome 扩展里运行。无外部服务器、页面内容或保存的数据都不会离开你的机器——保存的标签页存在 `chrome.storage.local`。
+
+> **隐私说明：** 默认情况下，仪表盘会从 `google.com/s2/favicons` 拉取网站图标（每个域名一次请求），显示字体来自 Google Fonts，因此你打开的域名列表会发给 Google。页面内容和已保存项不会发送。如需完全离线，可屏蔽这两个域名，或自托管字体/图标。
 
 ---
 

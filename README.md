@@ -73,7 +73,9 @@ You open a new tab
   -> Save tabs for later before closing them
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+Everything runs inside the Chrome extension. No external server, no tab content or saved data leaves your machine — saved tabs live in `chrome.storage.local`.
+
+> **Privacy note:** by default the dashboard pulls favicons from `google.com/s2/favicons` (one request per domain) and the display font from Google Fonts, so the list of domains you have open is sent to Google. No page contents or saved items are sent. To go fully offline, block those two hosts or self-host the font/favicons.
 
 ---
 
