@@ -1666,7 +1666,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
        19:00–05:59  -> dark
    - The toggle only changes the theme for the current tab;
      opening a new tab always re-applies the time-of-day default.
-   - Syncs across open Tab Out tabs via storage.onChanged.
+     (By design it is NOT synced across Tab Out tabs.)
    - The icon shows the mode you will switch TO:
        light mode  -> moon icon  (click to go dark)
        dark mode   -> sun icon   (click to go light)
