@@ -228,7 +228,7 @@ async function closeTabOutDupes() {
 async function saveTabForLater(tab) {
   const { deferred = [] } = await chrome.storage.local.get('deferred');
   deferred.push({
-    id:        Date.now().toString(),
+    id:        Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     url:       tab.url,
     title:     tab.title,
     savedAt:   new Date().toISOString(),
