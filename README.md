@@ -1,10 +1,44 @@
 # Tab Out
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 **Keep tabs on your tabs.**
 
 Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
 
 No server and no account. The only external API call is a public-IP lookup to `https://myip.ipip.net/`; the result is displayed in memory and is not stored.
+
+This enhanced fork is maintained at [`zjwww/tab-out`](https://github.com/zjwww/tab-out) and is based on the [original Tab Out project](https://github.com/zarazhangrui/tab-out) by Zara.
+
+---
+
+## Enhancements in this fork (v1.1.0)
+
+These changes are also proposed to the original project in [upstream PR #64](https://github.com/zarazhangrui/tab-out/pull/64).
+
+### What changed
+
+- Added system-aware dark mode with persistent system, light, and dark controls
+- Added English and Simplified Chinese UI, including localized extension metadata
+- Added WAN IP and original location details from `https://myip.ipip.net/`, with timeout, retry, responsive alignment, and theme-aware emphasis
+- Documented Chrome and Microsoft Edge installation and the external IP lookup
+- Escaped tab-derived text before rendering it into extension HTML
+
+### Why
+
+The original new-tab dashboard only provided an English light theme and did not expose network information. These changes make it more comfortable across operating-system themes, usable in Simplified Chinese, and useful in both Chrome and Edge while keeping the new external request narrowly scoped and documented.
+
+### User impact
+
+Users can follow their OS theme or choose one manually, switch between English and Simplified Chinese, and see their WAN IP plus the unmodified provider/location string below the greeting. Preferences and saved tabs remain local; the WAN IP response is not persisted.
+
+### Validation
+
+- JavaScript syntax checks for `app.js` and `background.js`
+- UTF-8 JSON parsing for the manifest and both locale files
+- `git diff --check`
+- Manual Microsoft Edge unpacked-extension verification, including the final IP/location alignment
+- Manifest V3 APIs and permissions reviewed for Chrome and Edge compatibility
 
 ---
 
@@ -13,7 +47,7 @@ No server and no account. The only external API call is a public-IP lookup to `h
 Send your coding agent (Claude Code, Codex, etc.) this repo and say **"install this"**:
 
 ```
-https://github.com/zarazhangrui/tab-out
+https://github.com/zjwww/tab-out
 ```
 
 The agent will walk you through it. Takes about 1 minute.
@@ -44,7 +78,7 @@ The agent will walk you through it. Takes about 1 minute.
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/zarazhangrui/tab-out.git
+git clone https://github.com/zjwww/tab-out.git
 ```
 
 **2. Load the Chrome extension**
