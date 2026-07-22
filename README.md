@@ -4,7 +4,7 @@
 
 Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
 
-No server. No account. No external API calls. Just a Chrome extension.
+No server and no account. The only external API call is a public-IP lookup to `https://myip.ipip.net/`; the result is displayed in memory and is not stored.
 
 ---
 
@@ -30,8 +30,12 @@ The agent will walk you through it. Takes about 1 minute.
 - **Save for later** bookmark tabs to a checklist before closing them
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
-- **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
+- **Automatic dark mode** follows the operating system, with manual light/dark overrides
+- **English and Simplified Chinese UI** with a persistent language selector
+- **WAN IP and location display** fetched only from `https://myip.ipip.net/`, with timeout and retry handling
+- **Chrome and Edge support** through the shared Chromium Manifest V3 platform
+- **Local preferences and saved tabs** stay in `chrome.storage.local`
+- **Pure Chromium extension** no server, no Node.js, no npm, no setup beyond loading the extension
 
 ---
 
@@ -45,7 +49,7 @@ git clone https://github.com/zarazhangrui/tab-out.git
 
 **2. Load the Chrome extension**
 
-1. Open Chrome and go to `chrome://extensions`
+1. Open Chrome at `chrome://extensions` or Edge at `edge://extensions`
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked**
 4. Navigate to the `extension/` folder inside the cloned repo and select it
@@ -67,7 +71,7 @@ You open a new tab
   -> Save tabs for later before closing them
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+Everything runs inside the extension. Saved tabs and interface preferences are stored in `chrome.storage.local`. The public-IP widget makes one direct request to `https://myip.ipip.net/` when the new-tab page opens; its result is not persisted.
 
 ---
 

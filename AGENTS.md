@@ -17,7 +17,7 @@ Before doing anything technical, tell the user what they're about to get:
 > - **Duplicate detection** flags when you have the same page open twice
 > - **Click any tab title to jump to it** even across different Chrome windows
 > - **Save for later** bookmark individual tabs to a checklist before closing them
-> - **100% local** no server, no accounts, no data sent anywhere
+> - **Local-first** no server or accounts; saved data stays local. The public-IP widget calls only `https://myip.ipip.net/` and does not persist the response.
 >
 > It's just a Chrome extension. Setup takes about 1 minute.
 
@@ -92,5 +92,5 @@ Once the extension is loaded:
 
 - Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
-- 100% local. No data is sent to any external service.
+- Saved tabs and preferences are local. The public-IP widget calls `https://myip.ipip.net/` and keeps the response in memory only.
 - To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.
