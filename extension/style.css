@@ -152,12 +152,14 @@ header {
   align-items: baseline;
   column-gap: 18px;
   font-variant-numeric: tabular-nums;
-  user-select: all;
+  user-select: text;
 }
 
 .public-ip-address {
   font-feature-settings: 'tnum' 1;
   white-space: nowrap;
+  cursor: text;
+  user-select: all;
 }
 
 .public-ip-location {
@@ -169,10 +171,17 @@ header {
 .public-ip-location-label {
   font-weight: 600;
   white-space: nowrap;
+  user-select: none;
 }
 
 .public-ip-location-value {
   font-family: 'DM Sans', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  cursor: text;
+  user-select: all;
+}
+
+.public-ip-label {
+  user-select: none;
 }
 
 @media (max-width: 680px) {
