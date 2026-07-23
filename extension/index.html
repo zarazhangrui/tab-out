@@ -29,7 +29,13 @@
   </header>
 
   <!-- ================================================================
-       TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
+        BOOKMARKS BAR — renders the Chrome bookmarks bar (其他书签 etc.)
+        Populated by renderBookmarksBar() in app.js
+        ================================================================ -->
+  <div class="bookmarks-bar" id="bookmarksBar" style="display:none"></div>
+
+  <!-- ================================================================
+        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
        Hidden by default; app.js shows it when dupeTabOutCount > 1
        ================================================================ -->
   <div class="tab-cleanup-banner" id="tabOutDupeBanner" style="display:none">

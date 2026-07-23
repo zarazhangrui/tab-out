@@ -145,6 +145,108 @@ header {
   transform: translateY(-1px);
 }
 
+/* ---- Bookmarks Bar ---- */
+.bookmarks-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 0 0 20px;
+  margin-bottom: 4px;
+  position: relative;
+  z-index: 10;
+  animation: fadeUp 0.5s ease 0.05s both;
+}
+
+.bookmark-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  position: relative;
+  border: 1px solid transparent;
+}
+
+.bookmark-folder:hover {
+  color: var(--ink);
+  background: rgba(154, 145, 138, 0.08);
+}
+
+.bookmark-folder.open {
+  color: var(--ink);
+  background: rgba(154, 145, 138, 0.1);
+  border-color: var(--warm-gray);
+}
+
+.bookmark-folder-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.bookmark-folder:hover .bookmark-folder-icon,
+.bookmark-folder.open .bookmark-folder-icon {
+  opacity: 1;
+}
+
+.bookmark-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(26, 22, 19, 0.12);
+  z-index: 200;
+  padding: 6px;
+  animation: fadeUp 0.15s ease both;
+}
+
+.bookmark-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: background 0.1s ease;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bookmark-dropdown-item:hover {
+  background: rgba(200, 113, 58, 0.06);
+}
+
+.bookmark-dropdown-item img {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.bookmark-dropdown-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Nudge banner ---- */
 .nudge-banner {
   background: linear-gradient(135deg, rgba(179, 90, 90, 0.04), rgba(179, 90, 90, 0.08));

@@ -1005,6 +1005,103 @@ function renderArchiveItem(item) {
 
 
 /* ----------------------------------------------------------------
+   BOOKMARKS BAR — Chrome 书签栏
+   ---------------------------------------------------------------- */
+
+let bookmarkFolders = [];
+
+async function fetchBookmarkFolders() {
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const folders = [];
+    const root = tree[0];
+    if (!root || !root.children) return folders;
+
+    for (const node of root.children) {
+      if (node.children) {
+        for (const child of node.children) {
+          if (child.children) {
+            folders.push({ id: child.id, title: child.title, parentId: child.parentId });
+          }
+        }
+      }
+    }
+    return folders;
+  } catch {
+    return [];
+  }
+}
+
+function renderBookmarksBar(folders) {
+  const bar = document.getElementById('bookmarksBar');
+  if (!bar) return;
+
+  if (folders.length === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  bar.style.display = 'flex';
+  bar.innerHTML = folders.map(f => renderBookmarkFolder(f)).join('');
+}
+
+function renderBookmarkFolder(folder) {
+  const safeTitle = folder.title.replace(/"/g, '&quot;');
+  return `
+    <div class="bookmark-folder" data-action="toggle-bookmark-folder" data-folder-id="${folder.id}">
+      <svg class="bookmark-folder-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+      </svg>
+      <span>${safeTitle}</span>
+    </div>`;
+}
+
+async function toggleBookmarkDropdown(folderEl, folderId) {
+  document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+  document.querySelectorAll('.bookmark-folder.open').forEach(f => f.classList.remove('open'));
+
+  if (folderEl.classList.contains('open')) return;
+
+  folderEl.classList.add('open');
+
+  try {
+    const children = await chrome.bookmarks.getChildren(folderId);
+    const bookmarks = children.filter(c => !c.children);
+
+    if (bookmarks.length === 0) {
+      folderEl.classList.remove('open');
+      return;
+    }
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'bookmark-dropdown';
+    dropdown.innerHTML = bookmarks.map(bm => {
+      let domain = '';
+      try { domain = new URL(bm.url).hostname; } catch {}
+      const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+      const safeTitle = (bm.title || bm.url).replace(/"/g, '&quot;');
+      const safeUrl = (bm.url || '').replace(/"/g, '&quot;');
+      return `
+        <a class="bookmark-dropdown-item" href="${safeUrl}" title="${safeTitle}">
+          ${faviconUrl ? `<img src="${faviconUrl}" alt="" onerror="this.style.display='none'" width="16" height="16">` : ''}
+          <span>${safeTitle}</span>
+        </a>`;
+    }).join('');
+
+    folderEl.appendChild(dropdown);
+  } catch (err) {
+    console.warn('[tab-out] Failed to load bookmarks:', err);
+    folderEl.classList.remove('open');
+  }
+}
+
+function closeAllBookmarkDropdowns() {
+  document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+  document.querySelectorAll('.bookmark-folder.open').forEach(f => f.classList.remove('open'));
+}
+
+
+/* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
@@ -1025,6 +1122,10 @@ async function renderStaticDashboard() {
   const dateEl     = document.getElementById('dateDisplay');
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Bookmarks bar ---
+  if (!bookmarkFolders.length) bookmarkFolders = await fetchBookmarkFolders();
+  renderBookmarksBar(bookmarkFolders);
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1187,6 +1288,13 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  // ---- Toggle bookmark folder dropdown ----
+  if (action === 'toggle-bookmark-folder') {
+    e.stopPropagation();
+    await toggleBookmarkDropdown(actionEl, actionEl.dataset.folderId);
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1472,6 +1580,14 @@ document.addEventListener('input', async (e) => {
       || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
+  }
+});
+
+
+// ---- Close bookmark dropdowns when clicking outside ----
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.bookmark-folder') && !e.target.closest('.bookmark-dropdown')) {
+    closeAllBookmarkDropdowns();
   }
 });
 
