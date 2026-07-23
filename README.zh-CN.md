@@ -126,4 +126,4 @@ MIT
 
 ---
 
-原项目由 [Zara](https://x.com/zarazhangrui) 创建。本 Fork 在保留原项目署名和许可证的基础上增加上述功能。
+本 Fork 由 [zjwww/tab-out](https://github.com/zjwww/tab-out) 维护。原项目由 [Zara](https://x.com/zarazhangrui) 创建。

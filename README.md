@@ -126,4 +126,4 @@ MIT
 
 ---
 
-Built by [Zara](https://x.com/zarazhangrui)
+Fork maintained at [zjwww/tab-out](https://github.com/zjwww/tab-out). Original project by [Zara](https://x.com/zarazhangrui).
