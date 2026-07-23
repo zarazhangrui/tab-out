@@ -77,7 +77,10 @@
     <!-- LEFT COLUMN: Open tabs -->
     <div class="active-section" id="openTabsSection" style="display:none">
       <div class="section-header">
-        <h2 id="openTabsSectionTitle" data-i18n="rightNow">Right now</h2>
+        <div class="section-title">
+          <h2 id="openTabsSectionTitle" data-i18n="openTabs">Open tabs</h2>
+          <span class="section-tab-total" id="openTabsTotal" aria-live="polite">—</span>
+        </div>
         <div class="section-line"></div>
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
@@ -117,17 +120,14 @@
   </div><!-- end .dashboard-columns -->
 
   <!-- ================================================================
-       FOOTER — global stats + refresh control
+       FOOTER — project attribution
        ================================================================ -->
   <footer>
-    <div class="footer-stats">
-      <div class="stat">
-        <div class="stat-num" id="statTabs">—</div>
-        <div class="stat-label" data-i18n="openTabs">Open tabs</div>
-      </div>
-    </div>
-    <div class="last-refresh">
-      <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> <span data-i18n="by">by</span> <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
+    <div class="footer-attribution">
+      <span data-i18n="forkMaintainedPrefix">Fork maintained at</span>
+      <a href="https://github.com/zjwww/tab-out" target="_top">zjwww/tab-out</a><span data-i18n="forkMaintainedSuffix">.</span>
+      <span data-i18n="originalProjectPrefix">Original project by</span>
+      <a href="https://x.com/zarazhangrui" target="_top">Zara</a><span data-i18n="originalProjectSuffix">.</span>
     </div>
   </footer>
 

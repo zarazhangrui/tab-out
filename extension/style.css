@@ -73,6 +73,7 @@
 
 body {
   font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
   background: var(--paper);
   color: var(--ink);
   min-height: 100vh;
@@ -109,22 +110,20 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 48px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--warm-gray);
+  margin-bottom: 24px;
 }
 
 .header-left h1 {
   font-family: 'Newsreader', serif;
   font-weight: 300;
-  font-size: 28px;
+  font-size: 30px;
   letter-spacing: -0.5px;
   color: var(--ink);
   margin-bottom: 4px;
 }
 
 .header-left .date {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   font-weight: 400;
   letter-spacing: 0.5px;
@@ -137,7 +136,7 @@ header {
   gap: 10px;
   margin-top: 8px;
   color: var(--ip-accent);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.5;
   min-height: 20px;
@@ -198,7 +197,7 @@ header {
   cursor: pointer;
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .ip-retry:hover,
@@ -217,7 +216,7 @@ header {
   display: grid;
   gap: 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -229,7 +228,7 @@ header {
   border-radius: 6px;
   background: var(--control-bg);
   color: var(--ink);
-  font: 500 12px 'DM Sans', sans-serif;
+  font: 500 13px 'DM Sans', sans-serif;
   letter-spacing: normal;
   text-transform: none;
   padding: 7px 28px 7px 10px;
@@ -307,7 +306,7 @@ header {
 }
 
 .tab-cleanup-text {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   line-height: 1.5;
 }
@@ -318,7 +317,7 @@ header {
 
 .tab-cleanup-btn {
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   padding: 8px 20px;
   border-radius: 6px;
@@ -365,7 +364,7 @@ header {
 }
 
 .nudge-text {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   line-height: 1.5;
 }
@@ -386,10 +385,26 @@ header {
 .section-header h2 {
   font-family: 'Newsreader', serif;
   font-weight: 400;
-  font-size: 18px;
+  font-size: 20px;
   font-style: italic;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.section-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.section-tab-total {
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .section-line {
@@ -399,7 +414,7 @@ header {
 }
 
 .section-count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   font-weight: 500;
   letter-spacing: 0.5px;
@@ -485,13 +500,13 @@ header {
 
 .mission-name {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--ink);
   letter-spacing: -0.2px;
 }
 
 .mission-tag {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
@@ -519,7 +534,7 @@ header {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--accent-amber);
   background: rgba(200, 113, 58, 0.08);
@@ -533,7 +548,7 @@ header {
 }
 
 .mission-summary {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   line-height: 1.5;
   margin-bottom: 8px;
@@ -547,7 +562,7 @@ header {
 
 /* ---- Tab row — each tab is a full-width row with favicon, title, and actions ---- */
 .page-chip {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   background: transparent;
   padding: 8px 4px;
@@ -652,7 +667,7 @@ header {
 
 /* "+N more" overflow chip */
 .page-chip-overflow {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   padding: 6px 4px;
 }
@@ -660,13 +675,13 @@ header {
 /* mission-meta hidden — see above */
 
 .mission-time {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 4px;
 }
 
 .mission-page-count {
-  font-size: 20px;
+  font-size: 22px;
   font-family: 'Newsreader', serif;
   font-weight: 300;
   color: var(--ink);
@@ -674,7 +689,7 @@ header {
 }
 
 .mission-page-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -688,7 +703,7 @@ header {
 }
 
 .action-btn {
-  font-size: 11px;
+  font-size: 12px;
   font-family: 'DM Sans', sans-serif;
   font-weight: 500;
   padding: 5px 14px;
@@ -763,7 +778,7 @@ header {
   background: var(--ink);
   color: var(--paper);
   font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   padding: 12px 24px;
   border-radius: 8px;
@@ -790,55 +805,26 @@ header {
 
 /* ---- Footer ---- */
 footer {
-  margin-top: 48px;
-  padding-top: 20px;
-  border-top: 1px solid var(--warm-gray);
+  margin-top: 32px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
 }
 
-.footer-stats {
-  display: flex;
-  gap: 32px;
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-num {
-  font-family: 'Newsreader', serif;
-  font-size: 28px;
-  font-weight: 300;
-  color: var(--ink);
-  line-height: 1;
-  transition: all 0.3s;
-}
-
-.stat-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--muted);
-  margin-top: 4px;
-}
-
-.last-refresh {
-  font-size: 11px;
+.footer-attribution {
+  font-size: 12px;
   color: var(--muted);
 }
 
-.refresh-btn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--accent-amber);
-  background: none;
-  border: none;
-  cursor: pointer;
+.footer-attribution a {
+  color: var(--muted);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.footer-attribution a:hover,
+.footer-attribution a:focus-visible {
+  color: var(--ink);
 }
 
 /* ---- Animations ---- */
@@ -940,7 +926,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .empty-title {
   font-family: 'Newsreader', serif;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 400;
   font-style: italic;
   color: var(--ink);
@@ -948,7 +934,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .empty-subtitle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   font-weight: 400;
   letter-spacing: 0.3px;
@@ -1006,7 +992,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .update-banner-text {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   font-weight: 400;
   line-height: 1.4;
@@ -1024,7 +1010,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 /* "Update now" button — small, filled, sage green */
 .update-banner-btn {
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: #fff;
   background: var(--accent-sage);
@@ -1170,7 +1156,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .deferred-title {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   text-decoration: none;
   display: block;
@@ -1185,7 +1171,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .deferred-meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
   display: flex;
@@ -1234,7 +1220,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 /* ---- Empty state ---- */
 .deferred-empty {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   font-style: italic;
   padding: 24px 0;
@@ -1250,7 +1236,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .archive-toggle {
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--muted);
   background: none;
@@ -1280,7 +1266,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .archive-count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   opacity: 0.7;
 }
@@ -1291,7 +1277,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .archive-search {
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--warm-gray);
@@ -1325,7 +1311,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .archive-item-title {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   text-decoration: none;
   overflow: hidden;
@@ -1341,7 +1327,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .archive-item-date {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;

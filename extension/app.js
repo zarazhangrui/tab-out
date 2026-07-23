@@ -30,7 +30,9 @@ const UI_STRINGS = {
     tabsOpen: '{count} tab{suffix} open', duplicates: '{count} duplicate{suffix}',
     closeAllTabs: 'Close all {count} tab{suffix}', closeDuplicates: 'Close {count} duplicate{suffix}',
     homepages: 'Homepages', tabs: 'tabs', items: '{count} item{suffix}', dismiss: 'Dismiss',
-    domains: '{count} domain{suffix}', noResults: 'No results', by: 'by',
+    domains: '{count} domain{suffix}', noResults: 'No results',
+    forkMaintainedPrefix: 'Fork maintained at', forkMaintainedSuffix: '.',
+    originalProjectPrefix: 'Original project by', originalProjectSuffix: '.',
     closedExtraTabs: 'Closed extra Tab Out tabs', tabClosed: 'Tab closed', saveFailed: 'Failed to save tab',
     savedToast: 'Saved for later', closedFrom: 'Closed {count} tab{suffix} from {group}',
     deduped: 'Closed duplicates, kept one copy each', allClosed: 'All tabs closed. Fresh start.'
@@ -49,7 +51,9 @@ const UI_STRINGS = {
     tabsOpen: '已打开 {count} 个标签页', duplicates: '{count} 个重复项',
     closeAllTabs: '关闭全部 {count} 个标签页', closeDuplicates: '关闭 {count} 个重复项',
     homepages: '主页', tabs: '标签页', items: '{count} 项', dismiss: '移除',
-    domains: '{count} 个域名', noResults: '无搜索结果', by: '作者',
+    domains: '{count} 个域名', noResults: '无搜索结果',
+    forkMaintainedPrefix: '本 Fork 由', forkMaintainedSuffix: ' 维护。',
+    originalProjectPrefix: '原项目由', originalProjectSuffix: ' 创建。',
     closedExtraTabs: '已关闭多余的 Tab Out 页面', tabClosed: '标签页已关闭', saveFailed: '保存标签页失败',
     savedToast: '已保存供稍后查看', closedFrom: '已从 {group} 关闭 {count} 个标签页',
     deduped: '已关闭重复标签页，每项保留一个', allClosed: '所有标签页均已关闭，重新开始。'
@@ -105,7 +109,7 @@ async function fetchPublicIp() {
   if (retryEl) retryEl.hidden = true;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetch('https://myip.ipip.net/', { cache: 'no-store', signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -598,6 +602,7 @@ function checkAndShowEmptyState() {
 
   const countEl = document.getElementById('openTabsSectionCount');
   if (countEl) countEl.textContent = t('zeroDomains');
+  updateOpenTabsTotal();
 }
 
 /**
@@ -860,6 +865,11 @@ function getRealTabs() {
       !url.startsWith('brave://')
     );
   });
+}
+
+function updateOpenTabsTotal() {
+  const totalEl = document.getElementById('openTabsTotal');
+  if (totalEl) totalEl.textContent = openTabs.length;
 }
 
 /**
@@ -1287,16 +1297,13 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = t('openTabs');
-    openTabsSectionCount.innerHTML = `${t('domains', { count: domainGroups.length, suffix: domainGroups.length !== 1 ? 's' : '' })} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} ${t('closeAllTabs', { count: realTabs.length, suffix: realTabs.length !== 1 ? 's' : '' })}</button>`;
+    updateOpenTabsTotal();
+    openTabsSectionCount.innerHTML = `${t('domains', { count: domainGroups.length, suffix: domainGroups.length !== 1 ? 's' : '' })} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:12px;padding:3px 10px;">${ICONS.close} ${t('closeAllTabs', { count: realTabs.length, suffix: realTabs.length !== 1 ? 's' : '' })}</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
   }
-
-  // --- Footer stats ---
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1398,9 +1405,7 @@ document.addEventListener('click', async (e) => {
       }, 200);
     }
 
-    // Update footer
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    updateOpenTabsTotal();
 
     showToast(t('tabClosed'));
     return;
@@ -1513,8 +1518,7 @@ document.addEventListener('click', async (e) => {
     const groupLabel = group.domain === '__landing-pages__' ? t('homepages') : (group.label || friendlyDomain(group.domain));
     showToast(t('closedFrom', { count: urls.length, suffix: urls.length !== 1 ? 's' : '', group: groupLabel }));
 
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    updateOpenTabsTotal();
     return;
   }
 
@@ -1548,6 +1552,7 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
+    updateOpenTabsTotal();
     showToast(t('deduped'));
     return;
   }
@@ -1568,6 +1573,7 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
+    updateOpenTabsTotal();
     showToast(t('allClosed'));
     return;
   }
