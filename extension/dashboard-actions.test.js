@@ -71,7 +71,12 @@ function createHarness(overrides = {}) {
     async handleExportImportedSession() { return 'exported'; },
     async handleClearImportedSession() { return 'cleared'; },
     async handleRestoreImportedSession() { return overrides.restoreImportedSessionResult || null; },
+    async handleRestoreImportedSessionOriginalWindows() { return overrides.restoreImportedSessionOriginalResult || null; },
     async handleRestoreImportedGroup() { return overrides.restoreImportedGroupResult || null; },
+    async handleRestoreImportedGroupOriginalWindow(groupId) {
+      calls.importedGroupOriginalRestore = groupId;
+      return overrides.restoreImportedGroupOriginalResult || null;
+    },
     async handleRestoreImportedTab() { return overrides.restoreImportedTabResult || null; },
     async handleClearImportedGroup(groupId) { return groupId; },
     async handleClearImportedTab(groupId, tabId) { return { groupId, tabId }; },
@@ -292,6 +297,34 @@ test('custom group actions route to the custom group controller', async () => {
   assert.deepEqual(calls.customGroupEditRule, ['workspace']);
   assert.deepEqual(calls.customGroupDeleteRule, ['workspace']);
   assert.equal(calls.customGroupExportRules, 1);
+});
+
+test('original-window imported restore actions refresh dashboard after opening tabs', async () => {
+  const { actions, calls } = createHarness({
+    restoreImportedSessionOriginalResult: {
+      opened: 2,
+      skipped: 0,
+      changedOpenTabs: true,
+    },
+    restoreImportedGroupOriginalResult: {
+      opened: 1,
+      skipped: 0,
+      changedOpenTabs: true,
+    },
+  });
+
+  await actions['restore-imported-session-original']();
+  await actions['restore-imported-group-original']({
+    actionEl: {
+      dataset: {
+        importedGroupId: 'docs',
+      },
+    },
+  });
+
+  assert.equal(calls.importedGroupOriginalRestore, 'docs');
+  assert.equal(calls.scheduleDashboardAndWait, 2);
+  assert.equal(calls.renderImportedSessionSection, 0);
 });
 
 test('trigger-custom-group-import opens the hidden rules import input', async () => {

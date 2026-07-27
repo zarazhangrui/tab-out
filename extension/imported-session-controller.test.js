@@ -24,6 +24,7 @@ function createHarness(overrides = {}) {
   };
   const calls = {
     createTab: [],
+    createTabsInWindow: [],
     downloadJsonFile: [],
     queueStorageUpdate: [],
     setStorageValue: [],
@@ -43,6 +44,10 @@ function createHarness(overrides = {}) {
       calls.createTab.push({ url, options });
       return { url, ...options };
     },
+    createTabsInWindow: overrides.createTabsInWindow || (async (urls, options) => {
+      calls.createTabsInWindow.push({ urls, options });
+      return { urls, ...options };
+    }),
     downloadJsonFile: (filename, payload) => {
       calls.downloadJsonFile.push({ filename, payload });
     },
@@ -196,6 +201,125 @@ test('handleRestoreImportedTab opens existing tab instead of restoring when alre
   assert.deepEqual(calls.showToast, ['Opened existing tab']);
 });
 
+test('restoreSessionGroups restores tabs into the current window by default', async () => {
+  const { controller, calls } = createHarness({
+    rawTabs: [],
+    summarizeRestorePlan: () => ({
+      toOpen: [
+        { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+        { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+        { id: 'later-1', title: 'Later', url: 'https://later.example.com/item' },
+      ],
+      skipped: [],
+      windowGroups: [
+        {
+          sourceWindowId: '2',
+          window: { id: '2', state: 'normal', left: 10, top: 20, width: 1200, height: 800 },
+          tabs: [
+            { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+            { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+          ],
+        },
+      ],
+      ungroupedTabs: [
+        { id: 'later-1', title: 'Later', url: 'https://later.example.com/item' },
+      ],
+    }),
+  });
+
+  const result = await controller.restoreSessionGroups([
+    {
+      id: 'docs',
+      tabs: [
+        { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+        { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(calls.createTabsInWindow, []);
+  assert.deepEqual(calls.createTab, [
+    {
+      url: 'https://docs.example.com/guide',
+      options: { active: false },
+    },
+    {
+      url: 'https://docs.example.com/api',
+      options: { active: false },
+    },
+    {
+      url: 'https://later.example.com/item',
+      options: { active: false },
+    },
+  ]);
+  assert.deepEqual(result, {
+    opened: 3,
+    skipped: 0,
+    changedOpenTabs: true,
+  });
+});
+
+test('restoreSessionGroups can restore tabs into their original window groups', async () => {
+  const { controller, calls } = createHarness({
+    rawTabs: [],
+    summarizeRestorePlan: () => ({
+      toOpen: [
+        { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+        { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+        { id: 'later-1', title: 'Later', url: 'https://later.example.com/item' },
+      ],
+      skipped: [],
+      windowGroups: [
+        {
+          sourceWindowId: '2',
+          window: { id: '2', state: 'normal', left: 10, top: 20, width: 1200, height: 800 },
+          tabs: [
+            { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+            { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+          ],
+        },
+      ],
+      ungroupedTabs: [
+        { id: 'later-1', title: 'Later', url: 'https://later.example.com/item' },
+      ],
+    }),
+  });
+
+  const result = await controller.restoreSessionGroups([
+    {
+      id: 'docs',
+      tabs: [
+        { id: 'doc-1', title: 'Guide', url: 'https://docs.example.com/guide' },
+        { id: 'doc-2', title: 'API', url: 'https://docs.example.com/api' },
+      ],
+    },
+  ], { mode: 'original-windows' });
+
+  assert.deepEqual(calls.createTabsInWindow, [
+    {
+      urls: [
+        'https://docs.example.com/guide',
+        'https://docs.example.com/api',
+      ],
+      options: {
+        active: false,
+        windowOptions: { id: '2', state: 'normal', left: 10, top: 20, width: 1200, height: 800 },
+      },
+    },
+  ]);
+  assert.deepEqual(calls.createTab, [
+    {
+      url: 'https://later.example.com/item',
+      options: { active: false },
+    },
+  ]);
+  assert.deepEqual(result, {
+    opened: 3,
+    skipped: 0,
+    changedOpenTabs: true,
+  });
+});
+
 test('handleClearImportedTab removes target tab and syncs search results', async () => {
   const { controller, calls, state } = createHarness({
     initialImportedSession: {
@@ -281,6 +405,8 @@ test('renderImportedSessionSection shows opened count badge for open imported ta
   assert.match(missionsEl.innerHTML, /aria-label="Already open"/);
   assert.doesNotMatch(missionsEl.innerHTML, />Opened</);
   assert.match(missionsEl.innerHTML, /data-action="restore-imported-group"/);
+  assert.match(missionsEl.innerHTML, /data-action="restore-imported-group-original"/);
+  assert.match(missionsEl.innerHTML, />Restore window</);
 });
 
 test('renderImportedSessionSection localizes imported open status icon', async () => {

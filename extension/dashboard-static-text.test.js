@@ -54,6 +54,7 @@ function createHarness(overrides = {}) {
     '[data-action="close-tabout-dupes"]': createElement(),
     '[data-action="export-imported-session"]': createElement(),
     '[data-action="restore-imported-session"]': createElement(),
+    '[data-action="restore-imported-session-original"]': createElement(),
     '[data-action="clear-imported-session"]': createElement(),
     '[data-action="manual-refresh"]': createElement(),
     '[data-action="trigger-import-session"]': createElement(),
@@ -85,6 +86,8 @@ function createHarness(overrides = {}) {
     'action.refresh': 'Refresh',
     'action.reset': 'Reset',
     'action.restoreAll': 'Restore all',
+    'action.restoreHere': 'Restore here',
+    'action.restoreOriginalWindow': 'Restore windows',
     'action.saveRule': 'Save rule',
     'aria.moreActions': 'More actions',
     'aria.search': 'Search tabs',
@@ -145,6 +148,8 @@ test('renderStaticText updates common dashboard labels and attributes', () => {
   assert.equal(elements.moreMenuToggle.childNodes[0].textContent, ' More ');
   assert.equal(elements.archiveToggle.childNodes[1].textContent, ' Archive ');
   assert.equal(selectors['[data-action="manual-refresh"]'].textContent, 'Refresh');
+  assert.equal(selectors['[data-action="restore-imported-session"]'].textContent, 'Restore here');
+  assert.equal(selectors['[data-action="restore-imported-session-original"]'].textContent, 'Restore windows');
   assert.equal(selectors['[data-action="open-custom-groups"]'].textContent, 'Grouping rules');
 });
 

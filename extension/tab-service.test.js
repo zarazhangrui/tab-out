@@ -12,6 +12,7 @@ function createHarness(initialTabs = []) {
   const removed = [];
   const updates = [];
   const windowUpdates = [];
+  const createdWindows = [];
   const created = [];
   const moved = [];
 
@@ -48,6 +49,41 @@ function createHarness(initialTabs = []) {
     async getCurrent() {
       return { id: 1 };
     },
+    async getAll() {
+      return [
+        {
+          id: 1,
+          type: 'normal',
+          state: 'normal',
+          focused: true,
+          incognito: false,
+          left: 0,
+          top: 0,
+          width: 1000,
+          height: 800,
+        },
+        {
+          id: 2,
+          type: 'normal',
+          state: 'maximized',
+          focused: false,
+          incognito: false,
+          alwaysOnTop: false,
+          left: 20,
+          top: 30,
+          width: 1200,
+          height: 900,
+        },
+      ];
+    },
+    async create(payload) {
+      createdWindows.push(payload);
+      return {
+        id: 42,
+        ...payload,
+        tabs: [{ id: 420, url: payload.url, windowId: 42 }],
+      };
+    },
     async update(windowId, patch) {
       windowUpdates.push({ windowId, patch });
       return { id: windowId, ...patch };
@@ -63,6 +99,7 @@ function createHarness(initialTabs = []) {
     removed,
     updates,
     windowUpdates,
+    createdWindows,
     created,
     moved,
   };
@@ -109,6 +146,72 @@ function createHarnessWithCustomTabsApi(initialTabs = [], tabsApiOverrides = {})
     removed,
     updates,
     windowUpdates,
+  };
+}
+
+function createHarnessWithCustomWindowsApi(initialTabs = [], windowsApiOverrides = {}) {
+  let tabs = initialTabs.map(tab => ({ ...tab }));
+  const removed = [];
+  const updates = [];
+  const windowUpdates = [];
+  const created = [];
+  const createdWindows = [];
+
+  const tabsApi = {
+    async query() {
+      return tabs.map(tab => ({ ...tab }));
+    },
+    async update(tabId, patch) {
+      updates.push({ tabId, patch });
+      return { id: tabId, ...patch };
+    },
+    async remove(ids) {
+      const nextIds = Array.isArray(ids) ? ids.map(Number) : [Number(ids)];
+      removed.push(...nextIds);
+      tabs = tabs.filter(tab => !nextIds.includes(Number(tab.id)));
+    },
+    async create(payload) {
+      created.push(payload);
+      return payload;
+    },
+  };
+
+  const windowsApi = {
+    async getCurrent() {
+      return { id: 1 };
+    },
+    async get(windowId) {
+      return { id: windowId };
+    },
+    async update(windowId, patch) {
+      windowUpdates.push({ windowId, patch });
+      return { id: windowId, ...patch };
+    },
+    ...windowsApiOverrides,
+    async create(payload) {
+      createdWindows.push(payload);
+      if (windowsApiOverrides.create) {
+        return windowsApiOverrides.create(payload);
+      }
+      return {
+        id: 42,
+        ...payload,
+        tabs: [{ id: 420, url: payload.url, windowId: 42 }],
+      };
+    },
+  };
+
+  const runtimeApi = {
+    id: 'test-extension-id',
+  };
+
+  return {
+    service: createTabService({ tabsApi, windowsApi, runtimeApi }),
+    removed,
+    updates,
+    windowUpdates,
+    created,
+    createdWindows,
   };
 }
 
@@ -177,6 +280,18 @@ test('queryDashboardTabs maps tab metadata and Tab Out state', async () => {
       title: 'Guide',
       favIconUrl: 'https://docs.example.com/favicon.ico',
       windowId: 2,
+      window: {
+        id: 2,
+        type: 'normal',
+        state: 'maximized',
+        focused: false,
+        incognito: false,
+        alwaysOnTop: false,
+        left: 20,
+        top: 30,
+        width: 1200,
+        height: 900,
+      },
       active: true,
       lastAccessed: 123,
       isTabOut: false,
@@ -187,11 +302,216 @@ test('queryDashboardTabs maps tab metadata and Tab Out state', async () => {
       title: 'Tab Out',
       favIconUrl: '',
       windowId: 1,
+      window: {
+        id: 1,
+        type: 'normal',
+        state: 'normal',
+        focused: true,
+        incognito: false,
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 800,
+      },
       active: false,
       lastAccessed: 124,
       isTabOut: true,
     },
   ]);
+});
+
+test('createTab can target an existing window', async () => {
+  const { service, created } = createHarness();
+
+  await service.createTab('https://docs.example.com/guide', {
+    active: false,
+    windowId: '42',
+  });
+
+  assert.deepEqual(created, [
+    {
+      url: 'https://docs.example.com/guide',
+      active: false,
+      windowId: 42,
+    },
+  ]);
+});
+
+test('createTabsInWindow restores a tab group into one new window', async () => {
+  const { service, createdWindows, created } = createHarness();
+
+  const result = await service.createTabsInWindow([
+    'https://docs.example.com/guide',
+    'https://docs.example.com/api',
+  ], {
+    active: false,
+    windowOptions: {
+      type: 'normal',
+      state: 'normal',
+      left: 10,
+      top: 20,
+      width: 1200,
+      height: 800,
+      incognito: false,
+    },
+  });
+
+  assert.deepEqual(createdWindows, [
+    {
+      url: 'https://docs.example.com/guide',
+      focused: false,
+      left: 10,
+      top: 20,
+      width: 1200,
+      height: 800,
+      incognito: false,
+      type: 'normal',
+      state: 'normal',
+    },
+  ]);
+  assert.deepEqual(created, [
+    {
+      url: 'https://docs.example.com/api',
+      active: false,
+      windowId: 42,
+    },
+  ]);
+  assert.equal(result.windowId, 42);
+  assert.equal(result.createdTabs.length, 2);
+});
+
+test('createTabsInWindow reuses the original window when the source id still exists', async () => {
+  const { service, createdWindows, created } = createHarnessWithCustomWindowsApi([], {
+    async get(windowId) {
+      assert.equal(windowId, 7);
+      return { id: 7 };
+    },
+  });
+
+  const result = await service.createTabsInWindow([
+    'https://docs.example.com/guide',
+    'https://docs.example.com/api',
+  ], {
+    active: false,
+    windowOptions: { id: 7, state: 'normal' },
+  });
+
+  assert.deepEqual(createdWindows, []);
+  assert.deepEqual(created, [
+    {
+      url: 'https://docs.example.com/guide',
+      active: false,
+      windowId: 7,
+    },
+    {
+      url: 'https://docs.example.com/api',
+      active: false,
+      windowId: 7,
+    },
+  ]);
+  assert.equal(result.reusedExistingWindow, true);
+  assert.equal(result.windowId, 7);
+  assert.equal(result.createdTabs.length, 2);
+});
+
+test('createTabsInWindow creates a new restore window when the source id is gone', async () => {
+  const { service, createdWindows, created } = createHarnessWithCustomWindowsApi([], {
+    async get() {
+      throw new Error('No window with id: 7');
+    },
+  });
+
+  const result = await service.createTabsInWindow([
+    'https://docs.example.com/guide',
+    'https://docs.example.com/api',
+  ], {
+    active: false,
+    windowOptions: { id: 7, state: 'normal' },
+  });
+
+  assert.deepEqual(createdWindows, [
+    {
+      url: 'https://docs.example.com/guide',
+      focused: false,
+      state: 'normal',
+    },
+  ]);
+  assert.deepEqual(created, [
+    {
+      url: 'https://docs.example.com/api',
+      active: false,
+      windowId: 42,
+    },
+  ]);
+  assert.equal(result.reusedExistingWindow, false);
+  assert.equal(result.windowId, 42);
+  assert.equal(result.createdTabs.length, 2);
+});
+
+test('createTabsInWindow avoids bounds when restoring maximized windows', async () => {
+  const { service, createdWindows } = createHarness();
+
+  await service.createTabsInWindow([
+    'https://docs.example.com/guide',
+  ], {
+    windowOptions: {
+      state: 'maximized',
+      left: 10,
+      top: 20,
+      width: 1200,
+      height: 800,
+    },
+  });
+
+  assert.deepEqual(createdWindows, [
+    {
+      url: 'https://docs.example.com/guide',
+      focused: false,
+      state: 'maximized',
+    },
+  ]);
+});
+
+test('createTabsInWindow falls back when Chrome rejects restore window options', async () => {
+  let createAttempts = 0;
+  const { service, createdWindows } = createHarnessWithCustomWindowsApi([], {
+    async create(payload) {
+      createAttempts += 1;
+      if (createAttempts === 1) {
+        throw new Error('Incognito mode is unavailable');
+      }
+      return {
+        id: 99,
+        ...payload,
+        tabs: [{ id: 990, url: payload.url, windowId: 99 }],
+      };
+    },
+  });
+
+  const result = await service.createTabsInWindow([
+    'https://docs.example.com/guide',
+  ], {
+    windowOptions: {
+      incognito: true,
+      state: 'normal',
+      left: 10,
+    },
+  });
+
+  assert.deepEqual(createdWindows, [
+    {
+      url: 'https://docs.example.com/guide',
+      focused: false,
+      left: 10,
+      incognito: true,
+      state: 'normal',
+    },
+    {
+      url: 'https://docs.example.com/guide',
+      focused: false,
+    },
+  ]);
+  assert.equal(result.windowId, 99);
 });
 
 test('closeTabsExact closes only exact matched urls', async () => {

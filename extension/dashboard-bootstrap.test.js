@@ -43,6 +43,7 @@ test('validateDashboardModules accepts the dashboard module surface used by app.
       closeTabsByUrls: fn,
       closeTabsExact: fn,
       createTab: fn,
+      createTabsInWindow: fn,
       focusExactTabByUrl: fn,
       focusTab: fn,
       focusTabById: fn,

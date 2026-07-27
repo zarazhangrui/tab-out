@@ -10,6 +10,7 @@
     createSessionExport,
     dedupeSessionGroups,
     createTab,
+    createTabsInWindow,
     downloadJsonFile,
     escapeHtml,
     focusExactTabByUrl,
@@ -155,7 +156,7 @@
       return true;
     }
 
-    async function restoreSessionGroups(groups) {
+    async function restoreSessionGroups(groups, { mode = 'current-window' } = {}) {
       const safeGroups = Array.isArray(groups) ? groups : [];
       if (safeGroups.length === 0) {
         return { opened: 0, skipped: 0, changedOpenTabs: false };
@@ -174,7 +175,29 @@
         };
       }
 
-      for (const tab of plan.toOpen) {
+      const restoreOriginalWindows = mode === 'original-windows';
+
+      if (restoreOriginalWindows && Array.isArray(plan.windowGroups) && plan.windowGroups.length > 0 && typeof createTabsInWindow === 'function') {
+        for (const windowGroup of plan.windowGroups) {
+          const urls = (windowGroup.tabs || []).map(tab => tab.url).filter(Boolean);
+          if (urls.length === 0) continue;
+          await createTabsInWindow(urls, {
+            active: false,
+            windowOptions: windowGroup.window || {},
+          });
+        }
+      } else {
+        for (const tab of plan.toOpen) {
+          await createTab(tab.url, { active: false });
+        }
+        return {
+          opened: plan.toOpen.length,
+          skipped: plan.skipped.length,
+          changedOpenTabs: true,
+        };
+      }
+
+      for (const tab of Array.isArray(plan.ungroupedTabs) ? plan.ungroupedTabs : []) {
         await createTab(tab.url, { active: false });
       }
 
@@ -271,7 +294,8 @@
             </div>
             <div class="mission-pages">${pageChips}</div>
             <div class="actions">
-              <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${groupId}">${t('action.restore')}</button>
+              <button class="action-btn save-tabs" data-action="restore-imported-group" data-imported-group-id="${groupId}">${t('action.restoreHere')}</button>
+              <button class="action-btn" data-action="restore-imported-group-original" data-imported-group-id="${groupId}">${t('action.restoreOriginalWindowSingle')}</button>
               <button class="action-btn danger" data-action="clear-imported-group" data-imported-group-id="${groupId}">${t('action.clear')}</button>
             </div>
           </div>
@@ -371,10 +395,34 @@
       return result;
     }
 
+    async function handleRestoreImportedSessionOriginalWindows() {
+      const { importedSession } = getState();
+      if (!importedSession) return;
+      const result = await restoreSessionGroups(importedSession.groups, { mode: 'original-windows' });
+      showToast(t('toast.restoredSkipped', {
+        opened: result.opened,
+        skipped: result.skipped,
+        tabLabel: countLabel('common.tab', result.opened),
+      }));
+      return result;
+    }
+
     async function handleRestoreImportedGroup(groupId) {
       const group = getImportedGroupById(groupId);
       if (!group) return null;
       const result = await restoreSessionGroups([group]);
+      showToast(t('toast.restoredSkipped', {
+        opened: result.opened,
+        skipped: result.skipped,
+        tabLabel: countLabel('common.tab', result.opened),
+      }));
+      return result;
+    }
+
+    async function handleRestoreImportedGroupOriginalWindow(groupId) {
+      const group = getImportedGroupById(groupId);
+      if (!group) return null;
+      const result = await restoreSessionGroups([group], { mode: 'original-windows' });
       showToast(t('toast.restoredSkipped', {
         opened: result.opened,
         skipped: result.skipped,
@@ -435,7 +483,9 @@
       handleExportImportedSession,
       handleImportSessionFiles,
       handleRestoreImportedGroup,
+      handleRestoreImportedGroupOriginalWindow,
       handleRestoreImportedSession,
+      handleRestoreImportedSessionOriginalWindows,
       handleRestoreImportedTab,
       getImportedGroupById,
       getImportedSession,

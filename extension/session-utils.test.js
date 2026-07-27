@@ -39,6 +39,55 @@ test('createSessionExport keeps only valid groups and tabs', () => {
   assert.match(payload.groups[0].tabs[0].id, /^tab-/);
 });
 
+test('createSessionExport records source window metadata for tabs', () => {
+  const payload = createSessionExport([
+    {
+      domain: 'docs.example.com',
+      label: 'Docs',
+      tabs: [
+        {
+          id: 11,
+          url: 'https://docs.example.com/guide',
+          title: 'Guide',
+          windowId: 2,
+          window: {
+            id: 2,
+            type: 'normal',
+            state: 'maximized',
+            focused: true,
+            incognito: false,
+            left: 10,
+            top: 20,
+            width: 1200,
+            height: 800,
+          },
+        },
+      ],
+    },
+  ], { exportedAt: '2026-06-29T00:00:00.000Z' });
+
+  assert.deepEqual(payload.windows, [
+    {
+      id: '2',
+      type: 'normal',
+      state: 'maximized',
+      focused: true,
+      incognito: false,
+      left: 10,
+      top: 20,
+      width: 1200,
+      height: 800,
+    },
+  ]);
+  assert.deepEqual(payload.groups[0].tabs[0], {
+    id: '11',
+    url: 'https://docs.example.com/guide',
+    title: 'Guide',
+    windowId: '2',
+    window: payload.windows[0],
+  });
+});
+
 test('parseImportedSession rejects malformed payloads', () => {
   assert.throws(
     () => parseImportedSession('{'),
@@ -128,6 +177,53 @@ test('parseImportedSession normalizes group metadata and tab titles', () => {
   assert.ok(parsed.groups[0].tabs.every(tab => /^tab-/.test(tab.id)));
 });
 
+test('parseImportedSession hydrates tab windows from top-level metadata', () => {
+  const parsed = parseImportedSession(JSON.stringify({
+    windows: [
+      {
+        id: 7,
+        type: 'normal',
+        state: 'minimized',
+        focused: false,
+        incognito: false,
+        left: 40,
+        top: 60,
+        width: 1000,
+        height: 700,
+      },
+    ],
+    groups: [
+      {
+        domain: 'docs.example.com',
+        tabs: [
+          {
+            id: 'doc-1',
+            url: 'https://docs.example.com/page',
+            title: 'Docs',
+            windowId: 7,
+          },
+        ],
+      },
+    ],
+  }));
+
+  assert.deepEqual(parsed.windows, [
+    {
+      id: '7',
+      type: 'normal',
+      state: 'minimized',
+      focused: false,
+      incognito: false,
+      left: 40,
+      top: 60,
+      width: 1000,
+      height: 700,
+    },
+  ]);
+  assert.deepEqual(parsed.groups[0].tabs[0].window, parsed.windows[0]);
+  assert.equal(parsed.groups[0].tabs[0].windowId, '7');
+});
+
 test('parseImportedSession drops script-like URLs that would violate extension CSP', () => {
   const parsed = parseImportedSession(JSON.stringify({
     groups: [
@@ -177,6 +273,47 @@ test('planRestoreTabs skips already open and duplicate queued urls', () => {
   assert.ok(plan.toOpen.every(tab => /^tab-/.test(tab.id)));
   assert.ok(plan.skipped.every(tab => /^tab-/.test(tab.id)));
   assert.equal(plan.totalRequested, 4);
+});
+
+test('planRestoreTabs groups restorable tabs by original window', () => {
+  const plan = planRestoreTabs([
+    {
+      tabs: [
+        {
+          url: 'https://docs.example.com/guide',
+          title: 'Guide',
+          windowId: 2,
+          window: { id: 2, state: 'normal', left: 10 },
+        },
+        {
+          url: 'https://docs.example.com/api',
+          title: 'API',
+          windowId: 2,
+        },
+        {
+          url: 'https://later.example.com/item',
+          title: 'Later',
+        },
+      ],
+    },
+  ], []);
+
+  assert.deepEqual(plan.windowGroups, [
+    {
+      sourceWindowId: '2',
+      window: {
+        id: '2',
+        state: 'normal',
+        left: 10,
+      },
+      tabs: [
+        plan.toOpen[0],
+        plan.toOpen[1],
+      ],
+    },
+  ]);
+  assert.deepEqual(plan.ungroupedTabs, [plan.toOpen[2]]);
+  assert.equal(plan.toOpen.length, 3);
 });
 
 test('planRestoreTabs treats pendingUrl as already open', () => {

@@ -17,6 +17,7 @@
       'closeTabsByUrls',
       'closeTabsExact',
       'createTab',
+      'createTabsInWindow',
       'focusExactTabByUrl',
       'focusTab',
       'focusTabById',

@@ -38,6 +38,29 @@
     return !!(error && /No tab with id|Tabs cannot be edited right now/i.test(String(error.message || error)));
   }
 
+  function mapWindowInfo(windowInfo) {
+    if (!windowInfo || typeof windowInfo.id === 'undefined') return null;
+
+    const mapped = { id: windowInfo.id };
+    const stringFields = ['type', 'state'];
+    const booleanFields = ['focused', 'incognito', 'alwaysOnTop'];
+    const numberFields = ['left', 'top', 'width', 'height'];
+
+    for (const field of stringFields) {
+      if (typeof windowInfo[field] === 'string' && windowInfo[field]) mapped[field] = windowInfo[field];
+    }
+
+    for (const field of booleanFields) {
+      if (typeof windowInfo[field] === 'boolean') mapped[field] = windowInfo[field];
+    }
+
+    for (const field of numberFields) {
+      if (typeof windowInfo[field] === 'number' && Number.isFinite(windowInfo[field])) mapped[field] = windowInfo[field];
+    }
+
+    return mapped;
+  }
+
   async function queryRawTabs() {
     return tabsApi.query({});
   }
@@ -45,6 +68,19 @@
   async function queryDashboardTabs() {
     try {
       const tabs = await queryRawTabs();
+      let windowMap = new Map();
+
+      if (windowsApi && typeof windowsApi.getAll === 'function') {
+        try {
+          const windows = await windowsApi.getAll();
+          windowMap = new Map((Array.isArray(windows) ? windows : [])
+            .map(mapWindowInfo)
+            .filter(Boolean)
+            .map(windowInfo => [Number(windowInfo.id), windowInfo]));
+        } catch {
+          windowMap = new Map();
+        }
+      }
 
       return tabs.map(tab => ({
         id: tab.id,
@@ -52,6 +88,9 @@
         title: tab.title,
         favIconUrl: tab.favIconUrl || '',
         windowId: tab.windowId,
+        window: windowMap.get(Number(tab.windowId)) || (
+          typeof tab.windowId !== 'undefined' ? { id: tab.windowId } : null
+        ),
         active: tab.active,
         lastAccessed: tab.lastAccessed,
         isTabOut: isTabOutTab(tab),
@@ -190,9 +229,102 @@
     };
   }
 
-  async function createTab(url, { active = false } = {}) {
+  async function createTab(url, { active = false, windowId } = {}) {
     if (!url) return null;
-    return tabsApi.create({ url, active });
+    const payload = { url, active };
+    const numericWindowId = Number(windowId);
+    if (Number.isFinite(numericWindowId)) {
+      payload.windowId = numericWindowId;
+    }
+    return tabsApi.create(payload);
+  }
+
+  async function createWindowForRestore(payload) {
+    try {
+      return await windowsApi.create(payload);
+    } catch (err) {
+      const fallbackPayload = {
+        url: payload.url,
+        focused: false,
+      };
+      return windowsApi.create(fallbackPayload);
+    }
+  }
+
+  async function getExistingRestoreWindowId(windowOptions) {
+    const sourceWindowId = Number(windowOptions && windowOptions.id);
+    if (!Number.isFinite(sourceWindowId) || !windowsApi || typeof windowsApi.get !== 'function') {
+      return null;
+    }
+
+    try {
+      await windowsApi.get(sourceWindowId);
+      return sourceWindowId;
+    } catch {
+      return null;
+    }
+  }
+
+  async function createTabsInWindow(urls, { active = false, windowOptions = {} } = {}) {
+    const safeUrls = (Array.isArray(urls) ? urls : [])
+      .map(url => String(url || '').trim())
+      .filter(Boolean);
+    if (safeUrls.length === 0) {
+      return {
+        createdTabs: [],
+        windowId: null,
+      };
+    }
+
+    const existingWindowId = await getExistingRestoreWindowId(windowOptions);
+    if (existingWindowId !== null) {
+      const createdTabs = [];
+
+      for (const url of safeUrls) {
+        createdTabs.push(await createTab(url, { active, windowId: existingWindowId }));
+      }
+
+      return {
+        createdTabs,
+        reusedExistingWindow: true,
+        windowId: existingWindowId,
+      };
+    }
+
+    const firstWindowPayload = {
+      url: safeUrls[0],
+      focused: false,
+    };
+
+    if (windowOptions && typeof windowOptions === 'object') {
+      const { left, top, width, height } = windowOptions;
+      const canApplyBounds = !windowOptions.state || windowOptions.state === 'normal';
+      if (canApplyBounds && typeof left === 'number' && Number.isFinite(left)) firstWindowPayload.left = left;
+      if (canApplyBounds && typeof top === 'number' && Number.isFinite(top)) firstWindowPayload.top = top;
+      if (canApplyBounds && typeof width === 'number' && Number.isFinite(width)) firstWindowPayload.width = width;
+      if (canApplyBounds && typeof height === 'number' && Number.isFinite(height)) firstWindowPayload.height = height;
+      if (typeof windowOptions.incognito === 'boolean') firstWindowPayload.incognito = windowOptions.incognito;
+      if (['normal', 'popup'].includes(windowOptions.type)) firstWindowPayload.type = windowOptions.type;
+      if (['normal', 'minimized', 'maximized', 'fullscreen'].includes(windowOptions.state)) {
+        firstWindowPayload.state = windowOptions.state;
+      }
+    }
+
+    const createdWindow = await createWindowForRestore(firstWindowPayload);
+    const createdTabs = Array.isArray(createdWindow && createdWindow.tabs)
+      ? createdWindow.tabs
+      : [];
+    const windowId = createdWindow && createdWindow.id;
+
+    for (const url of safeUrls.slice(1)) {
+      createdTabs.push(await createTab(url, { active, windowId }));
+    }
+
+    return {
+      createdTabs,
+      reusedExistingWindow: false,
+      windowId,
+    };
   }
 
   async function closeTab(tabId, fallbackUrl) {
@@ -349,6 +481,7 @@
     closeTabsByUrls,
     closeTabsExact,
     createTab,
+    createTabsInWindow,
     focusExactTabByUrl,
     focusTab,
     focusTabById,

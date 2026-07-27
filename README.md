@@ -28,7 +28,7 @@ No server. No account. No external API calls. Your tab data stays on your machin
 - **Advanced tab moving**: move one tab, one Tab Out group, or all tabs into the current window.
 - **Custom grouping rules**: group tabs by exact host, host suffix, and optional path prefix.
 - **Save for later**: save tabs into a local checklist before closing them.
-- **Import / export sessions**: export current groups and import historical session files.
+- **Import / export sessions**: export current groups with window context, then restore imports into the current window or their original windows.
 - **Import / export grouping rules**: move rule sets between browsers or keep a local backup.
 - **Search everywhere**: one search covers open tabs, imported sessions, and the later list.
 - **Light / dark / system themes**: switch theme from the More menu.
@@ -49,7 +49,8 @@ Open a new tab
   -> Add custom grouping rules for exact hosts, host suffixes, or path prefixes
   -> Move tabs into the current window when advanced tab moving is enabled
   -> Save tabs for later before closing them
-  -> Export or import tab sessions and grouping rules when you need a snapshot
+  -> Export or import tab sessions with window context when you need a snapshot
+  -> Restore imported sessions into the current window or their original windows
 ```
 
 Everything runs inside the Chrome extension. No server or build step is required.

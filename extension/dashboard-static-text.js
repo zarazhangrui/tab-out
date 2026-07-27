@@ -71,7 +71,8 @@
       setTextByAction('clear-later-archive', t('action.clear'));
       setTextByAction('close-tabout-dupes', t('action.closeExtras'));
       setTextByAction('export-imported-session', t('action.exportAll'));
-      setTextByAction('restore-imported-session', t('action.restoreAll'));
+      setTextByAction('restore-imported-session', t('action.restoreHere'));
+      setTextByAction('restore-imported-session-original', t('action.restoreOriginalWindow'));
       setTextByAction('clear-imported-session', t('action.clear'));
       setTextByAction('manual-refresh', t('action.refresh'));
       setTextByAction('trigger-import-session', t('action.importFile'));

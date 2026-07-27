@@ -24,6 +24,53 @@ function createDerivedId(prefix, seed, index = 0) {
   return `${prefix}-${hashText(`${seed}::${index}`)}`;
 }
 
+function sanitizeSessionWindow(windowInfo, fallbackId) {
+  const id = normalizeId(fallbackId)
+    || normalizeId(windowInfo && windowInfo.id)
+    || normalizeId(windowInfo && windowInfo.windowId);
+  if (!id) return null;
+
+  const safeWindow = { id };
+  const stringFields = ['type', 'state'];
+  const booleanFields = ['focused', 'incognito', 'alwaysOnTop'];
+  const numberFields = ['left', 'top', 'width', 'height'];
+
+  for (const field of stringFields) {
+    if (typeof windowInfo?.[field] === 'string' && windowInfo[field].trim()) {
+      safeWindow[field] = windowInfo[field].trim();
+    }
+  }
+
+  for (const field of booleanFields) {
+    if (typeof windowInfo?.[field] === 'boolean') {
+      safeWindow[field] = windowInfo[field];
+    }
+  }
+
+  for (const field of numberFields) {
+    if (typeof windowInfo?.[field] === 'number' && Number.isFinite(windowInfo[field])) {
+      safeWindow[field] = windowInfo[field];
+    }
+  }
+
+  return safeWindow;
+}
+
+function mergeSessionWindow(existingWindow, nextWindow) {
+  if (!existingWindow) return nextWindow;
+  if (!nextWindow) return existingWindow;
+  return {
+    ...existingWindow,
+    ...nextWindow,
+    id: existingWindow.id || nextWindow.id,
+  };
+}
+
+function getTabWindowInfo(tab) {
+  if (!tab || typeof tab !== 'object') return null;
+  return sanitizeSessionWindow(tab.window, tab.windowId);
+}
+
 function isRestorableUrl(url) {
   if (typeof url !== 'string' || !url.trim()) return false;
 
@@ -45,7 +92,15 @@ function sanitizeSessionTab(tab, context = {}) {
     || normalizeId(tab.tabId)
     || createDerivedId('tab', `${context.groupId || 'group'}::${url}::${title}`, context.index);
 
-  return { id, url, title };
+  const safeTab = { id, url, title };
+  const windowInfo = getTabWindowInfo(tab);
+
+  if (windowInfo) {
+    safeTab.windowId = windowInfo.id;
+    safeTab.window = windowInfo;
+  }
+
+  return safeTab;
 }
 
 function getComparableTabUrl(tab) {
@@ -86,15 +141,65 @@ function sanitizeSessionGroup(group, index = 0) {
   return { id, label, domain, tabs };
 }
 
+function collectSessionWindows(groups, metadataWindows = []) {
+  const windowMap = new Map();
+
+  const addWindow = windowInfo => {
+    const safeWindow = sanitizeSessionWindow(windowInfo);
+    if (!safeWindow) return;
+    windowMap.set(
+      safeWindow.id,
+      mergeSessionWindow(windowMap.get(safeWindow.id), safeWindow)
+    );
+  };
+
+  if (Array.isArray(metadataWindows)) {
+    metadataWindows.forEach(addWindow);
+  }
+
+  for (const group of Array.isArray(groups) ? groups : []) {
+    for (const tab of Array.isArray(group && group.tabs) ? group.tabs : []) {
+      addWindow(getTabWindowInfo(tab));
+    }
+  }
+
+  return Array.from(windowMap.values());
+}
+
+function hydrateSessionTabWindows(groups, windows = []) {
+  const windowMap = new Map(
+    (Array.isArray(windows) ? windows : [])
+      .map(windowInfo => sanitizeSessionWindow(windowInfo))
+      .filter(Boolean)
+      .map(windowInfo => [windowInfo.id, windowInfo])
+  );
+
+  for (const group of Array.isArray(groups) ? groups : []) {
+    for (const tab of Array.isArray(group && group.tabs) ? group.tabs : []) {
+      const tabWindow = getTabWindowInfo(tab);
+      if (!tabWindow) continue;
+
+      const topLevelWindow = windowMap.get(tabWindow.id);
+      const mergedWindow = mergeSessionWindow(topLevelWindow, tabWindow);
+      tab.windowId = mergedWindow.id;
+      tab.window = mergedWindow;
+    }
+  }
+
+  return groups;
+}
+
 function createSessionExport(groups, metadata = {}) {
   const safeGroups = Array.isArray(groups)
     ? groups.map((group, index) => sanitizeSessionGroup(group, index)).filter(Boolean)
     : [];
+  const windows = collectSessionWindows(safeGroups, metadata.windows);
 
   return {
     version: SESSION_FILE_VERSION,
     source: 'tab-out',
     exportedAt: metadata.exportedAt || new Date().toISOString(),
+    windows,
     groups: safeGroups,
   };
 }
@@ -151,6 +256,8 @@ function parseImportedSession(raw) {
   const groups = payload.groups
     .map((group, index) => sanitizeSessionGroup(group, index))
     .filter(Boolean);
+  const windows = collectSessionWindows(groups, payload.windows);
+  hydrateSessionTabWindows(groups, windows);
 
   if (groups.length === 0) {
     throw new Error('Import file does not contain any restorable tabs.');
@@ -162,6 +269,7 @@ function parseImportedSession(raw) {
     exportedAt: typeof payload.exportedAt === 'string' && payload.exportedAt.trim()
       ? payload.exportedAt
       : new Date().toISOString(),
+    windows,
     groups,
   };
 }
@@ -218,6 +326,8 @@ function planRestoreTabs(groups, openTabs) {
   const toOpen = [];
   const skipped = [];
   const seenQueued = new Set();
+  const windowGroupMap = new Map();
+  const ungroupedTabs = [];
 
   const safeGroups = Array.isArray(groups) ? groups : [];
 
@@ -235,12 +345,28 @@ function planRestoreTabs(groups, openTabs) {
 
       seenQueued.add(safeTab.url);
       toOpen.push(safeTab);
+
+      const windowInfo = getTabWindowInfo(safeTab);
+      if (windowInfo) {
+        if (!windowGroupMap.has(windowInfo.id)) {
+          windowGroupMap.set(windowInfo.id, {
+            sourceWindowId: windowInfo.id,
+            window: windowInfo,
+            tabs: [],
+          });
+        }
+        windowGroupMap.get(windowInfo.id).tabs.push(safeTab);
+      } else {
+        ungroupedTabs.push(safeTab);
+      }
     }
   }
 
   return {
     toOpen,
     skipped,
+    windowGroups: Array.from(windowGroupMap.values()),
+    ungroupedTabs,
     totalRequested: toOpen.length + skipped.length,
   };
 }
@@ -260,6 +386,7 @@ const sessionUtils = {
   SESSION_FILE_VERSION,
   createSessionExport,
   dedupeSessionGroups,
+  collectSessionWindows,
   isRestorableUrl,
   parseImportedSession,
   searchImportedSessionTabs,

@@ -119,6 +119,15 @@
       };
     }
 
+    async function handleImportedRestoreResult(result) {
+      if (!result) return;
+      if (result.changedOpenTabs) {
+        await scheduleDashboardAndWait();
+        return;
+      }
+      renderImportedSessionSection();
+    }
+
     function requestBulkCloseConfirmation({ action, actionEl, count, description = '' }) {
       const mode = getBulkCloseConfirmationMode(action, count);
       if (!actionEl || !mode) {
@@ -262,12 +271,11 @@
       'clear-imported-session': async () => importedSessionController.handleClearImportedSession(),
       'restore-imported-session': async () => {
         const result = await importedSessionController.handleRestoreImportedSession();
-        if (!result) return;
-        if (result.changedOpenTabs) {
-          await scheduleDashboardAndWait();
-          return;
-        }
-        renderImportedSessionSection();
+        await handleImportedRestoreResult(result);
+      },
+      'restore-imported-session-original': async () => {
+        const result = await importedSessionController.handleRestoreImportedSessionOriginalWindows();
+        await handleImportedRestoreResult(result);
       },
       'clear-later-list': async () => laterListController.handleClearSavedTabsByState({ completed: false }),
       'clear-later-archive': async () => laterListController.handleClearSavedTabsByState({ completed: true }),
@@ -326,12 +334,11 @@
       },
       'restore-imported-group': async ({ actionEl }) => {
         const result = await importedSessionController.handleRestoreImportedGroup(actionEl.dataset.importedGroupId);
-        if (!result) return;
-        if (result.changedOpenTabs) {
-          await scheduleDashboardAndWait();
-          return;
-        }
-        renderImportedSessionSection();
+        await handleImportedRestoreResult(result);
+      },
+      'restore-imported-group-original': async ({ actionEl }) => {
+        const result = await importedSessionController.handleRestoreImportedGroupOriginalWindow(actionEl.dataset.importedGroupId);
+        await handleImportedRestoreResult(result);
       },
       'restore-imported-tab': async ({ actionEl }) => {
         const result = await importedSessionController.handleRestoreImportedTab(
