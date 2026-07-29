@@ -103,6 +103,27 @@
       return changed;
     }
 
+    async function archiveActiveSavedTabs() {
+      let changed = 0;
+      await queueStorageUpdate('deferred', currentDeferred => {
+        const { items } = normalizeDeferredItems(currentDeferred);
+        const deferred = [...items];
+        const completedAt = new Date().toISOString();
+
+        for (const item of deferred) {
+          if (item.dismissed || item.completed) continue;
+          item.completed = true;
+          item.completedAt = completedAt;
+          changed += 1;
+        }
+
+        setDeferredItemsCache(deferred);
+        return deferred;
+      });
+
+      return changed;
+    }
+
     function renderLaterItem(item) {
       let domain = '';
       try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
@@ -117,7 +138,7 @@
           <input type="checkbox" class="later-checkbox" data-action="check-later" data-later-id="${safeId}">
           <div class="later-info">
             <a href="${safeUrl}" target="_blank" rel="noopener" class="later-title text-tooltip" data-tooltip="${safeTitle}" aria-label="${safeTitle}">
-              ${buildFaviconImg(domain, 'deferred-favicon')}${safeTitle}
+              ${buildFaviconImg(domain, 'deferred-favicon', item.url)}<span class="later-title-text">${safeTitle}</span>
             </a>
             <div class="later-meta">
               <span>${safeDomain}</span>
@@ -131,13 +152,15 @@
     }
 
     function renderArchiveItem(item) {
+      let domain = '';
+      try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
       const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
       const safeUrl = escapeHtml(item.url);
       const safeTitle = escapeHtml(item.title || item.url);
       return `
         <div class="archive-item">
           <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title text-tooltip" data-tooltip="${safeTitle}" aria-label="${safeTitle}">
-            ${safeTitle}
+            ${buildFaviconImg(domain, 'deferred-favicon', item.url)}<span class="later-title-text">${safeTitle}</span>
           </a>
           <span class="archive-item-date">${escapeHtml(ago)}</span>
         </div>`;
@@ -208,10 +231,26 @@
       return cleared;
     }
 
+    async function handleArchiveActiveSavedTabs() {
+      const archived = await archiveActiveSavedTabs();
+      await renderLaterListColumn();
+      if (typeof scheduleSearchAndWait === 'function') {
+        await scheduleSearchAndWait();
+      }
+      if (typeof showToast === 'function') {
+        showToast(archived > 0
+          ? t('toast.archivedLater', { count: archived, itemLabel: countLabel('common.item', archived) })
+          : t('toast.laterAlreadyEmpty'));
+      }
+      return archived;
+    }
+
     return {
+      archiveActiveSavedTabs,
       checkOffSavedTab,
       clearSavedTabsByState,
       dismissSavedTab,
+      handleArchiveActiveSavedTabs,
       handleClearSavedTabsByState,
       getSavedTabs,
       getSavedTabsFromCache,

@@ -303,6 +303,57 @@ header {
   background: var(--card-bg);
 }
 
+.search-scope-toggle {
+  display: none;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  background: rgba(154, 145, 138, 0.05);
+}
+
+.search-scope-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.search-scope-option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.search-scope-option span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-scope-option input:checked + span {
+  color: var(--ink);
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.search-scope-option input:focus-visible + span {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .search-section {
   margin-bottom: 28px;
 }
@@ -310,6 +361,7 @@ header {
 .search-results {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .search-card {
@@ -320,6 +372,7 @@ header {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .search-card-header {
@@ -514,6 +567,7 @@ header {
   color: var(--ink);
   min-width: 0;
   flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .search-card-meta {
@@ -522,6 +576,12 @@ header {
   gap: 8px;
   font-size: 11px;
   color: var(--muted);
+  min-width: 0;
+}
+
+.search-card-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .search-source-badge {
@@ -1146,6 +1206,28 @@ header {
   text-align: left;
 }
 
+.later-dismiss[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: translateY(2px);
+}
+
+.later-dismiss[data-tooltip]::before {
+  left: auto;
+  right: 4px;
+  transform: translateY(2px) rotate(45deg);
+}
+
+.later-dismiss[data-tooltip]:hover::after,
+.later-dismiss[data-tooltip]:focus-visible::after {
+  transform: translateY(0);
+}
+
+.later-dismiss[data-tooltip]:hover::before,
+.later-dismiss[data-tooltip]:focus-visible::before {
+  transform: translateY(0) rotate(45deg);
+}
+
 .page-chip.clickable {
   cursor: pointer;
   transition: background 0.15s ease;
@@ -1670,7 +1752,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   position: sticky;
   top: 32px;
   max-height: calc(100vh - 64px);
-  overflow-y: auto;
+  overflow: visible;
 }
 
 /* On narrow screens, stack vertically */
@@ -1689,6 +1771,22 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
     max-width: none;
     min-width: 0;
     width: 100%;
+  }
+
+  .search-scope-toggle {
+    order: 3;
+    width: 100%;
+  }
+
+  .search-scope-option {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .search-scope-option span {
+    width: 100%;
+    justify-content: center;
+    padding: 0 8px;
   }
 
   .more-menu-panel {
@@ -1750,10 +1848,16 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   padding: 10px 0;
   border-bottom: 1px solid var(--row-border);
   animation: fadeUp 0.3s ease both;
+  position: relative;
 }
 
 .later-item:last-child {
   border-bottom: none;
+}
+
+.later-item:hover,
+.later-item:focus-within {
+  z-index: 20;
 }
 
 /* Custom checkbox */
@@ -1803,11 +1907,18 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   font-size: 13px;
   color: var(--ink);
   text-decoration: none;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  transition: color 0.15s;
+}
+
+.later-title-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color 0.15s;
 }
 
 .later-title:hover {
@@ -1914,7 +2025,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .archive-toggle.open .archive-chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .archive-count {
@@ -1956,6 +2067,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--subtle-row-border);
+  position: relative;
 }
 
 .archive-item:last-child {
@@ -1966,9 +2078,9 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   font-size: 12px;
   color: var(--muted);
   text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex: 1;
   min-width: 0;
   transition: color 0.15s;

@@ -117,6 +117,24 @@
     <div class="section-header">
       <h2>Search results</h2>
       <div class="section-line"></div>
+      <div class="search-scope-toggle" id="searchScopeControls" role="radiogroup" aria-label="Search scope">
+        <label class="search-scope-option">
+          <input type="radio" id="searchScopeAll" name="searchScope" value="all" checked>
+          <span>All</span>
+        </label>
+        <label class="search-scope-option">
+          <input type="radio" id="searchScopeOpen" name="searchScope" value="open">
+          <span>Open</span>
+        </label>
+        <label class="search-scope-option">
+          <input type="radio" id="searchScopeLater" name="searchScope" value="later">
+          <span>Later</span>
+        </label>
+        <label class="search-scope-option">
+          <input type="radio" id="searchScopeImported" name="searchScope" value="imported">
+          <span>Imported</span>
+        </label>
+      </div>
       <div class="section-count" id="searchCount"></div>
     </div>
     <div class="search-results" id="searchResults"></div>
@@ -184,7 +202,8 @@
         <h2>Later list</h2>
         <div class="section-line"></div>
         <div class="section-count" id="laterCount"></div>
-        <button class="action-btn close-tabs" data-action="clear-later-list">Clear all</button>
+        <button class="action-btn save-tabs" data-action="archive-later-list">Archive</button>
+        <button class="action-btn close-tabs" data-action="clear-later-list">Clear</button>
       </div>
 
       <!-- Active checklist items — injected by renderLaterListColumn() in app.js -->
@@ -199,7 +218,7 @@
       <div class="later-archive hidden-by-default" id="laterArchive">
         <div class="archive-header">
           <button class="archive-toggle" id="archiveToggle">
-            <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             Archive
             <span class="archive-count" id="archiveCount"></span>
           </button>

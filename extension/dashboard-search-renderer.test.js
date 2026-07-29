@@ -23,6 +23,7 @@ function withMockDocument(fn) {
     searchSection: makeElement(),
     searchCount: makeElement(),
     searchResults: makeElement(),
+    searchScopeControls: makeElement(),
     openTabsSection: makeElement(),
     importedSessionSection: makeElement(),
     laterColumn: makeElement(),
@@ -127,6 +128,7 @@ test('renderSearchResults hides overlay for empty query and restores sections', 
     const shown = await renderer.renderSearchResults({ globalSearchQuery: '   ' });
     assert.equal(shown, false);
     assert.equal(elements.searchSection.style.display, 'none');
+    assert.equal(elements.searchScopeControls.style.display, 'none');
     assert.equal(elements.openTabsSection.style.display, 'block');
     assert.equal(elements.importedSessionSection.style.display, 'block');
     assert.equal(elements.laterColumn.style.display, 'block');
@@ -135,8 +137,11 @@ test('renderSearchResults hides overlay for empty query and restores sections', 
 });
 
 test('renderSearchResults renders matched results and hides other sections', async () => {
+  const calls = [];
   const renderer = createRenderer({
-    buildSearchResultsModel: () => ([
+    buildSearchResultsModel: input => {
+      calls.push(input);
+      return [
       {
         id: 'open-1',
         tabId: '1',
@@ -153,7 +158,8 @@ test('renderSearchResults renders matched results and hides other sections', asy
         source: 'later',
         sourceLabel: 'Later list',
       },
-    ]),
+      ];
+    },
     getSavedTabs: async () => ({ active: [], archived: [] }),
     getState: () => ({
       domainGroups: [{ domain: 'docs.example.com', tabs: [] }],
@@ -162,9 +168,14 @@ test('renderSearchResults renders matched results and hides other sections', asy
   });
 
   await withMockDocument(async elements => {
-    const shown = await renderer.renderSearchResults({ globalSearchQuery: 'guide' });
+    const shown = await renderer.renderSearchResults({
+      globalSearchQuery: 'guide',
+      searchScope: 'open',
+    });
     assert.equal(shown, true);
+    assert.equal(calls[0].searchScope, 'open');
     assert.equal(elements.searchSection.style.display, 'block');
+    assert.equal(elements.searchScopeControls.style.display, 'flex');
     assert.equal(elements.searchCount.textContent, '2 results');
     assert.match(elements.searchResults.innerHTML, /Open tab/);
     assert.match(elements.searchResults.innerHTML, /Later list/);
@@ -185,6 +196,7 @@ test('renderSearchResults shows empty message when query has no matches', async 
   await withMockDocument(async elements => {
     const shown = await renderer.renderSearchResults({ globalSearchQuery: 'nomatch' });
     assert.equal(shown, true);
+    assert.equal(elements.searchScopeControls.style.display, 'flex');
     assert.equal(elements.searchCount.textContent, '0 results');
     assert.match(elements.searchResults.innerHTML, /No matching tabs/);
   });

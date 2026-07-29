@@ -5,6 +5,7 @@
     getAutoRefreshEnabled,
     getLanguagePreference = () => 'en',
     getMoreMenuOpen,
+    getSearchScope = () => 'all',
     getTabMovingEnabled = () => false,
     getThemePreference = () => 'system',
     getNextLanguage = language => (language === 'zh' ? 'en' : 'zh'),
@@ -16,9 +17,14 @@
       dark: 'Dark',
     };
     const VALID_THEME_PREFERENCES = new Set(Object.keys(THEME_LABELS));
+    const VALID_SEARCH_SCOPES = new Set(['all', 'open', 'later', 'imported']);
 
     function normalizeThemePreference(preference) {
       return VALID_THEME_PREFERENCES.has(preference) ? preference : 'system';
+    }
+
+    function normalizeSearchScope(scope) {
+      return VALID_SEARCH_SCOPES.has(scope) ? scope : 'all';
     }
 
     function getSystemTheme() {
@@ -117,6 +123,19 @@
       );
     }
 
+    function renderSearchScopeToggle() {
+      const scope = normalizeSearchScope(getSearchScope());
+      const inputs = Array.from(document.querySelectorAll('[name="searchScope"]'));
+
+      for (const input of inputs) {
+        const selected = input.value === scope;
+        input.checked = selected;
+        if (typeof input.setAttribute === 'function') {
+          input.setAttribute('aria-checked', selected ? 'true' : 'false');
+        }
+      }
+    }
+
     function renderMoreMenu() {
       const menu = document.getElementById('moreMenu');
       const toggle = document.getElementById('moreMenuToggle');
@@ -149,6 +168,7 @@
       renderAutoRefreshToggle,
       renderLanguageToggle,
       renderMoreMenu,
+      renderSearchScopeToggle,
       renderTabMovingToggle,
       renderThemeToggle,
     };

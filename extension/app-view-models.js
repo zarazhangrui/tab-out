@@ -8,26 +8,35 @@ function buildSearchResultsModel({
   openTabs = [],
   query,
   searchImportedSessionTabs,
+  searchScope = 'all',
   searchTextMatches,
 }) {
   const results = [];
   const openUrlSet = new Set((openTabs || []).map(tab => tab.url).filter(Boolean));
+  const normalizedScope = ['open', 'later', 'imported'].includes(searchScope)
+    ? searchScope
+    : 'all';
+  const includeOpen = normalizedScope === 'all' || normalizedScope === 'open';
+  const includeLater = normalizedScope === 'all' || normalizedScope === 'later';
+  const includeImported = normalizedScope === 'all' || normalizedScope === 'imported';
 
-  for (const tab of openTabs || []) {
-    if (!searchTextMatches(query, tab.title, tab.url)) continue;
-    results.push({
-      id: `open-${tab.id}`,
-      tabId: String(tab.id),
-      title: tab.title,
-      url: tab.url,
-      favIconUrl: tab.favIconUrl || '',
-      source: 'open',
-      sourceLabelKey: 'source.open',
-      sourceLabel: 'Open tab',
-    });
+  if (includeOpen) {
+    for (const tab of openTabs || []) {
+      if (!searchTextMatches(query, tab.title, tab.url)) continue;
+      results.push({
+        id: `open-${tab.id}`,
+        tabId: String(tab.id),
+        title: tab.title,
+        url: tab.url,
+        favIconUrl: tab.favIconUrl || '',
+        source: 'open',
+        sourceLabelKey: 'source.open',
+        sourceLabel: 'Open tab',
+      });
+    }
   }
 
-  if (importedSession && Array.isArray(importedSession.groups) && typeof searchImportedSessionTabs === 'function') {
+  if (includeImported && importedSession && Array.isArray(importedSession.groups) && typeof searchImportedSessionTabs === 'function') {
     const importedMatches = searchImportedSessionTabs(importedSession, query);
     for (const match of importedMatches) {
       results.push({
@@ -45,17 +54,19 @@ function buildSearchResultsModel({
     }
   }
 
-  for (const item of [...laterActive, ...laterArchived]) {
-    if (!searchTextMatches(query, item.title, item.url)) continue;
-    results.push({
-      id: item.id,
-      title: item.title,
-      url: item.url,
-      source: 'later',
-      isArchived: !!item.completed,
-      sourceLabelKey: item.completed ? 'source.laterArchived' : 'source.later',
-      sourceLabel: item.completed ? 'Later archived' : 'Later list',
-    });
+  if (includeLater) {
+    for (const item of [...laterActive, ...laterArchived]) {
+      if (!searchTextMatches(query, item.title, item.url)) continue;
+      results.push({
+        id: item.id,
+        title: item.title,
+        url: item.url,
+        source: 'later',
+        isArchived: !!item.completed,
+        sourceLabelKey: item.completed ? 'source.laterArchived' : 'source.later',
+        sourceLabel: item.completed ? 'Later archived' : 'Later list',
+      });
+    }
   }
 
   return results;

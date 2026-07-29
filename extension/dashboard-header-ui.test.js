@@ -16,6 +16,7 @@ function createHeaderUi(overrides = {}) {
     getAutoRefreshEnabled: overrides.getAutoRefreshEnabled || (() => false),
     getLanguagePreference: overrides.getLanguagePreference || (() => overrides.language || 'en'),
     getMoreMenuOpen: overrides.getMoreMenuOpen || (() => false),
+    getSearchScope: overrides.getSearchScope || (() => 'all'),
     getTabMovingEnabled: overrides.getTabMovingEnabled || (() => false),
     getThemePreference: overrides.getThemePreference || (() => 'system'),
     getNextLanguage: i18n.getNextLanguage,
@@ -252,6 +253,44 @@ test('renderTabMovingToggle reflects advanced moving setting', async () => {
     assert.equal(toggle.attributes['aria-label'], 'Advanced tab moving enabled.');
     assert.equal(toggle.classList.added.has('save-tabs'), true);
     assert.equal(toggle.classList.added.has('danger'), false);
+  });
+});
+
+test('renderSearchScopeToggle marks the selected search range', async () => {
+  let scope = 'open';
+  const options = [
+    { id: 'searchScopeAll', value: 'all', checked: false, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
+    { id: 'searchScopeOpen', value: 'open', checked: false, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
+    { id: 'searchScopeLater', value: 'later', checked: false, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
+    { id: 'searchScopeImported', value: 'imported', checked: false, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
+  ];
+
+  const headerUi = createHeaderUi({
+    getSearchScope: () => scope,
+  });
+
+  await withFakeDocument({
+    getElementById(id) {
+      return options.find(option => option.id === id) || null;
+    },
+    querySelectorAll(selector) {
+      return selector === '[name="searchScope"]' ? options : [];
+    },
+  }, async () => {
+    headerUi.renderSearchScopeToggle();
+    assert.equal(options[0].checked, false);
+    assert.equal(options[1].checked, true);
+    assert.equal(options[2].checked, false);
+    assert.equal(options[3].checked, false);
+    assert.equal(options[1].attributes['aria-checked'], 'true');
+
+    scope = 'imported';
+    headerUi.renderSearchScopeToggle();
+    assert.equal(options[0].checked, false);
+    assert.equal(options[1].checked, false);
+    assert.equal(options[2].checked, false);
+    assert.equal(options[3].checked, true);
+    assert.equal(options[3].attributes['aria-checked'], 'true');
   });
 });
 

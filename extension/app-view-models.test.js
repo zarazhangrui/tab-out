@@ -65,6 +65,93 @@ test('buildSearchResultsModel keeps imported tab metadata and open state', () =>
   ]);
 });
 
+test('buildSearchResultsModel filters search results to open scope', () => {
+  const results = buildSearchResultsModel({
+    friendlyDomain: value => value,
+    importedSession: {
+      groups: [{ id: 'docs', label: 'Docs', domain: 'docs.example.com', tabs: [] }],
+    },
+    laterActive: [
+      { id: 'later-1', title: 'Guide saved', url: 'https://later.example.com/guide' },
+    ],
+    laterArchived: [],
+    openTabs: [
+      { id: 1, title: 'Guide open', url: 'https://docs.example.com/guide' },
+    ],
+    query: 'guide',
+    searchImportedSessionTabs: () => [{
+      tabId: 'tab-1',
+      groupId: 'docs',
+      groupLabel: 'Docs',
+      groupDomain: 'docs.example.com',
+      title: 'Guide imported',
+      url: 'https://docs.example.com/imported-guide',
+    }],
+    searchScope: 'open',
+    searchTextMatches,
+  });
+
+  assert.deepEqual(results.map(result => result.source), ['open']);
+});
+
+test('buildSearchResultsModel filters search results to later scope', () => {
+  const results = buildSearchResultsModel({
+    friendlyDomain: value => value,
+    importedSession: {
+      groups: [{ id: 'docs', label: 'Docs', domain: 'docs.example.com', tabs: [] }],
+    },
+    laterActive: [
+      { id: 'later-1', title: 'Guide saved', url: 'https://later.example.com/guide' },
+    ],
+    laterArchived: [],
+    openTabs: [
+      { id: 1, title: 'Guide open', url: 'https://docs.example.com/guide' },
+    ],
+    query: 'guide',
+    searchImportedSessionTabs: () => [{
+      tabId: 'tab-1',
+      groupId: 'docs',
+      groupLabel: 'Docs',
+      groupDomain: 'docs.example.com',
+      title: 'Guide imported',
+      url: 'https://docs.example.com/imported-guide',
+    }],
+    searchScope: 'later',
+    searchTextMatches,
+  });
+
+  assert.deepEqual(results.map(result => result.source), ['later']);
+});
+
+test('buildSearchResultsModel filters search results to imported scope', () => {
+  const results = buildSearchResultsModel({
+    friendlyDomain: value => value,
+    importedSession: {
+      groups: [{ id: 'docs', label: 'Docs', domain: 'docs.example.com', tabs: [] }],
+    },
+    laterActive: [
+      { id: 'later-1', title: 'Guide saved', url: 'https://later.example.com/guide' },
+    ],
+    laterArchived: [],
+    openTabs: [
+      { id: 1, title: 'Guide open', url: 'https://docs.example.com/guide' },
+    ],
+    query: 'guide',
+    searchImportedSessionTabs: () => [{
+      tabId: 'tab-1',
+      groupId: 'docs',
+      groupLabel: 'Docs',
+      groupDomain: 'docs.example.com',
+      title: 'Guide imported',
+      url: 'https://docs.example.com/imported-guide',
+    }],
+    searchScope: 'imported',
+    searchTextMatches,
+  });
+
+  assert.deepEqual(results.map(result => result.source), ['imported']);
+});
+
 test('buildImportedTabViewModel switches primary action by open state', () => {
   const openSet = new Set(['https://docs.example.com/guide']);
 

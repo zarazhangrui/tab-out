@@ -23,6 +23,17 @@
       if (element) element.textContent = text;
     }
 
+    function setLabelTextForInput(id, text) {
+      const input = getElement(id);
+      const label = input && typeof input.closest === 'function'
+        ? input.closest('label')
+        : null;
+      const labelText = label && typeof label.querySelector === 'function'
+        ? label.querySelector('span')
+        : null;
+      if (labelText) labelText.textContent = text;
+    }
+
     function setElementPlaceholderById(id, placeholder) {
       const element = getElement(id);
       if (element) element.setAttribute('placeholder', placeholder);
@@ -59,15 +70,22 @@
 
       const searchHeading = querySelector('#searchSection h2');
       if (searchHeading) searchHeading.textContent = t('section.searchResults');
+      const searchScopeToggle = querySelector('.search-scope-toggle');
+      if (searchScopeToggle) searchScopeToggle.setAttribute('aria-label', t('search.scope'));
       const laterHeading = querySelector('#laterColumn h2');
       if (laterHeading) laterHeading.textContent = t('section.laterList');
       const statLabel = querySelector('.stat-label');
       if (statLabel) statLabel.textContent = t('footer.openTabs');
+      setLabelTextForInput('searchScopeAll', t('search.scope.all'));
+      setLabelTextForInput('searchScopeOpen', t('search.scope.open'));
+      setLabelTextForInput('searchScopeLater', t('search.scope.later'));
+      setLabelTextForInput('searchScopeImported', t('search.scope.imported'));
 
       setTextNodeText(getElement('moreMenuToggle'), t('menu.more'));
       setTextNodeText(getElement('archiveToggle'), t('common.archive'));
 
-      setTextByAction('clear-later-list', t('action.clearAll'));
+      setTextByAction('clear-later-list', t('action.clear'));
+      setTextByAction('archive-later-list', t('action.archive'));
       setTextByAction('clear-later-archive', t('action.clear'));
       setTextByAction('close-tabout-dupes', t('action.closeExtras'));
       setTextByAction('export-imported-session', t('action.exportAll'));

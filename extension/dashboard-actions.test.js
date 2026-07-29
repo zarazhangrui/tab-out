@@ -83,6 +83,10 @@ function createHarness(overrides = {}) {
   };
 
   const laterListController = {
+    async handleArchiveActiveSavedTabs() {
+      calls.archiveActiveSavedTabs = (calls.archiveActiveSavedTabs || 0) + 1;
+      return 1;
+    },
     async handleClearSavedTabsByState(input) { return input; },
   };
 
@@ -297,6 +301,14 @@ test('custom group actions route to the custom group controller', async () => {
   assert.deepEqual(calls.customGroupEditRule, ['workspace']);
   assert.deepEqual(calls.customGroupDeleteRule, ['workspace']);
   assert.equal(calls.customGroupExportRules, 1);
+});
+
+test('archive-later-list routes to the later list controller', async () => {
+  const { actions, calls } = createHarness();
+
+  await actions['archive-later-list']();
+
+  assert.equal(calls.archiveActiveSavedTabs, 1);
 });
 
 test('original-window imported restore actions refresh dashboard after opening tabs', async () => {

@@ -278,6 +278,7 @@
         await handleImportedRestoreResult(result);
       },
       'clear-later-list': async () => laterListController.handleClearSavedTabsByState({ completed: false }),
+      'archive-later-list': async () => laterListController.handleArchiveActiveSavedTabs(),
       'clear-later-archive': async () => laterListController.handleClearSavedTabsByState({ completed: true }),
       'close-tabout-dupes': async () => {
         const result = await closeTabOutDupes({

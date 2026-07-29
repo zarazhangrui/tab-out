@@ -9,6 +9,7 @@
     getSearchQuery,
     renderAutoRefreshToggle,
     renderLanguageToggle,
+    renderSearchScopeToggle = () => {},
     renderThemeToggle,
     renderImportedSessionSection,
     renderLaterListColumn,
@@ -31,6 +32,7 @@
       renderStaticText();
       renderAutoRefreshToggle();
       renderLanguageToggle();
+      renderSearchScopeToggle();
       renderThemeToggle();
       renderMoreMenu();
 

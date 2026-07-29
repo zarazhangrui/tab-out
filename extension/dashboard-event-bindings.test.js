@@ -22,6 +22,7 @@ function createHarness(overrides = {}) {
     scheduleSearchRender: 0,
     setMoreMenuOpen: [],
     setSearchQuery: [],
+    setSearchScope: [],
     showToast: [],
   };
   const listeners = {};
@@ -83,6 +84,9 @@ function createHarness(overrides = {}) {
     },
     setSearchQuery: value => {
       calls.setSearchQuery.push(value);
+    },
+    setSearchScope: value => {
+      calls.setSearchScope.push(value);
     },
     showToast: message => {
       calls.showToast.push(message);
@@ -184,6 +188,20 @@ test('input updates search query and debounces search render', async () => {
   }
 });
 
+test('change updates search scope and renders current search', async () => {
+  const { calls, listeners } = createHarness();
+  await listeners.change({
+    target: {
+      id: 'searchScopeImported',
+      name: 'searchScope',
+      value: 'imported',
+    },
+  });
+
+  assert.deepEqual(calls.setSearchScope, ['imported']);
+  assert.equal(calls.scheduleSearchRender, 1);
+});
+
 test('keydown on more menu toggle opens menu and focuses first item', async () => {
   const pendingTimeouts = [];
   const previousSetTimeout = global.setTimeout;
@@ -215,7 +233,21 @@ test('keydown on more menu toggle opens menu and focuses first item', async () =
 });
 
 test('click toggles archive body and closes more menu when clicking outside', async () => {
-  const archiveBody = { style: { display: 'none' } };
+  const archiveBody = {
+    classList: {
+      values: new Set(['hidden-by-default']),
+      contains(name) {
+        return this.values.has(name);
+      },
+      remove(name) {
+        this.values.delete(name);
+      },
+      add(name) {
+        this.values.add(name);
+      },
+    },
+    style: { display: '' },
+  };
   const { calls, listeners } = createHarness({ archiveBody });
   const toggle = {
     classList: {
@@ -235,6 +267,7 @@ test('click toggles archive body and closes more menu when clicking outside', as
   });
 
   assert.deepEqual(calls.closeMoreMenu, [null]);
+  assert.equal(archiveBody.classList.values.has('hidden-by-default'), false);
   assert.equal(archiveBody.style.display, 'block');
 });
 

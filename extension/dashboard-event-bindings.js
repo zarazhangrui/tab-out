@@ -15,6 +15,7 @@
     scheduleSearchRender,
     setMoreMenuOpen,
     setSearchQuery,
+    setSearchScope,
     showToast,
     t = key => key,
   }) {
@@ -74,11 +75,28 @@
         toggle.classList.toggle('open');
         const body = documentRef.getElementById('archiveBody');
         if (body) {
-          body.style.display = body.style.display === 'none' ? 'block' : 'none';
+          const isClassHidden = !!(
+            body.classList &&
+            typeof body.classList.contains === 'function' &&
+            body.classList.contains('hidden-by-default')
+          );
+          const shouldOpen = isClassHidden || body.style.display === 'none';
+          if (body.classList && typeof body.classList.remove === 'function') {
+            body.classList.remove('hidden-by-default');
+          }
+          body.style.display = shouldOpen ? 'block' : 'none';
         }
       });
 
       documentRef.addEventListener('change', async event => {
+        if (event.target.name === 'searchScope') {
+          if (typeof setSearchScope === 'function') {
+            setSearchScope(event.target.value || 'all');
+          }
+          scheduleSearchRender();
+          return;
+        }
+
         if (event.target.id === 'customGroupImportInput') {
           const files = Array.from(event.target.files || []);
           if (files.length === 0) return;

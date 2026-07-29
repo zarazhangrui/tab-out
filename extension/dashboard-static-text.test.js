@@ -27,9 +27,28 @@ function createElement(overrides = {}) {
   };
 }
 
+function createSearchScopeInput() {
+  const labelText = createElement();
+  return createElement({
+    labelText,
+    closest(selector) {
+      if (selector !== 'label') return null;
+      return {
+        querySelector(labelSelector) {
+          return labelSelector === 'span' ? labelText : null;
+        },
+      };
+    },
+  });
+}
+
 function createHarness(overrides = {}) {
   const elements = {
     globalSearchInput: createElement(),
+    searchScopeAll: createSearchScopeInput(),
+    searchScopeOpen: createSearchScopeInput(),
+    searchScopeLater: createSearchScopeInput(),
+    searchScopeImported: createSearchScopeInput(),
     moreMenuPanel: createElement(),
     importedSessionTitle: createElement(),
     openTabsSectionTitle: createElement(),
@@ -47,9 +66,11 @@ function createHarness(overrides = {}) {
   };
   const selectors = {
     '#searchSection h2': createElement(),
+    '.search-scope-toggle': createElement(),
     '#laterColumn h2': createElement(),
     '.stat-label': createElement(),
     '[data-action="clear-later-list"]': createElement(),
+    '[data-action="archive-later-list"]': createElement(),
     '[data-action="clear-later-archive"]': createElement(),
     '[data-action="close-tabout-dupes"]': createElement(),
     '[data-action="export-imported-session"]': createElement(),
@@ -76,6 +97,7 @@ function createHarness(overrides = {}) {
   };
   const messages = {
     'action.addRule': 'Add rule',
+    'action.archive': 'Archive',
     'action.clear': 'Clear',
     'action.clearAll': 'Clear all',
     'action.closeExtras': 'Close extras',
@@ -110,6 +132,11 @@ function createHarness(overrides = {}) {
     'menu.customGroups': 'Grouping rules',
     'menu.more': 'More',
     'placeholder.search': 'Search all tabs',
+    'search.scope': 'Search scope',
+    'search.scope.all': 'All',
+    'search.scope.imported': 'Imported',
+    'search.scope.later': 'Later',
+    'search.scope.open': 'Open',
     'section.importedSession': 'Imported session',
     'section.laterList': 'Later list',
     'section.openTabs': 'Open tabs',
@@ -141,12 +168,19 @@ test('renderStaticText updates common dashboard labels and attributes', () => {
 
   assert.equal(elements.globalSearchInput.attributes.placeholder, 'Search all tabs');
   assert.equal(elements.globalSearchInput.attributes['aria-label'], 'Search tabs');
+  assert.equal(selectors['.search-scope-toggle'].attributes['aria-label'], 'Search scope');
+  assert.equal(elements.searchScopeAll.labelText.textContent, 'All');
+  assert.equal(elements.searchScopeOpen.labelText.textContent, 'Open');
+  assert.equal(elements.searchScopeLater.labelText.textContent, 'Later');
+  assert.equal(elements.searchScopeImported.labelText.textContent, 'Imported');
   assert.equal(elements.moreMenuPanel.attributes['aria-label'], 'More actions');
   assert.equal(selectors['#searchSection h2'].textContent, 'Search results');
   assert.equal(selectors['#laterColumn h2'].textContent, 'Later list');
   assert.equal(selectors['.stat-label'].textContent, 'Open tabs');
   assert.equal(elements.moreMenuToggle.childNodes[0].textContent, ' More ');
   assert.equal(elements.archiveToggle.childNodes[1].textContent, ' Archive ');
+  assert.equal(selectors['[data-action="clear-later-list"]'].textContent, 'Clear');
+  assert.equal(selectors['[data-action="archive-later-list"]'].textContent, 'Archive');
   assert.equal(selectors['[data-action="manual-refresh"]'].textContent, 'Refresh');
   assert.equal(selectors['[data-action="restore-imported-session"]'].textContent, 'Restore here');
   assert.equal(selectors['[data-action="restore-imported-session-original"]'].textContent, 'Restore windows');

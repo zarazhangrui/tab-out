@@ -81,10 +81,12 @@
     async function renderSearchResults({
       globalSearchQuery = '',
       isStale = () => false,
+      searchScope = 'all',
     } = {}) {
       const searchSection = document.getElementById('searchSection');
       const searchCount = document.getElementById('searchCount');
       const searchResults = document.getElementById('searchResults');
+      const searchScopeControls = document.getElementById('searchScopeControls');
       const openTabsSection = document.getElementById('openTabsSection');
       const importedSessionSection = document.getElementById('importedSessionSection');
       const laterColumn = document.getElementById('laterColumn');
@@ -95,6 +97,7 @@
       const query = normalizeSearchText(globalSearchQuery);
       if (!query) {
         searchSection.style.display = 'none';
+        if (searchScopeControls) searchScopeControls.style.display = 'none';
         if (openTabsSection) openTabsSection.style.display = getState().domainGroups.length > 0 ? 'block' : 'none';
         if (laterColumn) {
           const { active, archived } = await getSavedTabs();
@@ -120,6 +123,7 @@
             laterArchived,
             openTabs: getRealTabs(),
             query,
+            searchScope,
             searchImportedSessionTabs,
             searchTextMatches,
           })
@@ -135,6 +139,7 @@
         ? results.map(buildSearchResultItem).join('')
         : `<div class="search-empty">${t('search.empty')}</div>`;
       if (isStale()) return false;
+      if (searchScopeControls) searchScopeControls.style.display = 'flex';
       searchSection.style.display = 'block';
       return true;
     }

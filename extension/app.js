@@ -98,6 +98,7 @@ let tabMovingEnabled = false;
 let themePreference = 'system';
 let currentWindowId = null;
 let globalSearchQuery = '';
+let searchScope = 'all';
 let searchDebounceTimer = null;
 let moreMenuOpen = false;
 let latestDashboardRenderPromise = Promise.resolve();
@@ -287,6 +288,7 @@ const dashboardHeaderUi = typeof createDashboardHeaderUi === 'function'
       getAutoRefreshEnabled: () => autoRefreshEnabled,
       getLanguagePreference: () => languagePreference,
       getMoreMenuOpen: () => moreMenuOpen,
+      getSearchScope: () => searchScope,
       getTabMovingEnabled: () => tabMovingEnabled,
       getThemePreference: () => themePreference,
       getNextLanguage: getNextLanguagePreference,
@@ -557,6 +559,15 @@ function normalizeThemePreference(preference) {
   return ['system', 'light', 'dark'].includes(preference) ? preference : 'system';
 }
 
+function normalizeSearchScope(scope) {
+  return ['all', 'open', 'later', 'imported'].includes(scope) ? scope : 'all';
+}
+
+function setSearchScope(value) {
+  searchScope = normalizeSearchScope(value);
+  return searchScope;
+}
+
 async function getThemePreferenceSetting() {
   themePreference = normalizeThemePreference(await getStorageValue('themePreference'));
   return themePreference;
@@ -579,6 +590,9 @@ const renderLanguageToggle = dashboardHeaderUi && typeof dashboardHeaderUi.rende
   : () => {};
 const renderTabMovingToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderTabMovingToggle === 'function'
   ? dashboardHeaderUi.renderTabMovingToggle
+  : () => {};
+const renderSearchScopeToggle = dashboardHeaderUi && typeof dashboardHeaderUi.renderSearchScopeToggle === 'function'
+  ? dashboardHeaderUi.renderSearchScopeToggle
   : () => {};
 const getNextThemePreference = dashboardHeaderUi && typeof dashboardHeaderUi.getNextThemePreference === 'function'
   ? dashboardHeaderUi.getNextThemePreference
@@ -646,6 +660,7 @@ async function renderSearchResults(renderCtx = {}) {
   return dashboardSearchRenderer.renderSearchResults({
     ...renderCtx,
     globalSearchQuery,
+    searchScope,
   });
 }
 
@@ -925,6 +940,7 @@ const dashboardRenderFlow = typeof createDashboardRenderFlow === 'function'
       getSearchQuery: () => globalSearchQuery,
       renderAutoRefreshToggle,
       renderLanguageToggle,
+      renderSearchScopeToggle,
       renderThemeToggle,
       renderImportedSessionSection,
       renderLaterListColumn,
@@ -1029,6 +1045,7 @@ const dashboardEventBindings = typeof createDashboardEventBindings === 'function
         globalSearchQuery = value;
         return globalSearchQuery;
       },
+      setSearchScope,
       showToast,
       t,
     })
