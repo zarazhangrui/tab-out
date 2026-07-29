@@ -733,6 +733,30 @@ function getRealTabs() {
 }
 
 /**
+ * getDuplicateTabInfo(tabs)
+ *
+ * Finds exact-URL duplicates across a tab list.
+ * duplicateCount counts the extra copies that can be closed while keeping one.
+ */
+function getDuplicateTabInfo(tabs) {
+  const urlCounts = {};
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  }
+
+  const dupeUrls = Object.entries(urlCounts)
+    .filter(([, count]) => count > 1)
+    .map(([url]) => url);
+
+  const duplicateCount = Object.values(urlCounts)
+    .filter(count => count > 1)
+    .reduce((sum, count) => sum + count - 1, 0);
+
+  return { dupeUrls, duplicateCount };
+}
+
+/**
  * checkTabOutDupes()
  *
  * Counts how many Tab Out pages are open. If more than 1,
@@ -1029,6 +1053,7 @@ async function renderStaticDashboard() {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   const realTabs = getRealTabs();
+  const { duplicateCount } = getDuplicateTabInfo(realTabs);
 
   // --- Group tabs by domain ---
   // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
@@ -1150,7 +1175,10 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const closeAllDuplicateTabsButton = duplicateCount > 0
+      ? ` &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-duplicated-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${duplicateCount} duplicate${duplicateCount !== 1 ? 's' : ''}</button>`
+      : '';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>${closeAllDuplicateTabsButton}`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1409,6 +1437,24 @@ document.addEventListener('click', async (e) => {
     }
 
     showToast('Closed duplicates, kept one copy each');
+    return;
+  }
+
+  // ---- Close ALL duplicate tabs, keep one copy of each URL ----
+  if (action === 'close-all-duplicated-tabs') {
+    await fetchOpenTabs();
+    const { dupeUrls, duplicateCount } = getDuplicateTabInfo(getRealTabs());
+
+    if (duplicateCount === 0) {
+      showToast('No duplicates found');
+      await renderDashboard();
+      return;
+    }
+
+    await closeDuplicateTabs(dupeUrls, true);
+    playCloseSound();
+    showToast(`Closed ${duplicateCount} duplicate${duplicateCount !== 1 ? 's' : ''}`);
+    await renderDashboard();
     return;
   }
 
