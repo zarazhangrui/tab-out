@@ -6,3 +6,12 @@ docs/superpowers/
 
 # Personal config (landing page patterns, etc.) — never push to GitHub
 extension/config.local.js
+
+# macOS metadata
+._*
+
+# CodeBuddy workspace
+.codebuddy/
+
+# Build artifacts
+tab-out.zip

@@ -26,11 +26,13 @@ async function updateBadge() {
     const tabs = await chrome.tabs.query({});
 
     // Only count actual web pages — skip browser internals and extension pages
+    // across all browsers: chrome://, moz-extension://, about:, edge://, brave://
     const count = tabs.filter(t => {
       const url = t.url || '';
       return (
         !url.startsWith('chrome://') &&
         !url.startsWith('chrome-extension://') &&
+        !url.startsWith('moz-extension://') &&
         !url.startsWith('about:') &&
         !url.startsWith('edge://') &&
         !url.startsWith('brave://')
@@ -82,9 +84,14 @@ chrome.tabs.onRemoved.addListener(() => {
   updateBadge();
 });
 
-// Update badge when a tab's URL changes (e.g. navigating to/from chrome://)
-chrome.tabs.onUpdated.addListener(() => {
-  updateBadge();
+// Update badge when a tab's URL changes (e.g. navigating to/from chrome://).
+// Only trigger on URL or loading-complete changes to avoid excessive calls
+// for minor property updates (title, favicon, etc.) especially in Firefox
+// event pages which don't auto-sleep like Chrome's service worker.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    updateBadge();
+  }
 });
 
 // ─── Initial run ─────────────────────────────────────────────────────────────

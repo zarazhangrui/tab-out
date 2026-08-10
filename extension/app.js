@@ -15,6 +15,21 @@
 
 'use strict';
 
+/* ----------------------------------------------------------------
+   CONFIG.LOCAL.JS — Dynamic load (CSP-safe replacement for inline onerror)
+
+   The old index.html used <script src="config.local.js" onerror="...">,
+   which violates Firefox's CSP (script-src 'self'). We load it here via
+   a <script> element instead; if the file is absent the load simply
+   fails silently and app.js falls back to its built-in defaults.
+   ---------------------------------------------------------------- */
+(function () {
+  const s = document.createElement('script');
+  s.src = 'config.local.js';
+  s.onerror = () => { /* no personal config, that's fine */ };
+  document.head.appendChild(s);
+})();
+
 
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
@@ -26,6 +41,10 @@
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
 
+// URLs that represent a browser-native "new tab" page across browsers.
+// Chrome uses chrome://newtab/, Firefox uses about:newtab / about:home.
+const NEW_TAB_URLS = ['chrome://newtab/', 'about:newtab', 'about:home'];
+
 /**
  * fetchOpenTabs()
  *
@@ -34,9 +53,9 @@ let openTabs = [];
  */
 async function fetchOpenTabs() {
   try {
-    const extensionId = chrome.runtime.id;
-    // The new URL for this page is now index.html (not newtab.html)
-    const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+    // chrome.runtime.getURL() returns the correct extension URL regardless
+    // of browser: chrome-extension://<id>/index.html or moz-extension://<id>/index.html
+    const newtabUrl = chrome.runtime.getURL('index.html');
 
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
@@ -46,7 +65,7 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
+      isTabOut: t.url === newtabUrl || NEW_TAB_URLS.includes(t.url),
     }));
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
@@ -175,13 +194,12 @@ async function closeDuplicateTabs(urls, keepOne = true) {
  * Closes all duplicate Tab Out new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
-  const extensionId = chrome.runtime.id;
-  const newtabUrl = `chrome-extension://${extensionId}/index.html`;
+  const newtabUrl = chrome.runtime.getURL('index.html');
 
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
-    t.url === newtabUrl || t.url === 'chrome://newtab/'
+    t.url === newtabUrl || NEW_TAB_URLS.includes(t.url)
   );
 
   if (tabOutTabs.length <= 1) return;
@@ -281,6 +299,642 @@ async function dismissSavedTab(id) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
   }
+}
+
+
+/* ----------------------------------------------------------------
+   COLLECTIONS — Browser bookmark manager
+   Manages the browser's native bookmarks (folders = groups,
+   bookmarks = saved tabs). All changes sync to the bookmarks bar.
+   ---------------------------------------------------------------- */
+
+const TEMP_FOLDER_TITLE = '临时分组';
+let currentView = 'open';                       // 'open' | 'collections'
+let tempFolderId = null;                        // cached id of the "临时分组" folder
+const collapsedSubgroups = new Set();           // subgroup ids that are collapsed
+
+// HTML-safe escaping for user-provided strings
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// --- Bookmark node type helpers ---
+// Firefox's chrome.bookmarks returns a `type` field ("bookmark" | "folder").
+// Chrome does NOT return `type`; instead, a node is a bookmark if it has a `url`
+// and a folder if it doesn't. These helpers normalize both behaviors so the
+// rest of the code can treat them uniformly.
+function isBookmarkNode(node) {
+  if (!node) return false;
+  if (node.type) return node.type === 'bookmark';
+  return !!node.url;
+}
+function isFolderNode(node) {
+  if (!node) return false;
+  if (node.type) return node.type === 'folder';
+  return !node.url;
+}
+
+// Fetch the full bookmarks tree and split it into the top-level bookmark
+// containers (书签栏 / 其他书签 / 移动书签 …). Firefox's root id is 0 and its
+// direct children are the visible bookmark areas. We must scan ALL of them —
+// not just the first folder child — otherwise bookmarks stored under "其他
+// 书签" (Other Bookmarks) are silently dropped.
+async function getBookmarkContainers() {
+  const root = await chrome.bookmarks.getTree();
+  const rootNode = root && root[0];
+  if (!rootNode || !Array.isArray(rootNode.children)) return [];
+  // Top-level containers are the folder children of the root node.
+  return rootNode.children.filter(n => isFolderNode(n) && Array.isArray(n.children));
+}
+
+// Locate the bookmarks bar (书签栏). Firefox and Chrome use different fixed
+// ids AND different ordering for the top-level containers:
+//   Firefox: toolbar_____ (书签栏), menu________ (书签菜单), unfiled_____
+//   Chrome:  1 (书签栏),   2 (其他书签)
+// We prefer the known id, then fall back to the first container whose title
+// is empty (Chrome/Firefox bar has no title) or just the first container.
+async function getBookmarksBarTree() {
+  const containers = await getBookmarkContainers();
+  if (!containers.length) return null;
+  // Firefox bookmarks bar id is the fixed string "toolbar_____".
+  const byId = containers.find(c => c.id === 'toolbar_____');
+  if (byId) return byId;
+  // Chrome bookmarks bar id is "1".
+  const byChromeId = containers.find(c => c.id === '1');
+  if (byChromeId) return byChromeId;
+  // Fallback: the bar typically has an empty title in both browsers.
+  const byEmptyTitle = containers.find(c => !c.title || c.title === '');
+  if (byEmptyTitle) return byEmptyTitle;
+  return containers[0];
+}
+
+// Find or create the "临时分组" folder on the bookmarks bar.
+// Caches its id in tempFolderId after first lookup.
+async function ensureTempFolder() {
+  if (tempFolderId) {
+    // Verify it still exists (user may have deleted it from the browser UI).
+    try {
+      const chk = await chrome.bookmarks.get(tempFolderId);
+      if (chk && chk[0]) return tempFolderId;
+    } catch { /* folder gone, fall through to re-create */ }
+    tempFolderId = null;
+  }
+  const bar = await getBookmarksBarTree();
+  if (!bar) throw new Error('未找到书签栏');
+  const children = bar.children || [];
+  const existing = children.find(n => isFolderNode(n) && n.title === TEMP_FOLDER_TITLE);
+  if (existing) {
+    tempFolderId = existing.id;
+    return tempFolderId;
+  }
+  const created = await chrome.bookmarks.create({
+    parentId: bar.id,
+    title: TEMP_FOLDER_TITLE,
+  });
+  tempFolderId = created.id;
+  return tempFolderId;
+}
+
+// Read all groups (folders) and loose bookmarks from EVERY top-level bookmark
+// container (书签栏 + 其他书签 + 移动书签). Loose bookmarks (bookmarks sitting
+// directly in a container, not inside a folder) are treated as temp members.
+// Supports nested subgroups up to MAX_DEPTH levels.
+// Returns { temp: BookmarkNode[], groups: GroupNode[], tempId }.
+// GroupNode = { id, title, tabs: BookmarkNode[], subgroups: GroupNode[] }
+const MAX_SUBGROUP_DEPTH = 5;
+
+function buildGroupNode(folderNode, depth) {
+  const children = folderNode.children || [];
+  const tabs = children.filter(c => isBookmarkNode(c) && c.url);
+  const subfolders = children.filter(c => isFolderNode(c));
+  const subgroups = depth < MAX_SUBGROUP_DEPTH
+    ? subfolders.map(f => buildGroupNode(f, depth + 1))
+    : [];
+  return {
+    id: folderNode.id,
+    title: folderNode.title || '未命名分组',
+    tabs,
+    subgroups,
+    depth,
+  };
+}
+
+async function getCollectionData() {
+  const tempId = await ensureTempFolder();
+  const containers = await getBookmarkContainers();
+  if (!containers.length) return { temp: [], groups: [], tempId };
+
+  const temp = [];
+  const groups = [];
+  for (const container of containers) {
+    for (const node of (container.children || [])) {
+      if (isFolderNode(node)) {
+        if (node.id === tempId) {
+          // The temp folder's own bookmarks (flatten, no subgroups).
+          collectAllBookmarks(node, temp);
+        } else {
+          groups.push(buildGroupNode(node, 0));
+        }
+      } else if (isBookmarkNode(node) && node.url) {
+        // A bookmark sitting directly in a container (not in a folder) → temp.
+        temp.push(node);
+      }
+    }
+  }
+  return { temp, groups, tempId };
+}
+
+// Recursively collect all bookmarks from a folder tree into a flat array.
+function collectAllBookmarks(folderNode, out) {
+  for (const child of (folderNode.children || [])) {
+    if (isBookmarkNode(child) && child.url) {
+      out.push(child);
+    } else if (isFolderNode(child)) {
+      collectAllBookmarks(child, out);
+    }
+  }
+}
+
+// Create a new group = a new folder on the bookmarks bar.
+// Create a new group. If parentId is omitted, creates on the bookmarks bar.
+// If parentId is provided, creates as a subgroup inside that folder.
+async function createBookmarkGroup(name, parentId) {
+  const title = (name || '').trim() || '新分组';
+  const targetParent = parentId || (await getBookmarksBarTree()).id;
+  if (!targetParent) throw new Error('未找到目标分组');
+  const folder = await chrome.bookmarks.create({
+    parentId: targetParent,
+    title,
+    index: 0,  // New groups always appear first.
+  });
+  return folder.id;
+}
+
+// Delete a group = move ALL bookmarks (including nested subgroups) into the
+// temp folder, then removeTree the now-empty folder. Bookmarks are never lost.
+async function deleteBookmarkGroup(folderId) {
+  const tempId = await ensureTempFolder();
+  // Use getSubTree to get the full nested tree, then collect all bookmarks.
+  const subtree = await chrome.bookmarks.getSubTree(folderId);
+  const allBookmarks = [];
+  if (subtree && subtree[0]) {
+    collectAllBookmarks(subtree[0], allBookmarks);
+  }
+  for (const bm of allBookmarks) {
+    try {
+      await chrome.bookmarks.move(bm.id, { parentId: tempId });
+    } catch (e) {
+      console.warn('[tab-out] could not move bookmark', bm.id, e);
+    }
+  }
+  try {
+    await chrome.bookmarks.removeTree(folderId);
+  } catch (e) {
+    console.error('[tab-out] deleteBookmarkGroup: removeTree failed for', folderId, e);
+    // Fallback: try plain remove in case the folder is already empty.
+    try { await chrome.bookmarks.remove(folderId); } catch (_) { /* ignore */ }
+  }
+}
+
+// Move a bookmark from one folder to another (drag & drop).
+async function moveBookmark(bookmarkId, targetFolderId) {
+  const destId = targetFolderId || await ensureTempFolder();
+  await chrome.bookmarks.move(bookmarkId, { parentId: destId });
+}
+
+// Reorder a group folder: move it to a new position among its siblings on the
+// bookmarks bar. Chrome/Firefox accept an `index` on bookmarks.move; the
+// target index is relative to the parent's children list.
+async function moveGroupToIndex(folderId, targetIndex) {
+  const nodes = await chrome.bookmarks.get(folderId);
+  const folder = nodes && nodes[0];
+  if (!folder) throw new Error('分组未找到');
+  await chrome.bookmarks.move(folderId, { index: targetIndex });
+}
+
+// Rename a group folder (updates the bookmark folder title).
+async function renameBookmarkGroup(folderId, newTitle) {
+  await chrome.bookmarks.update(folderId, { title: newTitle });
+}
+
+// Delete a single bookmark permanently.
+async function deleteBookmark(bookmarkId) {
+  await chrome.bookmarks.remove(bookmarkId);
+}
+
+function collectionTabRow(bm) {
+  let domain = '';
+  try { domain = new URL(bm.url).hostname.replace(/^www\./, ''); } catch (e) { /* ignore */ }
+  // Use a 1x1 transparent placeholder as the src; the real favicon loads via
+  // the background-image CSS property which does NOT emit network errors to
+  // the console on 404 (unlike <img src>). This keeps the console clean.
+  const faviconBg = domain
+    ? `https://www.google.com/s2/favicons?domain=${esc(domain)}&sz=32`
+    : '';
+  const faviconStyle = faviconBg ? `style="background-image:url('${faviconBg}');background-size:cover;background-position:center"` : '';
+  const title = bm.title || bm.url;
+  return `
+    <div class="collection-tab" draggable="true" data-tab-id="${esc(bm.id)}">
+      <div class="chip-favicon" ${faviconStyle}></div>
+      <span class="collection-tab-title" data-action="open-bookmark" data-tab-id="${esc(bm.id)}" title="${esc(title)}">${esc(title)}</span>
+      <button class="chip-action chip-close" data-action="delete-bookmark" data-tab-id="${esc(bm.id)}" title="删除">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>`;
+}
+
+// Count total bookmarks in a group (including all nested subgroups).
+function countAllTabs(group) {
+  let n = group.tabs.length;
+  for (const sg of (group.subgroups || [])) n += countAllTabs(sg);
+  return n;
+}
+
+// Find the depth of a group by id in the groups tree.
+// Top-level groups = depth 0, their subgroups = depth 1, etc.
+// Returns null if not found.
+function findGroupDepth(groups, targetId) {
+  function search(list, depth) {
+    for (const g of list) {
+      if (g.id === targetId) return depth;
+      if (g.subgroups && g.subgroups.length) {
+        const found = search(g.subgroups, depth + 1);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+  return search(groups, 0);
+}
+
+function groupCardHtml(g) {
+  return groupCardHtmlRecursive(g, 0);
+}
+
+function groupCardHtmlRecursive(g, depth) {
+  const totalCount = g.temp ? g.tabs.length : countAllTabs(g);
+  const tabsHtml = g.tabs.length
+    ? g.tabs.map(collectionTabRow).join('')
+    : '';
+  const delBtn = g.temp ? '' :
+    `<button class="chip-action chip-close group-delete" data-action="delete-group" data-group-id="${esc(g.id)}" title="删除分组">
+       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+     </button>`;
+  // "Add subgroup" button — shown for all non-temp groups.
+  const addSubBtn = g.temp ? '' :
+    `<button class="chip-action group-add-sub" data-action="add-subgroup" data-group-id="${esc(g.id)}" title="新建子分组">
+       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+     </button>`;
+  // "Rename group" button — shown for all non-temp groups.
+  const renameBtn = g.temp ? '' :
+    `<button class="chip-action group-rename" data-action="rename-group" data-group-id="${esc(g.id)}" title="重命名分组">
+       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
+     </button>`;
+
+  // Subgroup HTML — recursively rendered with indentation.
+  const subgroupsHtml = (g.subgroups || []).map(sg => {
+    const sgCount = countAllTabs(sg);
+    // Subgroups can also have subgroups — show "+" button if depth allows.
+    const sgDepth = (g.depth != null ? g.depth : depth) + 1;
+    const canAddSub = sgDepth < MAX_SUBGROUP_DEPTH;
+    const addSubForSg = canAddSub
+      ? `<button class="chip-action subgroup-add-sub" data-action="add-subgroup" data-group-id="${esc(sg.id)}" title="新建子分组">
+           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+         </button>`
+      : '';
+    const renameForSg = `<button class="chip-action subgroup-rename" data-action="rename-group" data-group-id="${esc(sg.id)}" title="重命名子分组">
+           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
+         </button>`;
+    return `
+      <div class="subgroup ${collapsedSubgroups.has(sg.id) ? 'collapsed' : ''}" data-group-id="${esc(sg.id)}" data-depth="${sgDepth}">
+        <div class="subgroup-header" data-action="toggle-subgroup" data-group-id="${esc(sg.id)}">
+          <svg class="subgroup-chevron ${collapsedSubgroups.has(sg.id) ? 'collapsed' : ''}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+          <span class="subgroup-name">${esc(sg.title)}</span>
+          <span class="subgroup-count">${sgCount}</span>
+          ${renameForSg}
+          ${addSubForSg}
+          <button class="chip-action chip-close subgroup-delete" data-action="delete-group" data-group-id="${esc(sg.id)}" title="删除子分组">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div class="subgroup-body">
+          ${groupCardHtmlRecursive({ ...sg, temp: false, sortable: false, depth: sgDepth }, depth + 1)}
+        </div>
+      </div>`;
+  }).join('');
+
+  const isEmpty = !tabsHtml && !subgroupsHtml;
+  const emptyHtml = isEmpty ? `<div class="group-empty">拖拽标签到这里</div>` : '';
+
+  // Only top-level groups (depth 0) get sortable + draggable.
+  const sortableClass = (g.sortable && depth === 0) ? 'group-card-sortable' : '';
+  const draggableAttr = (g.sortable && depth === 0) ? 'draggable="true"' : '';
+  const tempClass = g.temp ? 'group-card-temp' : '';
+
+  return `
+    <div class="group-card ${tempClass} ${sortableClass}" data-group-id="${esc(g.id)}" ${draggableAttr}>
+      <div class="group-card-header">
+        <span class="group-name">${esc(g.name || g.title)}</span>
+        <span class="group-count">${totalCount}</span>
+        ${renameBtn}
+        ${addSubBtn}
+        ${delBtn}
+      </div>
+      <div class="group-tabs">
+        ${subgroupsHtml}
+        ${tabsHtml}
+        ${emptyHtml}
+      </div>
+    </div>`;
+}
+
+async function renderCollectionsView() {
+  const view = document.getElementById('collectionsView');
+  if (!view) return;
+  let temp, groups, tempId;
+  try {
+    ({ temp, groups, tempId } = await getCollectionData());
+  } catch (e) {
+    console.error('[tab-out] Collections bookmark read failed:', e);
+    view.innerHTML = `<div class="collections-empty">无法读取浏览器书签：${esc(e && e.message ? e.message : String(e))}<br>请确认扩展已获得书签权限，并在浏览器中重新加载扩展。</div>`;
+    return;
+  }
+  const total = temp.length + groups.reduce((n, g) => n + countAllTabs(g), 0);
+
+  const newGroupCard = `
+    <div class="group-card new-group-card">
+      <input class="new-group-input" id="newGroupInput" type="text" placeholder="新建分组名称…" maxlength="40" autocomplete="off">
+      <button class="action-btn primary" data-action="create-group">创建</button>
+    </div>`;
+
+  if (total === 0) {
+    view.innerHTML = `
+      <div class="collections-grid">
+        ${newGroupCard}
+      </div>
+      <div class="collections-empty">还没有浏览器书签。在浏览器中点击地址栏星标即可收藏页面，收藏后会显示在这里。</div>`;
+    return;
+  }
+
+  const tempCard = groupCardHtml({ id: tempId, name: '临时分组', temp: true, tabs: temp, subgroups: [] });
+  const groupCards = groups.map(g => groupCardHtml({ id: g.id, name: g.title, temp: false, sortable: true, tabs: g.tabs, subgroups: g.subgroups || [] })).join('');
+
+  view.innerHTML = `
+    <div class="collections-grid">
+      ${newGroupCard}
+      ${tempCard}
+      ${groupCards}
+    </div>`;
+}
+
+// Export the current collections (groups + bookmarks, including nested
+// subgroups) as a downloadable JSON file.
+async function exportCollectionsJson() {
+  const { temp, groups, tempId } = await getCollectionData();
+
+  // Build a clean serializable tree from the group node structure.
+  function serializeGroup(g) {
+    return {
+      title: g.title || g.name || '未命名分组',
+      bookmarks: (g.tabs || []).map(bm => ({
+        title: bm.title || bm.url,
+        url: bm.url,
+        dateAdded: bm.dateAdded || null,
+      })),
+      subgroups: (g.subgroups || []).map(serializeGroup),
+    };
+  }
+
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    tempGroup: {
+      title: '临时分组',
+      bookmarks: temp.map(bm => ({
+        title: bm.title || bm.url,
+        url: bm.url,
+        dateAdded: bm.dateAdded || null,
+      })),
+    },
+    groups: groups.map(serializeGroup),
+  };
+
+  const json = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.download = `tab-out-bookmarks-${ts}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('已导出书签 JSON');
+}
+
+function switchView(view) {
+  currentView = view;
+  const openSection = document.getElementById('openTabsSection');
+  const deferredCol = document.getElementById('deferredColumn');
+  const collectionsView = document.getElementById('collectionsView');
+  document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active',
+    b.dataset.action === (view === 'collections' ? 'show-collections' : 'show-open-tabs')));
+
+  if (view === 'collections') {
+    if (openSection) openSection.style.display = 'none';
+    if (deferredCol) deferredCol.style.display = 'none';
+    collectionsView.hidden = false;
+    renderCollectionsView();
+  } else {
+    if (openSection) openSection.style.display = '';
+    if (deferredCol) deferredCol.style.display = '';
+    collectionsView.hidden = true;
+  }
+}
+
+// Native HTML5 drag & drop for moving tabs between groups. Delegated on the
+// container and attached once. Works in Chrome + Firefox (no extra permission).
+function initCollectionsInteractions() {
+  const view = document.getElementById('collectionsView');
+  if (!view) return;
+
+  // Track what is being dragged: 'tab' or 'group'
+  let dragType = null;
+  let dragGroupId = null;
+
+  view.addEventListener('dragstart', (e) => {
+    // IMPORTANT: check group-card-sortable FIRST. A sortable card contains
+    // .collection-tab children, so closest('.collection-tab') would match
+    // even when dragging the card itself. We must test the card before the
+    // tab to avoid misidentifying a group drag as a tab drag.
+    const targetEl = e.target instanceof Element ? e.target : null;
+    const sortableCard = targetEl ? targetEl.closest('.group-card-sortable') : null;
+    const tab = targetEl ? targetEl.closest('.collection-tab') : null;
+
+    if (sortableCard && !tab) {
+      // Dragging a whole group card.
+      dragType = 'group';
+      dragGroupId = sortableCard.dataset.groupId;
+      // text/plain is required for the drag to work across browsers.
+      // Chrome also requires effectAllowed to match the dropEffect set in
+      // dragover, otherwise the drop is silently rejected.
+      e.dataTransfer.setData('text/plain', 'group:' + dragGroupId);
+      e.dataTransfer.setData('text/group-id', dragGroupId);
+      e.dataTransfer.effectAllowed = 'move';
+      sortableCard.classList.add('dragging');
+      e.stopPropagation();
+      return;
+    }
+
+    if (tab) {
+      // Dragging a tab (bookmark) inside a group.
+      dragType = 'tab';
+      e.dataTransfer.setData('text/plain', tab.dataset.tabId);
+      e.dataTransfer.effectAllowed = 'move';
+      tab.classList.add('dragging');
+      return;
+    }
+
+    // If neither a sortable card nor a tab was dragged, cancel the drag.
+    // This prevents Chrome from starting a drag on inner elements (buttons,
+    // SVGs) that would confuse the drop logic.
+    e.preventDefault();
+  });
+
+  view.addEventListener('dragend', (e) => {
+    const tab = e.target.closest('.collection-tab');
+    if (tab) tab.classList.remove('dragging');
+    const card = e.target.closest('.group-card-sortable');
+    if (card) card.classList.remove('dragging');
+    dragType = null;
+    dragGroupId = null;
+    view.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  });
+
+  // Helper: find the target group id from a drop event.
+  // Checks .subgroup FIRST (innermost), then .group-card. This ensures that
+  // dropping on a subgroup header or body resolves to the subgroup, not the
+  // parent group.
+  function findDropTargetGroupId(target) {
+    // Walk up from the drop target. A .subgroup always wraps a .group-card,
+    // so checking .subgroup first gives us the more specific (deeper) match.
+    const subgroup = target.closest('.subgroup');
+    if (subgroup && subgroup.dataset.groupId) {
+      return { id: subgroup.dataset.groupId, element: subgroup };
+    }
+    const card = target.closest('.group-card');
+    if (card && card.dataset.groupId) {
+      return { id: card.dataset.groupId, element: card };
+    }
+    return null;
+  }
+
+  // Helper: find the drop target element for highlight purposes.
+  function findDropTargetElement(target) {
+    const subgroup = target.closest('.subgroup');
+    if (subgroup) return subgroup;
+    return target.closest('.group-card');
+  }
+
+  view.addEventListener('dragover', (e) => {
+    // In Chrome, e.target can be a text node or an inner element (button, SVG)
+    // that is itself draggable. closest() handles Element targets, but text
+    // nodes don't have closest(). Guard against that.
+    const targetEl = e.target instanceof Element ? e.target : null;
+    const el = targetEl ? findDropTargetElement(targetEl) : null;
+    if (!el) return;
+    e.preventDefault();                       // REQUIRED to allow a drop
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drag-over');
+  });
+
+  view.addEventListener('dragleave', (e) => {
+    const targetEl = e.target instanceof Element ? e.target : null;
+    const el = targetEl ? findDropTargetElement(targetEl) : null;
+    if (el && !el.contains(e.relatedTarget)) el.classList.remove('drag-over');
+  });
+
+  view.addEventListener('drop', async (e) => {
+    const targetEl = e.target instanceof Element ? e.target : null;
+    const target = targetEl ? findDropTargetGroupId(targetEl) : null;
+    if (!target) return;
+    e.preventDefault();
+
+    // Clear all drag-over highlights.
+    view.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+
+    // Use local copies before clearing state, in case dragend fires.
+    const localDragType = dragType;
+    const localDragGroupId = dragGroupId;
+
+    if (localDragType === 'group') {
+      // ---- Swap two groups (cross-row supported) ----
+      const targetId = target.id;
+      if (!targetId || targetId === localDragGroupId) return;
+
+      // Only swap between two sortable (top-level) group cards.
+      const targetCard = view.querySelector(`.group-card-sortable[data-group-id="${targetId}"]`);
+      if (!targetCard) return;
+
+      // Find the parent container and index of each folder.
+      // Groups may live in different bookmark containers (书签栏 vs 其他书签),
+      // so we search ALL containers — not just the bookmarks bar.
+      try {
+        const containers = await getBookmarkContainers();
+        let srcParent = null, srcIdx = -1;
+        let dstParent = null, dstIdx = -1;
+
+        for (const container of containers) {
+          const folderChildren = (container.children || []).filter(c => isFolderNode(c));
+          const ids = folderChildren.map(c => c.id);
+          const si = ids.indexOf(localDragGroupId);
+          const di = ids.indexOf(targetId);
+          if (si !== -1) { srcParent = container.id; srcIdx = si; }
+          if (di !== -1) { dstParent = container.id; dstIdx = di; }
+        }
+
+        if (srcIdx === -1 || dstIdx === -1) return;
+
+        if (srcParent === dstParent) {
+          // Same container: move the higher-index folder down first to avoid shift.
+          const lowerIdx = Math.min(srcIdx, dstIdx);
+          const higherIdx = Math.max(srcIdx, dstIdx);
+          const lowerId = srcIdx < dstIdx ? localDragGroupId : targetId;
+          const higherId = srcIdx < dstIdx ? targetId : localDragGroupId;
+          await chrome.bookmarks.move(higherId, { index: lowerIdx });
+          await chrome.bookmarks.move(lowerId, { index: higherIdx });
+        } else {
+          // Different containers: move each to the other's position.
+          // Chrome's bookmarks.move with a new parentId relocates the folder.
+          await chrome.bookmarks.move(localDragGroupId, { parentId: dstParent, index: dstIdx });
+          await chrome.bookmarks.move(targetId, { parentId: srcParent, index: srcIdx });
+        }
+      } catch (err) {
+        console.error('[tab-out drag] group swap failed:', err);
+      }
+      renderCollectionsView();
+      return;
+    }
+
+    // ---- Dragging a tab (bookmark) into a group (or subgroup) ----
+    const tabId = e.dataTransfer.getData('text/plain');
+    if (!tabId || tabId.startsWith('group:')) return;
+    await moveBookmark(tabId, target.id);
+    renderCollectionsView();
+  });
+
+  // Enter key in the new-group input triggers create
+  view.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'newGroupInput') {
+      e.preventDefault();
+      const btn = view.querySelector('[data-action="create-group"]');
+      if (btn) btn.click();
+    }
+  });
 }
 
 
@@ -440,6 +1094,82 @@ function showToast(message) {
   document.getElementById('toastText').textContent = message;
   toast.classList.add('visible');
   setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
+/**
+ * showModal(title, defaultValue) — reusable custom dialog with text input.
+ * Returns a Promise<string|null>: resolves with the trimmed input value on
+ * confirm, or null on cancel / overlay click / Escape.
+ */
+function showModal(title, defaultValue = '') {
+  return _showModalInternal(title, { inputDefault: defaultValue });
+}
+
+/**
+ * showConfirm(title, message) — reusable custom confirmation dialog.
+ * Returns a Promise<boolean>: true on confirm, false on cancel.
+ */
+function showConfirm(title, message) {
+  return _showModalInternal(title, { message, expectBoolean: true });
+}
+
+function _showModalInternal(title, opts = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('modalOverlay');
+    const titleEl = document.getElementById('modalTitle');
+    const messageEl = document.getElementById('modalMessage');
+    const input = document.getElementById('modalInput');
+    const confirmBtn = document.getElementById('modalConfirm');
+    const cancelBtn = document.getElementById('modalCancel');
+    if (!overlay) { resolve(opts.expectBoolean ? false : null); return; }
+
+    titleEl.textContent = title;
+
+    // Configure input vs message mode.
+    if (opts.message) {
+      messageEl.textContent = opts.message;
+      messageEl.classList.add('visible');
+      input.classList.add('hidden');
+    } else {
+      messageEl.classList.remove('visible');
+      input.classList.remove('hidden');
+      input.value = opts.inputDefault || '';
+    }
+
+    let settled = false;
+    function close(result) {
+      if (settled) return;
+      settled = true;
+      overlay.classList.remove('visible');
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      overlay.removeEventListener('click', onOverlay);
+      resolve(result);
+    }
+    function onConfirm() {
+      if (opts.expectBoolean) { close(true); }
+      else { close(input.value.trim() || null); }
+    }
+    function onCancel() { close(opts.expectBoolean ? false : null); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onConfirm(); }
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    }
+    function onOverlay(e) { if (e.target === overlay) close(opts.expectBoolean ? false : null); }
+
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+    overlay.addEventListener('click', onOverlay);
+
+    overlay.classList.add('visible');
+    if (!opts.message) {
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+    } else {
+      setTimeout(() => { confirmBtn.focus(); }, 50);
+    }
+  });
 }
 
 /**
@@ -725,6 +1455,7 @@ function getRealTabs() {
     return (
       !url.startsWith('chrome://') &&
       !url.startsWith('chrome-extension://') &&
+      !url.startsWith('moz-extension://') &&
       !url.startsWith('about:') &&
       !url.startsWith('edge://') &&
       !url.startsWith('brave://')
@@ -769,7 +1500,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -850,7 +1581,7 @@ function renderDomainCard(group) {
     try { domain = new URL(tab.url).hostname; } catch {}
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -974,7 +1705,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          <img class="deferred-favicon" src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1181,6 +1912,18 @@ async function renderDashboard() {
    instead of one per door.
    ---------------------------------------------------------------- */
 
+// ---- Favicon load-failure handler (event delegation) ----
+// Uses capture phase because the 'error' event does NOT bubble.
+// Replaces the old inline onerror="" attributes that violated CSP.
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img && img.tagName === 'IMG' && img.classList.contains('chip-favicon')) {
+    img.style.visibility = 'hidden';
+  } else if (img && img.tagName === 'IMG' && img.classList.contains('deferred-favicon')) {
+    img.style.display = 'none';
+  }
+}, true);
+
 document.addEventListener('click', async (e) => {
   // Walk up the DOM to find the nearest element with data-action
   const actionEl = e.target.closest('[data-action]');
@@ -1340,6 +2083,135 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Collections: switch views ----
+  if (action === 'show-collections') {
+    switchView('collections');
+    return;
+  }
+  if (action === 'export-collections') {
+    await exportCollectionsJson();
+    return;
+  }
+  if (action === 'show-open-tabs') {
+    switchView('open');
+    return;
+  }
+
+  // ---- Collections: create a new group (bookmarks folder) ----
+  if (action === 'create-group') {
+    const input = document.getElementById('newGroupInput');
+    const name = input ? input.value : '';
+    if (name.trim()) {
+      await createBookmarkGroup(name);
+      renderCollectionsView();
+      showToast('已新建分组');
+    } else if (input) {
+      input.focus();
+    }
+    return;
+  }
+
+  // ---- Collections: add a subgroup inside an existing group ----
+  if (action === 'add-subgroup') {
+    const parentId = actionEl.dataset.groupId;
+    if (!parentId) return;
+    // Check depth: find the target group's depth in the tree.
+    const { groups } = await getCollectionData();
+    const found = findGroupDepth(groups, parentId);
+    if (found != null && found >= MAX_SUBGROUP_DEPTH) {
+      await showConfirm('提示', `已达到最大嵌套深度（${MAX_SUBGROUP_DEPTH} 层），无法继续创建子分组。`);
+      return;
+    }
+    const name = await showModal('新建子分组', '');
+    if (name) {
+      try {
+        await createBookmarkGroup(name, parentId);
+        renderCollectionsView();
+        showToast('已新建子分组');
+      } catch (e) {
+        showToast('新建子分组失败：' + (e.message || e));
+      }
+    }
+    return;
+  }
+
+  // ---- Collections: rename a group ----
+  if (action === 'rename-group') {
+    const groupId = actionEl.dataset.groupId;
+    if (!groupId) return;
+    const { groups } = await getCollectionData();
+    const g = groups.find(x => x.id === groupId);
+    const currentName = g ? g.title : '';
+    const newName = await showModal('重命名分组', currentName);
+    if (newName && newName !== currentName) {
+      try {
+        await renameBookmarkGroup(groupId, newName);
+        renderCollectionsView();
+        showToast('已重命名分组');
+      } catch (e) {
+        showToast('重命名失败：' + (e.message || e));
+      }
+    }
+    return;
+  }
+
+  // ---- Collections: delete a group (its bookmarks move to 临时分组) ----
+  if (action === 'delete-group') {
+    const groupId = actionEl.dataset.groupId;
+    if (!groupId) return;
+    const { groups } = await getCollectionData();
+    const g = groups.find(x => x.id === groupId);
+    const n = g ? countAllTabs(g) : 0;
+    const groupName = g ? g.title : '';
+    const confirmed = await showConfirm('删除分组', `删除分组「${groupName}」？其下 ${n} 个书签将移入「临时分组」。`);
+    if (confirmed) {
+      await deleteBookmarkGroup(groupId);
+      renderCollectionsView();
+      showToast('已删除分组，书签移入临时分组');
+    }
+    return;
+  }
+
+  // ---- Collections: toggle subgroup expand/collapse ----
+  if (action === 'toggle-subgroup') {
+    const groupId = actionEl.dataset.groupId;
+    if (!groupId) return;
+    // Toggle collapse state and re-render to apply consistently.
+    if (collapsedSubgroups.has(groupId)) {
+      collapsedSubgroups.delete(groupId);
+    } else {
+      collapsedSubgroups.add(groupId);
+    }
+    renderCollectionsView();
+    return;
+  }
+
+  // ---- Collections: delete a single bookmark ----
+  if (action === 'delete-bookmark') {
+    const id = actionEl.dataset.tabId;
+    if (!id) return;
+    const row = actionEl.closest('.collection-tab');
+    await deleteBookmark(id);
+    if (row) {
+      row.classList.add('removing');
+      setTimeout(() => renderCollectionsView(), 300);
+    } else {
+      renderCollectionsView();
+    }
+    return;
+  }
+
+  // ---- Collections: open a bookmark in a new browser tab ----
+  if (action === 'open-bookmark') {
+    const id = actionEl.dataset.tabId;
+    try {
+      const nodes = await chrome.bookmarks.get(id);
+      const bm = nodes && nodes[0];
+      if (bm && bm.url) chrome.tabs.create({ url: bm.url });
+    } catch { /* bookmark not found */ }
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1480,3 +2352,4 @@ document.addEventListener('input', async (e) => {
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+initCollectionsInteractions();
