@@ -379,9 +379,11 @@ header {
 /* Favicon */
 .chip-favicon {
   width: 16px;
+  min-width: 16px;
   height: 16px;
   flex-shrink: 0;
   border-radius: 2px;
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
 /* Title text — wraps naturally, no truncation */
@@ -596,6 +598,90 @@ header {
   width: 16px;
   height: 16px;
   color: var(--status-active);
+}
+
+/* ---- Reusable modal dialog ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 22, 19, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-dialog {
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  padding: 24px;
+  width: 360px;
+  max-width: 90vw;
+  transform: translateY(12px);
+  transition: transform 0.2s ease;
+}
+
+.modal-overlay.visible .modal-dialog {
+  transform: translateY(0);
+}
+
+.modal-title {
+  font-family: 'Newsreader', serif;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+
+.modal-message {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+  display: none;
+}
+
+.modal-message.visible {
+  display: block;
+}
+
+.modal-input.hidden {
+  display: none;
+}
+
+.modal-input {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.modal-input:focus {
+  border-color: var(--accent-amber);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 
 /* ---- Footer ---- */
@@ -1155,4 +1241,355 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
   opacity: 0.6;
   flex-shrink: 0;
+}
+
+
+/* ================================================================
+   VIEW TABS — switch between Open tabs and Collections
+   ================================================================ */
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--warm-gray);
+}
+
+.view-tab {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 10px 16px;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s;
+}
+
+.view-tab::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-amber);
+  transform: scaleX(0);
+  transition: transform 0.2s ease;
+}
+
+.view-tab:hover { color: var(--ink); }
+.view-tab.active { color: var(--ink); }
+.view-tab.active::after { transform: scaleX(1); }
+
+/* Export button — pushed to the right, no underline animation */
+.view-tab-export {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 10px 14px;
+}
+.view-tab-export::after { display: none; }
+.view-tab-export:hover { color: var(--accent-amber, #c8713a); }
+
+/* Collections view spans the full width when shown */
+.collections-view:not([hidden]) { flex: 1 1 100%; }
+
+
+/* ================================================================
+   COLLECTIONS — grouped saved-tab manager
+   Warm paper, card-grid, amber accent — matches the dashboard.
+   ================================================================ */
+.collections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 16px;
+  align-items: start;
+  animation: fadeUp 0.4s ease both;
+}
+
+.group-card {
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 10px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.2s, background 0.2s;
+}
+
+.group-card:hover {
+  box-shadow: 0 4px 20px var(--shadow);
+  transform: translateY(-1px);
+}
+
+/* The "临时分组" catch-all — dashed amber-tinted */
+.group-card-temp {
+  border-style: dashed;
+  background: rgba(200, 113, 58, 0.03);
+}
+
+/* Drop target highlight during drag */
+.group-card.drag-over {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.15);
+  background: rgba(200, 113, 58, 0.04);
+}
+
+.subgroup.drag-over {
+  border-left-color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.06);
+  border-radius: 4px;
+}
+
+.group-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-name {
+  font-family: 'Newsreader', serif;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+}
+
+.group-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(154, 145, 138, 0.12);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.group-delete { margin-left: auto; }
+
+.group-rename {
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.group-rename:hover {
+  opacity: 1;
+  color: var(--accent-amber, #c8713a);
+}
+
+.group-add-sub {
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.group-add-sub:hover {
+  opacity: 1;
+  color: var(--accent-amber, #c8713a);
+}
+
+.group-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.collection-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(154, 145, 138, 0.1);
+  cursor: grab;
+  border-radius: 4px;
+  transition: background 0.15s, opacity 0.2s;
+}
+
+.collection-tab:last-child { border-bottom: none; }
+
+.collection-tab:hover { background: rgba(200, 113, 58, 0.04); }
+
+.collection-tab.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.collection-tab.removing {
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+
+/* ---- Group card drag-to-reorder ---- */
+.group-card-sortable {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.group-card-sortable.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Prevent inner buttons from interfering with card drag in Chrome */
+.group-card-sortable .chip-action {
+  -webkit-user-drag: none;
+}
+
+/* ---- Nested subgroup styles ---- */
+.subgroup {
+  margin-top: 6px;
+  border-left: 2px solid var(--border, #e0e0e0);
+  padding-left: 8px;
+}
+
+.subgroup-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  margin-bottom: 4px;
+}
+
+.subgroup-header:hover {
+  background: rgba(200, 113, 58, 0.08);
+}
+
+.subgroup-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.subgroup-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.subgroup-name {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subgroup-count {
+  font-size: 11px;
+  color: var(--muted, #888);
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.subgroup-delete {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.subgroup-header:hover .subgroup-delete {
+  opacity: 0.6;
+}
+
+.subgroup-delete:hover {
+  opacity: 1 !important;
+}
+
+.subgroup-add-sub {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.subgroup-header:hover .subgroup-add-sub {
+  opacity: 0.5;
+}
+
+.subgroup-add-sub:hover {
+  opacity: 1 !important;
+  color: var(--accent-amber, #c8713a);
+}
+
+.subgroup-body {
+  /* Expanded by default; hidden when parent .subgroup has .collapsed */
+}
+
+.subgroup.collapsed .subgroup-body {
+  display: none;
+}
+
+.subgroup .group-card {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  background: transparent;
+}
+
+.subgroup .group-card-header {
+  display: none;  /* Nested group cards hide their own header; subgroup-header replaces it */
+}
+
+.collection-tab-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.collection-tab-title:hover { color: var(--accent-amber); }
+
+.group-empty {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 16px 8px;
+  border: 1px dashed var(--warm-gray);
+  border-radius: 6px;
+}
+
+.new-group-card {
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  border-style: dashed;
+}
+
+.new-group-input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.new-group-input:focus { border-color: var(--accent-amber); }
+.new-group-input::placeholder { color: var(--muted); }
+
+.collections-empty {
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  padding: 48px 24px;
 }

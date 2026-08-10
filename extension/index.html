@@ -47,6 +47,16 @@
   </div>
 
   <!-- ================================================================
+       VIEW TABS — switch between the live dashboard and the saved-tab
+       collections manager
+       ================================================================ -->
+  <div class="view-tabs" id="viewTabs">
+    <button class="view-tab active" data-action="show-open-tabs">Open tabs</button>
+    <button class="view-tab" data-action="show-collections">Collections</button>
+    <button class="view-tab view-tab-export" data-action="export-collections" title="导出书签为 JSON">导出</button>
+  </div>
+
+  <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
        Left: open tabs (domain/mission cards)
        Right: saved for later checklist
@@ -94,6 +104,9 @@
       </div>
     </div>
 
+    <!-- COLLECTIONS VIEW: grouped saved-tab manager (hidden until selected) -->
+    <div class="collections-view" id="collectionsView" hidden></div>
+
   </div><!-- end .dashboard-columns -->
 
   <!-- ================================================================
@@ -125,9 +138,25 @@
   <span id="toastText"></span>
 </div>
 
+<!-- ================================================================
+     MODAL — reusable custom dialog (replaces native prompt/alert)
+     Hidden by default; shown via showModal() in app.js
+     ================================================================ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-dialog" id="modalDialog">
+    <div class="modal-title" id="modalTitle"></div>
+    <div class="modal-message" id="modalMessage"></div>
+    <input class="modal-input" id="modalInput" type="text" maxlength="40" autocomplete="off">
+    <div class="modal-actions">
+      <button class="action-btn" id="modalCancel">取消</button>
+      <button class="action-btn primary" id="modalConfirm">确认</button>
+    </div>
+  </div>
+</div>
+
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
-<script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
+<!-- Loaded dynamically by app.js to avoid inline onerror (CSP compliance). -->
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
