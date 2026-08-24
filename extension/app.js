@@ -708,6 +708,27 @@ const ICONS = {
    ---------------------------------------------------------------- */
 let domainGroups = [];
 
+/**
+ * Counts duplicate URLs and extra tabs within the current domain group boundaries.
+ */
+function getGroupDuplicateInfo(groups) {
+  const duplicateUrls = new Set();
+  let totalExtras = 0;
+
+  for (const group of groups) {
+    const urlCounts = {};
+    for (const tab of group.tabs || []) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+
+    for (const [url, count] of Object.entries(urlCounts)) {
+      if (count <= 1) continue;
+      duplicateUrls.add(url);
+      totalExtras += count - 1;
+    }
+  }
+
+  return { duplicateUrls: Array.from(duplicateUrls), totalExtras };
+}
+
 
 /* ----------------------------------------------------------------
    HELPER: filter out browser-internal pages
@@ -1150,7 +1171,11 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    const groupDuplicateInfo = getGroupDuplicateInfo(domainGroups);
+    const closeAllDuplicatesButton = groupDuplicateInfo.totalExtras > 0
+      ? ` &nbsp;&middot;&nbsp; <button class="action-btn" data-action="dedup-all-groups" style="font-size:11px;padding:3px 10px;">Close all ${groupDuplicateInfo.totalExtras} duplicate${groupDuplicateInfo.totalExtras !== 1 ? 's' : ''}</button>`
+      : '';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''}${closeAllDuplicatesButton} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1409,6 +1434,19 @@ document.addEventListener('click', async (e) => {
     }
 
     showToast('Closed duplicates, kept one copy each');
+    return;
+  }
+
+  // ---- Close duplicate tabs within all domain groups, keeping one per URL ----
+  if (action === 'dedup-all-groups') {
+    const { duplicateUrls, totalExtras } = getGroupDuplicateInfo(domainGroups);
+    if (duplicateUrls.length === 0) return;
+
+    await closeDuplicateTabs(duplicateUrls, true);
+    playCloseSound();
+    await renderStaticDashboard();
+
+    showToast(`Closed ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}, kept one copy each`);
     return;
   }
 
