@@ -40,11 +40,13 @@ async function fetchOpenTabs() {
 
     const tabs = await chrome.tabs.query({});
     openTabs = tabs.map(t => ({
-      id:       t.id,
-      url:      t.url,
-      title:    t.title,
-      windowId: t.windowId,
-      active:   t.active,
+      id:           t.id,
+      url:          t.url,
+      title:        t.title,
+      favIconUrl:   t.favIconUrl || '',
+      windowId:     t.windowId,
+      active:       t.active,
+      lastAccessed: t.lastAccessed || 0,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
@@ -115,8 +117,32 @@ async function closeTabsExact(urls) {
  * Switches Chrome to the tab with the given URL (exact match first,
  * then hostname fallback). Also brings the window to the front.
  */
-async function focusTab(url) {
-  if (!url) return;
+function normalizeShortcutUrl(url) {
+  if (typeof url !== 'string') return '';
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function pickTabToFocus(matches, currentWindowId) {
+  return matches.find(t => t.windowId !== currentWindowId) || matches[0] || null;
+}
+
+function getShortcutPrefixMatches(shortcutUrl, allTabs) {
+  const normalizedShortcutUrl = normalizeShortcutUrl(shortcutUrl);
+
+  return allTabs.filter(tab => {
+    if (typeof tab.url !== 'string') return false;
+
+    const normalizedTabUrl = normalizeShortcutUrl(tab.url);
+    if (normalizedTabUrl === normalizedShortcutUrl) return true;
+    if (!normalizedTabUrl.startsWith(normalizedShortcutUrl)) return false;
+
+    const nextChar = normalizedTabUrl.charAt(normalizedShortcutUrl.length);
+    return nextChar === '/' || nextChar === '?' || nextChar === '#' || nextChar === '';
+  });
+}
+
+async function focusTab(url, { exactOnly = false } = {}) {
+  if (!url) return null;
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
 
@@ -124,7 +150,7 @@ async function focusTab(url) {
   let matches = allTabs.filter(t => t.url === url);
 
   // Fall back to hostname match
-  if (matches.length === 0) {
+  if (!exactOnly && matches.length === 0) {
     try {
       const targetHost = new URL(url).hostname;
       matches = allTabs.filter(t => {
@@ -134,12 +160,13 @@ async function focusTab(url) {
     } catch {}
   }
 
-  if (matches.length === 0) return;
+  if (matches.length === 0) return null;
 
   // Prefer a match in a different window so it actually switches windows
-  const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
+  const match = pickTabToFocus(matches, currentWindow.id);
   await chrome.tabs.update(match.id, { active: true });
   await chrome.windows.update(match.windowId, { focused: true });
+  return match;
 }
 
 /**
@@ -227,13 +254,17 @@ async function closeTabOutDupes() {
  */
 async function saveTabForLater(tab) {
   const { deferred = [] } = await chrome.storage.local.get('deferred');
+  // Only persist http(s) favicons to avoid bloating storage with data: URIs
+  const favIconUrl = (tab.favIconUrl && /^https?:\/\//.test(tab.favIconUrl))
+    ? tab.favIconUrl : '';
   deferred.push({
-    id:        Date.now().toString(),
-    url:       tab.url,
-    title:     tab.title,
-    savedAt:   new Date().toISOString(),
-    completed: false,
-    dismissed: false,
+    id:         Date.now().toString(),
+    url:        tab.url,
+    title:      tab.title,
+    favIconUrl,
+    savedAt:    new Date().toISOString(),
+    completed:  false,
+    dismissed:  false,
   });
   await chrome.storage.local.set({ deferred });
 }
@@ -461,13 +492,13 @@ function checkAndShowEmptyState() {
           <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       </div>
-      <div class="empty-title">Inbox zero, but for tabs.</div>
-      <div class="empty-subtitle">You're free.</div>
+      <div class="empty-title">${t('inbox_zero_title')}</div>
+      <div class="empty-subtitle">${t('inbox_zero_subtitle')}</div>
     </div>
   `;
 
   const countEl = document.getElementById('openTabsSectionCount');
-  if (countEl) countEl.textContent = '0 domains';
+  if (countEl) countEl.textContent = t('domains_count', 0);
 }
 
 /**
@@ -484,28 +515,58 @@ function timeAgo(dateStr) {
   const diffHours = Math.floor((now - then) / 3600000);
   const diffDays  = Math.floor((now - then) / 86400000);
 
-  if (diffMins < 1)   return 'just now';
-  if (diffMins < 60)  return diffMins + ' min ago';
-  if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
-  if (diffDays === 1) return 'yesterday';
-  return diffDays + ' days ago';
+  if (diffMins < 1)   return t('just_now');
+  if (diffMins < 60)  return t('min_ago', diffMins);
+  if (diffHours < 24) return t('hr_ago', diffHours);
+  if (diffDays === 1) return t('yesterday');
+  return t('days_ago', diffDays);
 }
 
 /**
- * getGreeting() — "Good morning / afternoon / evening"
+ * getGroupStatus(tabs)
+ *
+ * Returns the staleness status of a group based on the most recently
+ * accessed tab's lastAccessed timestamp.
+ *
+ *   active    — accessed within the last 30 minutes  (green)
+ *   cooling   — 30 minutes to 4 hours ago            (amber)
+ *   abandoned — more than 4 hours ago                (red)
+ *   neutral   — no lastAccessed data available
  */
+function getGroupStatus(tabs) {
+  const mostRecent = Math.max(...tabs.map(t => t.lastAccessed || 0));
+  if (!mostRecent) return 'neutral';
+  const ageMinutes = (Date.now() - mostRecent) / 60000;
+  if (ageMinutes < 30)  return 'active';
+  if (ageMinutes < 240) return 'cooling';
+  return 'abandoned';
+}
+
+/**
+ * lastActiveAgo(tabs)
+ *
+ * Returns a short human-readable string for the most recent access time
+ * among all tabs in a group. e.g. "3 min ago", "2 hrs ago".
+ */
+function lastActiveAgo(tabs) {
+  const mostRecent = Math.max(...tabs.map(t => t.lastAccessed || 0));
+  if (!mostRecent) return '';
+  return timeAgo(new Date(mostRecent).toISOString());
+}
+
+
 function getGreeting() {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 12) return t('greeting_morning');
+  if (hour < 17) return t('greeting_afternoon');
+  return t('greeting_evening');
 }
 
 /**
  * getDateDisplay() — "Friday, April 4, 2026"
  */
 function getDateDisplay() {
-  return new Date().toLocaleDateString('en-US', {
+  return new Date().toLocaleDateString(LOCALE, {
     weekday: 'long',
     year:    'numeric',
     month:   'long',
@@ -514,9 +575,95 @@ function getDateDisplay() {
 }
 
 
-/* ----------------------------------------------------------------
-   DOMAIN & TITLE CLEANUP HELPERS
-   ---------------------------------------------------------------- */
+/**
+ * fuzzyMatch(query, target)
+ *
+ * Returns true if every character in `query` appears in `target` in order
+ * (case-insensitive). Classic fuzzy-find behaviour.
+ * e.g. fuzzyMatch("ghb", "github.com") → true
+ */
+function fuzzyMatch(query, target) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  let qi = 0;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+/**
+ * filterTabsBySearch(query)
+ *
+ * Filters the visible domain cards and tab chips in real-time.
+ * When query is non-empty:
+ *   - Expands all overflow containers so hidden chips are also searchable
+ *   - Hides chips that don't match title or URL
+ *   - Hides entire cards where no chips match (unless the domain name itself matches)
+ * When query is empty:
+ *   - Re-renders the full dashboard to restore original state
+ */
+async function filterTabsBySearch(query) {
+  if (!query) {
+    // Clear: re-render to restore original overflow state
+    await renderStaticDashboard();
+    return;
+  }
+
+  const cards = document.querySelectorAll('#openTabsMissions .mission-card');
+  let anyVisible = false;
+
+  cards.forEach(card => {
+    // Expand overflow so we can search inside it
+    const overflowContainer = card.querySelector('.page-chips-overflow');
+    const overflowBtn       = card.querySelector('.page-chip-overflow');
+    if (overflowContainer) overflowContainer.style.display = 'contents';
+    if (overflowBtn)       overflowBtn.style.display = 'none';
+
+    // Filter individual chips
+    const chips = card.querySelectorAll('.page-chip[data-action="focus-tab"]');
+    let chipsVisible = 0;
+    chips.forEach(chip => {
+      const title = chip.querySelector('.chip-text')?.textContent || '';
+      const url   = chip.dataset.tabUrl || '';
+      const match = fuzzyMatch(query, title) || fuzzyMatch(query, url);
+      chip.style.display = match ? '' : 'none';
+      if (match) chipsVisible++;
+    });
+
+    // Also match against the domain/group name so e.g. "github" shows all GitHub tabs
+    const domainName = card.querySelector('.mission-name')?.textContent || '';
+    const domainMatch = fuzzyMatch(query, domainName);
+
+    if (chipsVisible > 0 || domainMatch) {
+      card.style.display = '';
+      if (domainMatch) {
+        // Domain matched — show all chips for this card
+        chips.forEach(chip => chip.style.display = '');
+      }
+      anyVisible = true;
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  // Show "no results" if everything is hidden
+  const missionsEl = document.getElementById('openTabsMissions');
+  const existing = missionsEl?.querySelector('.search-empty-state');
+  if (!anyVisible) {
+    if (!existing && missionsEl) {
+      missionsEl.insertAdjacentHTML('beforeend', `
+        <div class="search-empty-state">
+          <div class="empty-title" style="font-size:16px">${t('no_tabs_match', query)}</div>
+        </div>`);
+    }
+  } else if (existing) {
+    existing.remove();
+  }
+}
+
+
 
 // Map of known hostnames → friendly display names.
 const FRIENDLY_DOMAINS = {
@@ -662,7 +809,7 @@ function smartTitle(title, url) {
 
   if ((hostname === 'x.com' || hostname === 'twitter.com' || hostname === 'www.x.com') && pathname.includes('/status/')) {
     const username = pathname.split('/')[1];
-    if (username) return titleIsUrl ? `Post by @${username}` : title;
+    if (username) return titleIsUrl ? t('post_by', username) : title;
   }
 
   if (hostname === 'github.com' || hostname === 'www.github.com') {
@@ -677,14 +824,14 @@ function smartTitle(title, url) {
   }
 
   if ((hostname === 'www.youtube.com' || hostname === 'youtube.com') && pathname === '/watch') {
-    if (titleIsUrl) return 'YouTube Video';
+    if (titleIsUrl) return t('youtube_video');
   }
 
   if ((hostname === 'www.reddit.com' || hostname === 'reddit.com' || hostname === 'old.reddit.com') && pathname.includes('/comments/')) {
     const parts  = pathname.split('/').filter(Boolean);
     const subIdx = parts.indexOf('r');
     if (subIdx !== -1 && parts[subIdx + 1]) {
-      if (titleIsUrl) return `r/${parts[subIdx + 1]} post`;
+      if (titleIsUrl) return t('reddit_post', parts[subIdx + 1]);
     }
   }
 
@@ -740,12 +887,14 @@ function getRealTabs() {
  */
 function checkTabOutDupes() {
   const tabOutTabs = openTabs.filter(t => t.isTabOut);
-  const banner  = document.getElementById('tabOutDupeBanner');
-  const countEl = document.getElementById('tabOutDupeCount');
+  const banner         = document.getElementById('tabOutDupeBanner');
+  const bannerText     = document.getElementById('tabOutDupeBannerText');
+  const closeExtrasBtn = document.getElementById('closeExtrasBtn');
   if (!banner) return;
 
   if (tabOutTabs.length > 1) {
-    if (countEl) countEl.textContent = tabOutTabs.length;
+    if (bannerText) bannerText.innerHTML = t('dupe_banner', tabOutTabs.length);
+    if (closeExtrasBtn) closeExtrasBtn.textContent = t('close_extras');
     banner.style.display = 'flex';
   } else {
     banner.style.display = 'none';
@@ -757,25 +906,42 @@ function checkTabOutDupes() {
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
    ---------------------------------------------------------------- */
 
+/**
+ * getTabFavicon(tab)
+ *
+ * Returns the best available favicon URL for a tab.
+ * Prefers Chrome's own cached favIconUrl (most accurate), falls back
+ * to Google's Favicon API for sites Chrome hasn't cached yet.
+ * Ignores non-http(s) favIconUrls (e.g. chrome://, data:) to avoid leaking
+ * internal Chrome URLs into img src attributes.
+ */
+function getTabFavicon(tab) {
+  if (tab.favIconUrl && /^https?:\/\//.test(tab.favIconUrl)) {
+    return tab.favIconUrl;
+  }
+  let domain = '';
+  try { domain = new URL(tab.url || '').hostname; } catch {}
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+}
+
 function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   const hiddenChips = hiddenTabs.map(tab => {
     const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl    = (tab.url || '').replace(/"/g, '&quot;');
+    const safeTitle  = label.replace(/"/g, '&quot;');
+    const faviconUrl = getTabFavicon(tab);
+    const safeFavicon = faviconUrl.replace(/"/g, '&quot;');
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-favicon="${safeFavicon}" title="${t('save_for_later')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="${t('close_this_tab')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -785,7 +951,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   return `
     <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
     <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
-      <span class="chip-text">+${hiddenTabs.length} more</span>
+      <span class="chip-text">${t('overflow_more', hiddenTabs.length)}</span>
     </div>`;
 }
 
@@ -795,32 +961,62 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
    ---------------------------------------------------------------- */
 
 /**
- * renderDomainCard(group, groupIndex)
+ * renderDomainCard(group, globalUrlCounts)
  *
  * Builds the HTML for one domain group card.
  * group = { domain: string, tabs: [{ url, title, id, windowId, active }] }
+ * globalUrlCounts = URL count map across ALL windows (for cross-window dupe detection)
  */
-function renderDomainCard(group) {
+function renderDomainCard(group, globalUrlCounts = null) {
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
   const isLanding = group.domain === '__landing-pages__';
-  const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+  // Include windowId in stableId so the same domain in different windows
+  // gets distinct IDs and close-domain-tabs works correctly.
+  const windowSuffix = group.windowId ? '-w' + group.windowId : '';
+  const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-') + windowSuffix;
 
-  // Count duplicates (exact URL match)
+  // Count duplicates using global counts (cross-window) when available,
+  // falling back to local counts within this group.
   const urlCounts = {};
-  for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
-  const dupeUrls   = Object.entries(urlCounts).filter(([, c]) => c > 1);
-  const hasDupes   = dupeUrls.length > 0;
+  if (globalUrlCounts) {
+    // Use global counts but only for URLs present in this group
+    for (const tab of tabs) urlCounts[tab.url] = globalUrlCounts[tab.url] || 1;
+  } else {
+    for (const tab of tabs) urlCounts[tab.url] = (urlCounts[tab.url] || 0) + 1;
+  }
+  const dupeUrls    = Object.entries(urlCounts).filter(([, c]) => c > 1);
+  const hasDupes    = dupeUrls.length > 0;
   const totalExtras = dupeUrls.reduce((s, [, c]) => s + c - 1, 0);
+
+  // Staleness status — drives the top bar color
+  const status   = getGroupStatus(tabs);
+  const ageLabel = lastActiveAgo(tabs);
+  const barClass =
+    hasDupes              ? 'has-amber-bar' :
+    status === 'active'   ? 'has-active-bar' :
+    status === 'cooling'  ? 'has-amber-bar' :
+    status === 'abandoned'? 'has-abandoned-bar' :
+                            'has-neutral-bar';
+
+  const statusColors = {
+    active:    'var(--status-active)',
+    cooling:   'var(--status-cooling)',
+    abandoned: 'var(--status-abandoned)',
+    neutral:   'var(--muted)',
+  };
+  const ageBadge = ageLabel
+    ? `<span class="status-age-badge" style="color:${statusColors[status] || statusColors.neutral}">${ageLabel}</span>`
+    : '';
 
   const tabBadge = `<span class="open-tabs-badge">
     ${ICONS.tabs}
-    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+    ${t('tabs_open', tabCount)}
   </span>`;
 
   const dupeBadge = hasDupes
-    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
-        ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:var(--dup-badge-bg);">
+        ${t('duplicates_badge', totalExtras)}
       </span>`
     : '';
 
@@ -844,19 +1040,18 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl    = (tab.url || '').replace(/"/g, '&quot;');
+    const safeTitle  = label.replace(/"/g, '&quot;');
+    const faviconUrl = getTabFavicon(tab);
+    const safeFavicon = faviconUrl.replace(/"/g, '&quot;');
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-favicon="${safeFavicon}" title="${t('save_for_later')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="${t('close_this_tab')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -866,25 +1061,26 @@ function renderDomainCard(group) {
   let actionsHtml = `
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+      ${t('close_all_tabs', tabCount)}
     </button>`;
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
     actionsHtml += `
       <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
-        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        ${t('close_duplicates', totalExtras)}
       </button>`;
   }
 
   return `
-    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+    <div class="mission-card domain-card ${barClass}" data-domain-id="${stableId}">
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? t('homepages') : (group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
+          ${ageBadge}
         </div>
         <div class="mission-pages">${pageChips}</div>
         <div class="actions">${actionsHtml}</div>
@@ -932,7 +1128,7 @@ async function renderDeferredColumn() {
 
     // Render active checklist items
     if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+      countEl.textContent = t('items_count', active.length);
       list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
@@ -966,7 +1162,10 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  // Prefer the saved favicon URL; fall back to Google's API
+  const faviconUrl = (item.favIconUrl && /^https?:\/\//.test(item.favIconUrl))
+    ? item.favIconUrl
+    : (domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '');
   const ago = timeAgo(item.savedAt);
 
   return `
@@ -974,7 +1173,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+          ${faviconUrl ? `<img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">` : ''}${item.title || item.url}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
@@ -1149,17 +1348,75 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
-    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = t('section_open_tabs');
+    openTabsSectionCount.innerHTML = `${t('domains_count', domainGroups.length)} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} ${t('close_all_tabs', realTabs.length)}</button>`;
+
+    // Split each domain group by window so the same domain in two windows
+    // appears as two separate cards.
+    const splitGroups = [];
+    for (const group of domainGroups) {
+      const windowMap = {};
+      for (const tab of group.tabs) {
+        const wid = tab.windowId;
+        if (!windowMap[wid]) windowMap[wid] = { ...group, tabs: [], windowId: wid };
+        windowMap[wid].tabs.push(tab);
+      }
+      splitGroups.push(...Object.values(windowMap));
+    }
+    // Replace domainGroups with the window-split version so event handlers
+    // (close-domain-tabs) can still find the right group.
+    domainGroups = splitGroups;
+
+    // Determine unique windows and their display order (current window first)
+    const currentWindow = await chrome.windows.getCurrent();
+    const currentWindowId = currentWindow.id;
+    const windowIds = [...new Set(splitGroups.map(g => g.windowId))].sort((a, b) =>
+      a === currentWindowId ? -1 : b === currentWindowId ? 1 : a - b
+    );
+    const multiWindow = windowIds.length > 1;
+
+    // Compute global URL counts across ALL windows for cross-window dupe detection
+    const globalUrlCounts = {};
+    for (const tab of realTabs) {
+      if (tab.url) globalUrlCounts[tab.url] = (globalUrlCounts[tab.url] || 0) + 1;
+    }
+
+    // Build HTML — add a window section header before each window's cards
+    let cardsHtml = '';
+    windowIds.forEach((wid, idx) => {
+      if (multiWindow) {
+        const label = wid === currentWindowId ? t('this_window') : t('window_n', idx + 1);
+        const switchBtn = wid !== currentWindowId
+          ? `<button class="window-switch-btn" data-action="focus-window" data-window-id="${wid}" title="${t('switch_here')}">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+              ${t('switch_here')}
+            </button>`
+          : '';
+        const closeBtn = `<button class="window-switch-btn window-close-btn" data-action="close-window-tabs" data-window-id="${wid}" title="${t('close_window')}">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+              ${t('close_window')}
+            </button>`;
+        cardsHtml += `<div class="window-section-header" style="column-span:all">${label}${switchBtn}${closeBtn}</div>`;
+      }
+      const groups = splitGroups.filter(g => g.windowId === wid);
+      cardsHtml += groups.map(g => renderDomainCard(g, globalUrlCounts)).join('');
+    });
+
+    openTabsMissionsEl.innerHTML = cardsHtml;
     openTabsSection.style.display = 'block';
+
+    // Show the search bar when there are tabs to search
+    const searchWrapper = document.getElementById('searchBarWrapper');
+    if (searchWrapper) searchWrapper.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
+    const searchWrapper = document.getElementById('searchBarWrapper');
+    if (searchWrapper) searchWrapper.style.display = 'none';
   }
 
   // --- Footer stats ---
   const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
+  if (statTabs) statTabs.textContent = getRealTabs().length;
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1198,7 +1455,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast(t('toast_closed_tabout'));
     return;
   }
 
@@ -1218,6 +1475,45 @@ document.addEventListener('click', async (e) => {
   if (action === 'focus-tab') {
     const tabUrl = actionEl.dataset.tabUrl;
     if (tabUrl) await focusTab(tabUrl);
+    return;
+  }
+
+  // ---- Switch to another window ----
+  if (action === 'focus-window') {
+    const windowId = parseInt(actionEl.dataset.windowId, 10);
+    if (windowId) await chrome.windows.update(windowId, { focused: true });
+    return;
+  }
+
+  // ---- Close all tabs in another window ----
+  if (action === 'close-window-tabs') {
+    const windowId = parseInt(actionEl.dataset.windowId, 10);
+    if (!windowId) return;
+
+    const allTabs = await chrome.tabs.query({ windowId });
+    const toClose = allTabs.map(t => t.id);
+    if (toClose.length > 0) await chrome.tabs.remove(toClose);
+    await fetchOpenTabs();
+    playCloseSound();
+
+    // Remove all cards belonging to this window from the DOM
+    domainGroups
+      .filter(g => g.windowId === windowId)
+      .forEach(g => {
+        const windowSuffix = '-w' + windowId;
+        const stableId = 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') + windowSuffix;
+        const card = document.querySelector(`.mission-card[data-domain-id="${stableId}"]`);
+        if (card) animateCardOut(card);
+      });
+    domainGroups = domainGroups.filter(g => g.windowId !== windowId);
+
+    // Remove the window section header
+    const header = actionEl.closest('.window-section-header');
+    if (header) header.remove();
+
+    const statTabs = document.getElementById('statTabs');
+    if (statTabs) statTabs.textContent = getRealTabs().length;
+    showToast(t('toast_closed_window'));
     return;
   }
 
@@ -1258,25 +1554,26 @@ document.addEventListener('click', async (e) => {
 
     // Update footer
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
 
-    showToast('Tab closed');
+    showToast(t('toast_tab_closed'));
     return;
   }
 
   // ---- Save a single tab for later (then close it) ----
   if (action === 'defer-single-tab') {
     e.stopPropagation();
-    const tabUrl   = actionEl.dataset.tabUrl;
-    const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    const tabUrl      = actionEl.dataset.tabUrl;
+    const tabTitle    = actionEl.dataset.tabTitle || tabUrl;
+    const tabFavIcon  = actionEl.dataset.tabFavicon || '';
     if (!tabUrl) return;
 
     // Save to chrome.storage.local
     try {
-      await saveTabForLater({ url: tabUrl, title: tabTitle });
+      await saveTabForLater({ url: tabUrl, title: tabTitle, favIconUrl: tabFavIcon });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
+      showToast(t('toast_save_failed'));
       return;
     }
 
@@ -1295,7 +1592,7 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
+    showToast(t('toast_saved_later'));
     await renderDeferredColumn();
     return;
   }
@@ -1344,7 +1641,8 @@ document.addEventListener('click', async (e) => {
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
     const group    = domainGroups.find(g => {
-      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId;
+      const windowSuffix = g.windowId ? '-w' + g.windowId : '';
+      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') + windowSuffix === domainId;
     });
     if (!group) return;
 
@@ -1368,11 +1666,11 @@ document.addEventListener('click', async (e) => {
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    const groupLabel = group.domain === '__landing-pages__' ? t('homepages') : (group.label || friendlyDomain(group.domain));
+    showToast(t('toast_closed_domain', urls.length, groupLabel));
 
     const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    if (statTabs) statTabs.textContent = getRealTabs().length;
     return;
   }
 
@@ -1408,7 +1706,7 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
-    showToast('Closed duplicates, kept one copy each');
+    showToast(t('toast_closed_dupes'));
     return;
   }
 
@@ -1428,10 +1726,156 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    showToast(t('toast_closed_all'));
     return;
   }
 });
+
+/* ----------------------------------------------------------------
+   CHIP HOVER PREVIEW CARD
+   Shows a floating card with favicon, full title, URL and domain
+   when the user hovers over a .page-chip.clickable for 300 ms.
+   Uses event delegation on document (mouseenter doesn't bubble,
+   so we use mouseover + closest()).
+   ---------------------------------------------------------------- */
+
+(function initChipPreview() {
+  const card     = document.getElementById('chipPreview');
+  const favicon  = document.getElementById('chipPreviewFavicon');
+  const titleEl  = document.getElementById('chipPreviewTitle');
+  const hostEl   = document.getElementById('chipPreviewHost');
+  const timeEl   = document.getElementById('chipPreviewTime');
+  const countEl  = document.getElementById('chipPreviewCount');
+
+  if (!card) return;
+
+  let showTimer   = null;
+  let currentChip = null;
+
+  // ---- Helpers ----
+
+  function getHostname(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); }
+    catch { return ''; }
+  }
+
+  function getFaviconUrl(url, chipEl) {
+    const saveBtn = chipEl.querySelector('[data-tab-favicon]');
+    if (saveBtn && saveBtn.dataset.tabFavicon) return saveBtn.dataset.tabFavicon;
+
+    const tab = openTabs.find(t => t.url === url);
+    if (tab && tab.favIconUrl && /^https?:\/\//.test(tab.favIconUrl)) return tab.favIconUrl;
+
+    const hostname = getHostname(url);
+    return hostname ? `https://www.google.com/s2/favicons?domain=${hostname}&sz=32` : '';
+  }
+
+  // Count all open tabs (across all windows) sharing the same hostname
+  function countSameDomainTabs(url) {
+    const hostname = getHostname(url);
+    if (!hostname) return 0;
+    return openTabs.filter(t => {
+      try { return new URL(t.url).hostname === hostname; }
+      catch { return false; }
+    }).length;
+  }
+
+  // ---- Positioning ----
+
+  function positionCard(chipEl) {
+    const GAP      = 8;
+    const vw       = window.innerWidth;
+    const vh       = window.innerHeight;
+    const chipRect = chipEl.getBoundingClientRect();
+    const cardW    = card.offsetWidth;
+    const cardH    = card.offsetHeight;
+
+    let left;
+    if (chipRect.right + GAP + cardW <= vw - GAP) {
+      left = chipRect.right + GAP;
+    } else {
+      left = Math.max(GAP, chipRect.left - GAP - cardW);
+    }
+
+    let top = chipRect.top;
+    if (top + cardH > vh - GAP) top = vh - cardH - GAP;
+    top = Math.max(GAP, top);
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top  = `${Math.round(top)}px`;
+  }
+
+  // ---- Show / hide ----
+
+  function showPreview(chipEl) {
+    const url   = chipEl.dataset.tabUrl || '';
+    const title = chipEl.title || chipEl.querySelector('.chip-text')?.textContent?.trim() || url;
+
+    // Header: domain
+    hostEl.textContent = getHostname(url);
+
+    // Title: full, no truncation
+    titleEl.textContent = title;
+
+    // Favicon
+    const faviconUrl = getFaviconUrl(url, chipEl);
+    if (faviconUrl) {
+      favicon.src = faviconUrl;
+      favicon.classList.remove('hidden');
+      favicon.onerror = () => favicon.classList.add('hidden');
+    } else {
+      favicon.src = '';
+      favicon.classList.add('hidden');
+    }
+
+    // Last accessed time — look up the live tab
+    const tab = openTabs.find(t => t.url === url);
+    timeEl.textContent = tab?.lastAccessed ? timeAgo(tab.lastAccessed) : '';
+
+    // Same-domain tab count
+    const domainCount = countSameDomainTabs(url);
+    countEl.textContent = domainCount > 1 ? `该域名共 ${domainCount} 个 tab` : '';
+
+    // Hide meta row entirely if nothing to show
+    const metaEl = document.getElementById('chipPreviewMeta');
+    if (metaEl) metaEl.style.display =
+      (timeEl.textContent || countEl.textContent) ? '' : 'none';
+
+    card.classList.remove('visible');
+    requestAnimationFrame(() => {
+      positionCard(chipEl);
+      card.classList.add('visible');
+    });
+  }
+
+  function hidePreview() {
+    clearTimeout(showTimer);
+    showTimer   = null;
+    currentChip = null;
+    card.classList.remove('visible');
+  }
+
+  // ---- Event delegation ----
+
+  document.addEventListener('mouseover', (e) => {
+    const chip = e.target.closest('.page-chip.clickable');
+    if (!chip) return;
+    if (chip === currentChip) return;
+
+    clearTimeout(showTimer);
+    currentChip = chip;
+    showTimer = setTimeout(() => showPreview(chip), 300);
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const chip = e.target.closest('.page-chip.clickable');
+    if (!chip) return;
+    if (chip.contains(e.relatedTarget)) return;
+    hidePreview();
+  });
+
+  window.addEventListener('scroll', hidePreview, { passive: true });
+})();
 
 // ---- Archive toggle — expand/collapse the archive section ----
 document.addEventListener('click', (e) => {
@@ -1469,14 +1913,892 @@ document.addEventListener('input', async (e) => {
     );
 
     archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+      || `<div style="font-size:12px;color:var(--muted);padding:8px 0">${t('no_results')}</div>`;
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
 });
 
 
+// ---- Tab search — filter cards as user types ----
+document.addEventListener('input', async (e) => {
+  if (e.target.id !== 'tabSearch') return;
+
+  const query = e.target.value.trim();
+  const clearBtn = document.getElementById('searchClear');
+  if (clearBtn) clearBtn.style.display = query ? 'flex' : 'none';
+
+  await filterTabsBySearch(query);
+
+  // After re-render from clearing, restore focus to the input
+  if (!query) e.target.focus();
+});
+
+document.getElementById('searchClear')?.addEventListener('click', async () => {
+  const input = document.getElementById('tabSearch');
+  if (!input) return;
+  input.value = '';
+  document.getElementById('searchClear').style.display = 'none';
+  await filterTabsBySearch('');
+  input.focus();
+});
+
+
+/* ----------------------------------------------------------------
+   QUICK SHORTCUTS — chrome.storage.sync (synced across devices)
+   ---------------------------------------------------------------- */
+
+/**
+ * migrateShortcutsFromLocal()
+ *
+ * One-time migration: move shortcuts from chrome.storage.local to chrome.storage.sync.
+ * This ensures users don't lose their shortcuts when switching to sync storage.
+ */
+async function migrateShortcutsFromLocal() {
+  // Check if already migrated
+  const { shortcutsMigrated } = await chrome.storage.sync.get('shortcutsMigrated');
+  if (shortcutsMigrated) return;
+
+  // Check if there's old data in local storage
+  const { shortcuts: localShortcuts = [] } = await chrome.storage.local.get('shortcuts');
+
+  if (localShortcuts.length > 0) {
+    // Migrate to sync
+    await chrome.storage.sync.set({ shortcuts: localShortcuts });
+    // Clear local storage
+    await chrome.storage.local.remove('shortcuts');
+    console.log('[tab-out] Migrated', localShortcuts.length, 'shortcuts from local to sync');
+  }
+
+  // Mark as migrated
+  await chrome.storage.sync.set({ shortcutsMigrated: true });
+}
+
+/**
+ * getShortcuts()
+ *
+ * Returns all saved shortcuts from chrome.storage.sync.
+ */
+async function getShortcuts() {
+  // Run migration on first load
+  await migrateShortcutsFromLocal();
+
+  const { shortcuts = [] } = await chrome.storage.sync.get('shortcuts');
+
+  // Return default shortcuts if none exist
+  if (shortcuts.length === 0) {
+    return [
+      { id: 'default-1', url: 'https://www.google.com', title: 'Google', faviconUrl: 'https://www.google.com/s2/favicons?domain=google.com&sz=64' },
+      { id: 'default-2', url: 'https://github.com', title: 'GitHub', faviconUrl: 'https://www.google.com/s2/favicons?domain=github.com&sz=64' },
+      { id: 'default-3', url: 'https://huggingface.co', title: 'Hugging Face', faviconUrl: 'https://www.google.com/s2/favicons?domain=huggingface.co&sz=64' },
+    ];
+  }
+
+  return shortcuts;
+}
+
+/**
+ * saveShortcuts(shortcuts)
+ *
+ * Saves the shortcuts array to chrome.storage.sync.
+ */
+async function saveShortcuts(shortcuts) {
+  await chrome.storage.sync.set({ shortcuts });
+}
+
+function isShortcutFallbackFavicon(faviconUrl) {
+  return typeof faviconUrl === 'string' && faviconUrl.startsWith('https://www.google.com/s2/favicons?');
+}
+
+function chooseShortcutFavicon(existingFaviconUrl, incomingFaviconUrl) {
+  if (!incomingFaviconUrl) return existingFaviconUrl || '';
+  if (!existingFaviconUrl) return incomingFaviconUrl;
+  if (isShortcutFallbackFavicon(incomingFaviconUrl) && !isShortcutFallbackFavicon(existingFaviconUrl)) {
+    return existingFaviconUrl;
+  }
+  return incomingFaviconUrl;
+}
+
+/**
+ * addShortcut(url, title, faviconUrl)
+ *
+ * Adds a new shortcut.
+ */
+async function addShortcut(url, title, faviconUrl) {
+  const shortcuts = await getShortcuts();
+  const id = Date.now().toString();
+  shortcuts.push({
+    id,
+    url: url.trim(),
+    title: title.trim() || url,
+    faviconUrl: chooseShortcutFavicon('', faviconUrl),
+  });
+  await saveShortcuts(shortcuts);
+  return id;
+}
+
+/**
+ * updateShortcut(id, url, title, faviconUrl)
+ *
+ * Updates an existing shortcut.
+ */
+async function updateShortcut(id, url, title, faviconUrl) {
+  const shortcuts = await getShortcuts();
+  const idx = shortcuts.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    shortcuts[idx] = {
+      ...shortcuts[idx],
+      url: url.trim(),
+      title: title.trim() || url,
+      faviconUrl: chooseShortcutFavicon(shortcuts[idx].faviconUrl, faviconUrl),
+    };
+    await saveShortcuts(shortcuts);
+  }
+}
+
+/**
+ * deleteShortcut(id)
+ *
+ * Deletes a shortcut by ID.
+ */
+async function deleteShortcut(id) {
+  const shortcuts = await getShortcuts();
+  const filtered = shortcuts.filter(s => s.id !== id);
+  await saveShortcuts(filtered);
+}
+
+/**
+ * getFaviconForShortcut(url)
+ *
+ * Returns the best favicon URL for a shortcut.
+ */
+function getFaviconForShortcut(url) {
+  try {
+    const domain = new URL(url).hostname;
+    if (domain) {
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+    }
+  } catch {}
+  return '';
+}
+
+
+/* ----------------------------------------------------------------
+   SHORTCUT FAVICON CACHE — embed images as data URIs in
+   chrome.storage.local so icons survive offline.
+
+   Why data URIs (instead of just keeping the remote URL):
+     The previous design stored the favicon URL in chrome.storage.sync
+     and rendered it directly via <img src>. Whenever the user went
+     offline, the <img> failed to load and the icon disappeared
+     (the letter fallback kicked in). By downloading the image bytes
+     and embedding them as a data URI, we render the icon without
+     any network access — once cached, always visible.
+
+   Why chrome.storage.local (instead of sync):
+     chrome.storage.sync has an 8 KB per-item limit which is far too
+     small for a base64-encoded PNG/ICO. local storage has a 5 MB
+     total budget, plenty of room for hundreds of shortcut favicons.
+   ---------------------------------------------------------------- */
+
+const SHORTCUT_FAVICON_CACHE_KEY = 'shortcutFavicons';
+
+/**
+ * fetchFaviconAsDataUri(url)
+ *
+ * Downloads a favicon image and converts it to a base64 data URI.
+ * Returns null on any failure (network, CORS, non-https, invalid response).
+ */
+async function fetchFaviconAsDataUri(url) {
+  if (!url || !url.startsWith('https://')) return null;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('FileReader failed'));
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * cacheShortcutFaviconDataUri(shortcutId, dataUri)
+ *
+ * Persists a data URI for the given shortcut into chrome.storage.local.
+ * Silently no-ops on failure (storage quota, etc.) — the URL fallback
+ * will still display when online.
+ */
+async function cacheShortcutFaviconDataUri(shortcutId, dataUri) {
+  if (!shortcutId || !dataUri) return;
+  try {
+    const { [SHORTCUT_FAVICON_CACHE_KEY]: cache = {} } =
+      await chrome.storage.local.get(SHORTCUT_FAVICON_CACHE_KEY);
+    cache[shortcutId] = dataUri;
+    await chrome.storage.local.set({ [SHORTCUT_FAVICON_CACHE_KEY]: cache });
+  } catch (err) {
+    console.warn('[tab-out] Failed to cache shortcut favicon:', err);
+  }
+}
+
+/**
+ * getCachedShortcutFavicons()
+ *
+ * Returns the full map of cached data URIs (keyed by shortcut ID).
+ * Read once at render time, not per-shortcut, to avoid N storage reads.
+ */
+async function getCachedShortcutFavicons() {
+  try {
+    const { [SHORTCUT_FAVICON_CACHE_KEY]: cache = {} } =
+      await chrome.storage.local.get(SHORTCUT_FAVICON_CACHE_KEY);
+    return cache || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * prefetchShortcutFavicon(shortcutId, faviconUrl)
+ *
+ * Fire-and-forget helper: download a favicon and store it as a data URI
+ * so a freshly-added shortcut already has its icon cached offline, even
+ * before the user clicks it for the first time.
+ */
+async function prefetchShortcutFavicon(shortcutId, faviconUrl) {
+  if (!shortcutId || !faviconUrl) return;
+  const dataUri = await fetchFaviconAsDataUri(faviconUrl);
+  if (!dataUri) return;
+  await cacheShortcutFaviconDataUri(shortcutId, dataUri);
+  renderShortcuts();
+}
+
+
+/**
+ * getLetterForShortcut(title)
+ *
+ * Returns the first letter of the title for display.
+ */
+function getLetterForShortcut(title) {
+  return (title || '').charAt(0).toUpperCase() || '?';
+}
+
+/**
+ * renderShortcuts()
+ *
+ * Renders the shortcuts icons bar.
+ */
+async function renderShortcuts() {
+  const container = document.getElementById('shortcutsIcons');
+  if (!container) return;
+
+  const shortcuts = await getShortcuts();
+  const faviconCache = await getCachedShortcutFavicons();
+
+  if (shortcuts.length === 0) {
+    container.innerHTML = `<span class="shortcuts-empty">右键点击添加快捷方式</span>`;
+    return;
+  }
+
+  container.innerHTML = shortcuts.map(shortcut => {
+    const safeUrl = (shortcut.url || '').replace(/"/g, '&quot;');
+    const safeTitle = (shortcut.title || '').replace(/"/g, '&quot;');
+    // Priority: locally cached data URI → synced URL → Google API fallback.
+    // The data URI keeps the icon visible offline; the URL/API only
+    // matter until the cache is populated.
+    const faviconUrl = faviconCache[shortcut.id]
+      || shortcut.faviconUrl
+      || getFaviconForShortcut(shortcut.url);
+    const safeFavicon = faviconUrl.replace(/"/g, '&quot;');
+    const letter = getLetterForShortcut(shortcut.title);
+
+    return `<div class="shortcut-icon"
+      data-action="shortcut-open"
+      data-shortcut-url="${safeUrl}"
+      data-shortcut-id="${shortcut.id}"
+      title="${safeTitle}">
+      <div class="shortcut-img-box">
+        ${faviconUrl
+          ? `<img class="shortcut-favicon" src="${safeFavicon}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><span class="shortcut-letter" style="display:none">${letter}</span>`
+          : `<span class="shortcut-letter" style="display:flex">${letter}</span>`
+        }
+      </div>
+      <span class="shortcut-label">${safeTitle}</span>
+    </div>`;
+  }).join('');
+
+  // Set up drag and drop
+  setupShortcutDragDrop();
+}
+
+/* ----------------------------------------------------------------
+   SHORTCUTS DRAG AND DROP — Pointer Events + FLIP animation
+   ---------------------------------------------------------------- */
+let draggedShortcut = null;
+let dragPointerId = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragPointerOffsetX = 0;
+let dragPointerOffsetY = 0;
+let dragStartIndex = -1;
+let dragCurrentIndex = -1;
+let shortcutWasDragged = false;
+let suppressShortcutClick = false;
+const shortcutDragThreshold = 4;
+const SHORTCUT_FLIP_MS = 220;
+
+function setupShortcutDragDrop() {
+  const container = document.getElementById('shortcutsIcons');
+  if (!container) return;
+
+  const icons = container.querySelectorAll('.shortcut-icon');
+  icons.forEach((icon) => {
+    icon.addEventListener('pointerdown', onShortcutPointerDown);
+  });
+}
+
+function onShortcutPointerDown(e) {
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  if (draggedShortcut) return;
+
+  const icon = e.currentTarget;
+  const container = icon.parentElement;
+  if (!container) return;
+
+  draggedShortcut = icon;
+  dragPointerId = e.pointerId;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  shortcutWasDragged = false;
+
+  const icons = Array.from(container.querySelectorAll('.shortcut-icon'));
+  dragStartIndex = icons.indexOf(icon);
+  dragCurrentIndex = dragStartIndex;
+
+  // Record the offset from cursor to icon's top-left so we can follow the pointer
+  const rect = icon.getBoundingClientRect();
+  dragPointerOffsetX = e.clientX - rect.left;
+  dragPointerOffsetY = e.clientY - rect.top;
+
+  // Listen on document so we keep receiving events even if the pointer leaves the icon.
+  document.addEventListener('pointermove', onShortcutPointerMove);
+  document.addEventListener('pointerup', onShortcutPointerUp);
+  document.addEventListener('pointercancel', onShortcutPointerUp);
+
+  e.preventDefault();
+}
+
+function onShortcutPointerMove(e) {
+  if (!draggedShortcut || e.pointerId !== dragPointerId) return;
+
+  if (!shortcutWasDragged) {
+    const dx0 = Math.abs(e.clientX - dragStartX);
+    const dy0 = Math.abs(e.clientY - dragStartY);
+    if (dx0 < shortcutDragThreshold && dy0 < shortcutDragThreshold) return;
+
+    // Begin actual drag: mark as dragging (CSS only adds shadow/opacity; no layout change).
+    shortcutWasDragged = true;
+    draggedShortcut.classList.add('dragging');
+  }
+
+  // Make the icon follow the pointer using transform.
+  // Measure the natural slot rect by temporarily clearing the transform — this
+  // is robust when the icon gets moved to a new slot in the DOM mid-drag.
+  draggedShortcut.style.transform = '';
+  const natural = draggedShortcut.getBoundingClientRect();
+  const targetX = e.clientX - dragPointerOffsetX;
+  const targetY = e.clientY - dragPointerOffsetY;
+  const tx = targetX - natural.left;
+  const ty = targetY - natural.top;
+  draggedShortcut.style.transform = `translate(${tx}px, ${ty}px) scale(1.06)`;
+
+  // Find new index using midpoint of siblings
+  const container = document.getElementById('shortcutsIcons');
+  if (!container) return;
+  const siblings = Array.from(container.querySelectorAll('.shortcut-icon'))
+    .filter(el => el !== draggedShortcut);
+
+  let newIndex = siblings.length; // default to end
+  for (let i = 0; i < siblings.length; i++) {
+    const r = siblings[i].getBoundingClientRect();
+    const midX = r.left + r.width / 2;
+    const midY = r.top + r.height / 2;
+    const sameRow = e.clientY >= r.top && e.clientY <= r.bottom;
+    if (sameRow) {
+      if (e.clientX < midX) { newIndex = i; break; }
+      newIndex = i + 1;
+    } else if (e.clientY < midY) {
+      newIndex = i; break;
+    }
+  }
+
+  if (newIndex !== dragCurrentIndex) {
+    reorderWithFlip(container, draggedShortcut, siblings, newIndex);
+    dragCurrentIndex = newIndex;
+    // Natural slot moved — recompute translate so the icon stays under the cursor.
+    draggedShortcut.style.transform = '';
+    const natural2 = draggedShortcut.getBoundingClientRect();
+    const tx2 = targetX - natural2.left;
+    const ty2 = targetY - natural2.top;
+    draggedShortcut.style.transform = `translate(${tx2}px, ${ty2}px) scale(1.06)`;
+  }
+}
+
+function playFlip(elements, firstRects) {
+  elements.forEach(el => {
+    const first = firstRects.get(el);
+    if (!first) return;
+    const last = el.getBoundingClientRect();
+    const dx = first.left - last.left;
+    const dy = first.top - last.top;
+    if (dx === 0 && dy === 0) return;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    // Force reflow, then animate back to 0
+    // eslint-disable-next-line no-unused-expressions
+    el.getBoundingClientRect();
+    el.style.transition = `transform ${SHORTCUT_FLIP_MS}ms cubic-bezier(.2,.8,.2,1)`;
+    el.style.transform = '';
+    const clear = () => {
+      el.style.transition = '';
+      el.removeEventListener('transitionend', clear);
+    };
+    el.addEventListener('transitionend', clear);
+  });
+}
+
+function reorderWithFlip(container, draggedIcon, siblings, newIndex) {
+  // FLIP: record FIRST positions of all siblings
+  const firstRects = new Map();
+  siblings.forEach(el => firstRects.set(el, el.getBoundingClientRect()));
+
+  // Move dragged icon in DOM to the new index (relative to siblings)
+  const ref = siblings[newIndex] || null;
+  if (ref) {
+    container.insertBefore(draggedIcon, ref);
+  } else {
+    container.appendChild(draggedIcon);
+  }
+
+  // LAST + INVERT + PLAY on the siblings (not the dragged one)
+  playFlip(siblings, firstRects);
+}
+
+async function onShortcutPointerUp(e) {
+  if (!draggedShortcut || e.pointerId !== dragPointerId) return;
+
+  const icon = draggedShortcut;
+  document.removeEventListener('pointermove', onShortcutPointerMove);
+  document.removeEventListener('pointerup', onShortcutPointerUp);
+  document.removeEventListener('pointercancel', onShortcutPointerUp);
+
+  const wasDragged = shortcutWasDragged;
+
+  draggedShortcut = null;
+  dragPointerId = null;
+  shortcutWasDragged = false;
+
+  if (wasDragged) {
+    // Animate the icon from its current (offset) position back into its natural slot.
+    icon.classList.remove('dragging');
+    icon.classList.add('returning');
+    // Force transition on transform
+    requestAnimationFrame(() => {
+      icon.style.transform = '';
+    });
+    const clear = () => {
+      icon.classList.remove('returning');
+      icon.style.transition = '';
+      icon.removeEventListener('transitionend', clear);
+    };
+    icon.addEventListener('transitionend', clear);
+
+    // Suppress the click-to-open that would otherwise fire after pointerup
+    suppressShortcutClick = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      suppressShortcutClick = false;
+    }));
+  } else {
+    // No actual drag; ensure no lingering inline styles.
+    icon.style.transform = '';
+  }
+
+  if (!wasDragged) return;
+
+  // Persist the new order
+  const container = document.getElementById('shortcutsIcons');
+  if (!container) return;
+  const icons = Array.from(container.querySelectorAll('.shortcut-icon'));
+  const newOrder = icons.map(el => el.dataset.shortcutId);
+
+  const shortcuts = await getShortcuts();
+  const reordered = [];
+  for (const id of newOrder) {
+    const s = shortcuts.find(x => x.id === id);
+    if (s) reordered.push(s);
+  }
+  await saveShortcuts(reordered);
+}
+
+/* ----------------------------------------------------------------
+   SHORTCUTS EVENT HANDLERS
+   ---------------------------------------------------------------- */
+
+async function updateShortcutFavicon(shortcutId, faviconUrl) {
+  if (!shortcutId) return;
+  if (!faviconUrl || !faviconUrl.startsWith('https://')) return;
+
+  // Persist the remote URL to sync (existing behaviour) so other
+  // devices inherit the preference.
+  const shortcuts = await getShortcuts();
+  const idx = shortcuts.findIndex(s => s.id === shortcutId);
+  if (idx === -1) return;
+
+  const nextFaviconUrl = chooseShortcutFavicon(shortcuts[idx].faviconUrl, faviconUrl);
+  if (shortcuts[idx].faviconUrl !== nextFaviconUrl) {
+    shortcuts[idx].faviconUrl = nextFaviconUrl;
+    await saveShortcuts(shortcuts);
+    renderShortcuts();
+  }
+
+  // Download the image and cache it locally so it survives offline.
+  // Fire-and-forget so the caller doesn't block on the network; once
+  // the data URI is ready we re-render to switch from URL → data URI.
+  (async () => {
+    const dataUri = await fetchFaviconAsDataUri(faviconUrl);
+    if (!dataUri) return;
+    await cacheShortcutFaviconDataUri(shortcutId, dataUri);
+    renderShortcuts();
+  })();
+}
+
+// Left-click on shortcut icon: open URL
+document.addEventListener('click', async (e) => {
+  const icon = e.target.closest('[data-action="shortcut-open"]');
+  if (!icon) return;
+  if (suppressShortcutClick) return;
+
+  const url = icon.dataset.shortcutUrl;
+  const shortcutId = icon.dataset.shortcutId;
+  if (!url) return;
+
+  const allTabs = await chrome.tabs.query({});
+  const currentWindow = await chrome.windows.getCurrent();
+  const normalizedUrl = normalizeShortcutUrl(url);
+  const prefixMatches = getShortcutPrefixMatches(url, allTabs);
+
+  let existingTab = null;
+  if (prefixMatches.length === 1) {
+    existingTab = prefixMatches[0];
+  } else if (prefixMatches.length > 1) {
+    existingTab = prefixMatches.find(tab => normalizeShortcutUrl(tab.url) === normalizedUrl) || null;
+  }
+
+  if (existingTab) {
+    const tabToFocus = pickTabToFocus(prefixMatches.length === 1 ? prefixMatches : [existingTab], currentWindow.id);
+    await chrome.tabs.update(tabToFocus.id, { active: true });
+    await chrome.windows.update(tabToFocus.windowId, { focused: true });
+    await updateShortcutFavicon(shortcutId, tabToFocus.favIconUrl);
+    return;
+  }
+
+  const tab = await chrome.tabs.create({ url });
+
+  // Listen for the tab to load, then get the favicon and update the shortcut
+  chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+    if (tabId === tab.id && changeInfo.status === 'complete') {
+      chrome.tabs.onUpdated.removeListener(listener);
+
+      // Get the favicon from the tab
+      chrome.tabs.get(tabId, async (updatedTab) => {
+        if (!updatedTab) return;
+        await updateShortcutFavicon(shortcutId, updatedTab.favIconUrl);
+      });
+    }
+  });
+});
+
+// Right-click on shortcut icon: open edit panel
+document.addEventListener('contextmenu', async (e) => {
+  const icon = e.target.closest('.shortcut-icon');
+  if (!icon) return;
+
+  e.preventDefault();
+  await openShortcutsEditPanel();
+});
+
+// Open edit panel
+async function openShortcutsEditPanel() {
+  const panel = document.getElementById('shortcutsEditPanel');
+  const overlay = document.getElementById('shortcutsEditOverlay');
+  const list = document.getElementById('shortcutsEditList');
+
+  if (!panel || !overlay || !list) return;
+
+  // Render the list
+  const shortcuts = await getShortcuts();
+  list.innerHTML = shortcuts.map(s => {
+    const faviconUrl = s.faviconUrl || getFaviconForShortcut(s.url);
+    const safeUrl = (s.url || '').replace(/"/g, '&quot;');
+    const safeTitle = (s.title || '').replace(/"/g, '&quot;');
+    return `<div class="shortcut-edit-item" data-shortcut-id="${s.id}">
+      <img class="shortcut-edit-favicon" src="${faviconUrl}" alt="" onerror="this.style.opacity='0.3'">
+      <div class="shortcut-edit-info">
+        <div class="shortcut-edit-title">${safeTitle}</div>
+        <div class="shortcut-edit-url">${safeUrl}</div>
+      </div>
+      <div class="shortcut-edit-actions">
+        <button class="shortcut-edit-btn" data-action="shortcut-edit" data-shortcut-id="${s.id}" title="Edit">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+          </svg>
+        </button>
+        <button class="shortcut-edit-btn delete" data-action="shortcut-delete" data-shortcut-id="${s.id}" title="Delete">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+          </svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  panel.classList.add('visible');
+  overlay.classList.add('visible');
+}
+
+// Close edit panel
+function closeShortcutsEditPanel() {
+  const panel = document.getElementById('shortcutsEditPanel');
+  const overlay = document.getElementById('shortcutsEditOverlay');
+  if (panel) panel.classList.remove('visible');
+  if (overlay) overlay.classList.remove('visible');
+  closeShortcutForm();
+}
+
+document.getElementById('shortcutsEditClose')?.addEventListener('click', closeShortcutsEditPanel);
+document.getElementById('shortcutsEditOverlay')?.addEventListener('click', closeShortcutsEditPanel);
+
+// Add new shortcut button
+document.getElementById('shortcutsAddBtn')?.addEventListener('click', () => {
+  openShortcutForm(null);
+});
+
+// Edit shortcut
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="shortcut-edit"]');
+  if (!btn) return;
+
+  const id = btn.dataset.shortcutId;
+  const shortcuts = await getShortcuts();
+  const shortcut = shortcuts.find(s => s.id === id);
+  if (shortcut) {
+    openShortcutForm(shortcut);
+  }
+});
+
+// Delete shortcut
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="shortcut-delete"]');
+  if (!btn) return;
+
+  const id = btn.dataset.shortcutId;
+  if (!id) return;
+
+  // Remove from DOM with animation
+  const item = btn.closest('.shortcut-edit-item');
+  if (item) {
+    item.style.transition = 'opacity 0.2s, transform 0.2s';
+    item.style.opacity = '0';
+    item.style.transform = 'translateX(20px)';
+    setTimeout(() => item.remove(), 200);
+  }
+
+  await deleteShortcut(id);
+  showToast('Shortcut deleted');
+  await renderShortcuts();
+});
+
+// Shortcut form modal
+let currentEditingId = null;
+
+function openShortcutForm(shortcut = null) {
+  currentEditingId = shortcut ? shortcut.id : null;
+
+  // Create modal if not exists
+  let modal = document.getElementById('shortcutFormModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.className = 'shortcut-form-modal';
+    modal.id = 'shortcutFormModal';
+    modal.innerHTML = `
+      <h3 id="shortcutFormTitle">添加快捷方式</h3>
+      <div class="shortcut-form-group">
+        <label>标题</label>
+        <input type="text" id="shortcutFormTitleInput" placeholder="e.g., GitHub">
+      </div>
+      <div class="shortcut-form-group">
+        <label>网址</label>
+        <input type="url" id="shortcutFormUrlInput" placeholder="https://github.com">
+      </div>
+      <div class="shortcut-form-actions">
+        <button class="shortcut-form-cancel" id="shortcutFormCancel">取消</button>
+        <button class="shortcut-form-submit" id="shortcutFormSubmit">保存</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('shortcutFormCancel').addEventListener('click', closeShortcutForm);
+    document.getElementById('shortcutFormSubmit').addEventListener('click', submitShortcutForm);
+  }
+
+  const titleInput = document.getElementById('shortcutFormTitleInput');
+  const urlInput = document.getElementById('shortcutFormUrlInput');
+  const formTitle = document.getElementById('shortcutFormTitle');
+
+  if (shortcut) {
+    titleInput.value = shortcut.title || '';
+    urlInput.value = shortcut.url || '';
+    formTitle.textContent = '编辑快捷方式';
+  } else {
+    titleInput.value = '';
+    urlInput.value = '';
+    formTitle.textContent = '添加快捷方式';
+  }
+
+  modal.classList.add('visible');
+  titleInput.focus();
+}
+
+function closeShortcutForm() {
+  const modal = document.getElementById('shortcutFormModal');
+  if (modal) modal.classList.remove('visible');
+  currentEditingId = null;
+}
+
+async function submitShortcutForm() {
+  const titleInput = document.getElementById('shortcutFormTitleInput');
+  const urlInput = document.getElementById('shortcutFormUrlInput');
+
+  const url = urlInput.value.trim();
+  if (!url) {
+    showToast('Please enter a URL');
+    return;
+  }
+
+  let parsedUrl;
+
+  // Validate URL
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    showToast('Please enter a valid URL');
+    return;
+  }
+
+  const title = titleInput.value.trim() || parsedUrl.hostname.replace(/^www\./, '');
+  const shortcuts = currentEditingId ? await getShortcuts() : [];
+  const existingShortcut = currentEditingId
+    ? shortcuts.find(shortcut => shortcut.id === currentEditingId)
+    : null;
+  const faviconUrl = existingShortcut?.faviconUrl || getFaviconForShortcut(url);
+
+  if (currentEditingId) {
+    await updateShortcut(currentEditingId, url, title, faviconUrl);
+    showToast('Shortcut updated');
+    // If the URL changed, the cached icon may no longer match — try to
+    // re-fetch so the new favicon is ready offline as well.
+    if (existingShortcut?.url !== url.trim()) {
+      prefetchShortcutFavicon(currentEditingId, faviconUrl);
+    }
+  } else {
+    const newId = await addShortcut(url, title, faviconUrl);
+    showToast('Shortcut added');
+    // Pre-fetch the favicon so the new shortcut has its icon cached
+    // offline even before the user clicks it for the first time.
+    prefetchShortcutFavicon(newId, faviconUrl);
+  }
+
+  closeShortcutForm();
+  await openShortcutsEditPanel(); // Refresh the panel
+  await renderShortcuts(); // Refresh the icons bar
+}
+
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+function initI18nElements() {
+  const tabSearch = document.getElementById('tabSearch');
+  if (tabSearch) tabSearch.placeholder = t('search_placeholder');
+
+  const savedForLaterTitle = document.getElementById('savedForLaterTitle');
+  if (savedForLaterTitle) savedForLaterTitle.textContent = t('saved_for_later');
+
+  const nothingSavedText = document.getElementById('nothingSavedText');
+  if (nothingSavedText) nothingSavedText.textContent = t('nothing_saved');
+
+  const archiveLabel = document.getElementById('archiveLabel');
+  if (archiveLabel) archiveLabel.textContent = t('archive');
+
+  const archiveSearch = document.getElementById('archiveSearch');
+  if (archiveSearch) archiveSearch.placeholder = t('search_archive_placeholder');
+
+  const statTabsLabel = document.getElementById('statTabsLabel');
+  if (statTabsLabel) statTabsLabel.textContent = t('stat_open_tabs');
+}
+
+initI18nElements();
+renderShortcuts();
 renderDashboard();
+
+
+/* ----------------------------------------------------------------
+   AUTO-REFRESH — React to tab changes in real time
+
+   Since this IS an extension page, we can listen directly to
+   chrome.tabs events. We debounce refreshes so that a burst of
+   changes (e.g. closing many tabs at once) only triggers one
+   re-render.
+   ---------------------------------------------------------------- */
+(function initAutoRefresh() {
+  let refreshTimer = null;
+
+  function scheduleRefresh() {
+    // Don't clobber an active search query
+    const searchInput = document.getElementById('tabSearch');
+    if (searchInput && searchInput.value.trim()) return;
+
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await renderStaticDashboard();
+    }, 500);
+  }
+
+  chrome.tabs.onCreated.addListener(scheduleRefresh);
+  chrome.tabs.onRemoved.addListener(scheduleRefresh);
+  chrome.tabs.onUpdated.addListener((_id, changeInfo) => {
+    // Only refresh on meaningful changes to avoid noise from minor updates
+    if (changeInfo.title || changeInfo.url || changeInfo.status === 'complete') {
+      scheduleRefresh();
+    }
+  });
+  chrome.tabs.onActivated.addListener(scheduleRefresh);
+  chrome.tabs.onMoved.addListener(scheduleRefresh);
+  chrome.tabs.onAttached.addListener(scheduleRefresh);
+  chrome.tabs.onDetached.addListener(scheduleRefresh);
+})();
+
+
+/* ----------------------------------------------------------------
+   MANUAL REFRESH BUTTON
+   ---------------------------------------------------------------- */
+document.getElementById('refreshBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('refreshBtn');
+  if (btn) btn.classList.add('spinning');
+  await renderStaticDashboard();
+  if (btn) {
+    btn.classList.remove('spinning');
+  }
+});

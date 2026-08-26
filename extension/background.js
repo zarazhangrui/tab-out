@@ -87,6 +87,21 @@ chrome.tabs.onUpdated.addListener(() => {
   updateBadge();
 });
 
+// ─── Toolbar icon click ───────────────────────────────────────────────────────
+
+// When the user clicks the extension icon, open Tab Out.
+// If a Tab Out page is already open somewhere, focus it instead of opening a new one.
+chrome.action.onClicked.addListener(async () => {
+  const tabOutUrl = chrome.runtime.getURL('index.html');
+  const existing = await chrome.tabs.query({ url: tabOutUrl });
+  if (existing.length > 0) {
+    await chrome.tabs.update(existing[0].id, { active: true });
+    await chrome.windows.update(existing[0].windowId, { focused: true });
+  } else {
+    chrome.tabs.create({ url: tabOutUrl });
+  }
+});
+
 // ─── Initial run ─────────────────────────────────────────────────────────────
 
 // Run once immediately when the service worker first loads
