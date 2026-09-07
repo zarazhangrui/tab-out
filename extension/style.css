@@ -48,8 +48,7 @@ body::before {
   padding: 48px 32px 80px;
 }
 
-/* When the saved-for-later sidebar is open, expand the container
-   so the tab grid still has room for 2-3 columns */
+/* Leave room for the always-visible Archive rail without squeezing the grid. */
 .container:has(.dashboard-columns) {
   max-width: 1300px;
 }
@@ -214,6 +213,42 @@ header {
   font-weight: 500;
   letter-spacing: 0.5px;
   white-space: nowrap;
+}
+
+/* ---- Domains / Windows view switcher ---- */
+.view-switcher {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: rgba(255, 253, 249, 0.72);
+  flex-shrink: 0;
+}
+
+.view-switcher-btn {
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 11px/1 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.view-switcher-btn:hover {
+  color: var(--ink);
+}
+
+.view-switcher-btn.active {
+  color: var(--ink);
+  background: var(--card-bg);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+
+.compact-action {
+  font-size: 11px;
+  padding: 3px 10px;
 }
 
 /* ---- Mission Cards ---- */
@@ -415,7 +450,7 @@ header {
   margin-left: auto;
 }
 
-/* ---- Chip action buttons (save + close) ---- */
+/* ---- Chip action buttons (archive + close) ---- */
 .chip-action {
   display: inline-flex;
   align-items: center;
@@ -441,7 +476,7 @@ header {
   background: rgba(154, 145, 138, 0.1);
 }
 
-.chip-save:hover {
+.chip-archive:hover {
   color: var(--accent-sage);
   background: rgba(90, 122, 98, 0.08);
 }
@@ -465,6 +500,162 @@ header {
   font-size: 12px;
   color: var(--muted);
   padding: 6px 4px;
+}
+
+/* ================================================================
+   WINDOW VIEW — draggable browser-window cards
+   ================================================================ */
+
+.missions.window-missions {
+  columns: unset;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.window-card {
+  cursor: default;
+  margin-bottom: 0;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.window-card.is-current-window::before {
+  background: var(--status-active);
+}
+
+.window-card.drag-over {
+  border-color: rgba(90, 122, 98, 0.55);
+  box-shadow: 0 0 0 3px rgba(90, 122, 98, 0.09), 0 4px 20px var(--shadow);
+}
+
+.window-card-header {
+  margin-bottom: 2px;
+}
+
+.window-current-badge,
+.window-state,
+.window-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.window-current-badge {
+  color: var(--status-active);
+  background: rgba(61, 122, 74, 0.08);
+}
+
+.window-state {
+  color: var(--accent-slate);
+  background: rgba(90, 107, 122, 0.08);
+  text-transform: capitalize;
+}
+
+.window-card-hint {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  margin-bottom: 5px;
+}
+
+.window-tab-row {
+  cursor: grab;
+  user-select: none;
+  border-radius: 4px;
+  transition: opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.window-tab-row:active {
+  cursor: grabbing;
+}
+
+.window-tab-row.is-active {
+  background: rgba(61, 122, 74, 0.045);
+}
+
+.window-tab-row.is-dragging {
+  opacity: 0.35;
+}
+
+.window-tab-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent-sage);
+}
+
+.window-tab-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent-sage);
+}
+
+.drag-handle {
+  width: 12px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: 0.42;
+  cursor: grab;
+}
+
+.drag-handle svg {
+  width: 12px;
+  height: 16px;
+}
+
+.window-tab-row:hover .drag-handle {
+  opacity: 0.9;
+}
+
+.window-tab-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.window-tab-badge.active {
+  color: var(--status-active);
+  background: rgba(61, 122, 74, 0.08);
+}
+
+.window-tab-badge.pinned {
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.08);
+}
+
+.window-tab-badge.grouped {
+  color: var(--accent-slate);
+  background: rgba(90, 107, 122, 0.08);
+}
+
+.window-drop-tail {
+  min-height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed transparent;
+  border-radius: 5px;
+  color: transparent;
+  font-size: 10px;
+  transition: min-height 0.15s ease, border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.window-drop-tail.drag-over,
+.window-drop-tail.is-empty {
+  min-height: 42px;
+  border-color: rgba(90, 122, 98, 0.35);
+  color: var(--accent-sage);
+  background: rgba(90, 122, 98, 0.035);
+}
+
+.window-drop-tail.is-empty {
+  margin-top: 3px;
 }
 
 /* mission-meta hidden — see above */
@@ -544,13 +735,13 @@ header {
   border-color: var(--accent-amber);
 }
 
-.action-btn.save-tabs {
+.action-btn.archive-tabs {
   border-color: rgba(90, 122, 98, 0.3);
   color: var(--accent-sage);
   background: rgba(90, 122, 98, 0.04);
 }
 
-.action-btn.save-tabs:hover {
+.action-btn.archive-tabs:hover {
   background: rgba(90, 122, 98, 0.1);
   border-color: var(--accent-sage);
 }
@@ -671,12 +862,19 @@ header { animation: fadeUp 0.5s ease both; }
 .abandoned-section .missions .mission-card:nth-child(3) { animation: fadeUp 0.4s ease 0.6s both; }
 footer { animation: fadeUp 0.5s ease 0.65s both; }
 
-.deferred-list .deferred-item:nth-child(1) { animation-delay: 0.05s; }
-.deferred-list .deferred-item:nth-child(2) { animation-delay: 0.1s; }
-.deferred-list .deferred-item:nth-child(3) { animation-delay: 0.15s; }
-.deferred-list .deferred-item:nth-child(4) { animation-delay: 0.2s; }
-.deferred-list .deferred-item:nth-child(5) { animation-delay: 0.25s; }
-.deferred-column .section-header { animation: fadeUp 0.5s ease 0.1s both; }
+.archive-list .archive-item:nth-child(1) { animation-delay: 0.05s; }
+.archive-list .archive-item:nth-child(2) { animation-delay: 0.1s; }
+.archive-list .archive-item:nth-child(3) { animation-delay: 0.15s; }
+.archive-list .archive-item:nth-child(4) { animation-delay: 0.2s; }
+.archive-list .archive-item:nth-child(5) { animation-delay: 0.25s; }
+.archive-column .section-header { animation: fadeUp 0.5s ease 0.1s both; }
+
+/* Re-rendered data should update in place without replaying the first-paint
+   entrance sequence (which feels like a full page refresh). */
+body.dashboard-ready .active-section .missions .mission-card,
+body.dashboard-ready .archive-list .archive-item {
+  animation: none;
+}
 
 
 /* ================================================================
@@ -885,274 +1083,268 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 
 /* ================================================================
-   SAVED FOR LATER — Checklist Column + Archive
+   ARCHIVE — restorable, temporarily closed tabs
    ================================================================ */
 
-/* ---- Two-column layout ---- */
 .dashboard-columns {
   display: flex;
   gap: 32px;
   align-items: flex-start;
 }
 
-/* Open tabs column keeps the grid layout */
 .dashboard-columns .active-section {
   flex: 1;
   min-width: 600px;
 }
 
-/* Saved for later column — fixed width on the right, scrolls independently */
-.deferred-column {
-  width: 280px;
+.archive-column {
+  width: 300px;
   flex-shrink: 0;
   position: sticky;
   top: 32px;
   max-height: calc(100vh - 64px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--warm-gray) transparent;
 }
 
-/* On narrow screens, stack vertically */
-@media (max-width: 800px) {
-  .dashboard-columns {
-    flex-direction: column;
-  }
-  .deferred-column {
-    width: 100%;
-    position: static;
-  }
-}
-
-/* ---- Checklist items ---- */
-.deferred-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.12);
-  animation: fadeUp 0.3s ease both;
-}
-
-.deferred-item:last-child {
-  border-bottom: none;
-}
-
-/* Custom checkbox */
-.deferred-checkbox {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--warm-gray);
-  border-radius: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  margin-top: 1px;
-  transition: all 0.2s;
-  position: relative;
-}
-
-.deferred-checkbox:hover {
-  border-color: var(--accent-sage);
-}
-
-.deferred-checkbox:checked {
-  background: var(--accent-sage);
-  border-color: var(--accent-sage);
-}
-
-/* Checkmark inside the checkbox */
-.deferred-checkbox:checked::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 5px;
-  width: 4px;
-  height: 8px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-/* Item content (title, domain, time) */
-.deferred-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.deferred-title {
-  font-size: 13px;
-  color: var(--ink);
-  text-decoration: none;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 0.15s;
-}
-
-.deferred-title:hover {
-  color: var(--accent-amber);
-}
-
-.deferred-meta {
+.archive-description {
+  color: var(--muted);
   font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-  display: flex;
-  gap: 8px;
-}
-
-/* Checked-off item — strikethrough + faded */
-.deferred-item.checked .deferred-title {
-  text-decoration: line-through;
-  color: var(--muted);
-}
-
-.deferred-item.checked .deferred-meta {
-  opacity: 0.5;
-}
-
-/* Dismiss (X) button */
-.deferred-dismiss {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 2px;
-  opacity: 0.3;
-  transition: opacity 0.15s, color 0.15s;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.deferred-dismiss svg {
-  width: 14px;
-  height: 14px;
-}
-
-.deferred-dismiss:hover {
-  opacity: 1;
-  color: var(--status-abandoned);
-}
-
-/* Slide-out animation for items being removed */
-.deferred-item.removing {
-  opacity: 0;
-  transform: translateX(20px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-/* ---- Empty state ---- */
-.deferred-empty {
-  font-size: 13px;
-  color: var(--muted);
-  font-style: italic;
-  padding: 24px 0;
-  text-align: center;
-}
-
-/* ---- Archive section ---- */
-.deferred-archive {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--warm-gray);
-}
-
-.archive-toggle {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  width: 100%;
-  text-align: left;
-  transition: color 0.15s;
-}
-
-.archive-toggle:hover {
-  color: var(--ink);
-}
-
-.archive-chevron {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.2s;
-}
-
-.archive-toggle.open .archive-chevron {
-  transform: rotate(180deg);
-}
-
-.archive-count {
-  font-size: 11px;
-  color: var(--muted);
-  opacity: 0.7;
-}
-
-.archive-body {
-  padding-top: 12px;
+  line-height: 1.5;
+  margin: -8px 0 14px;
 }
 
 .archive-search {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  appearance: none;
   width: 100%;
-  padding: 8px 12px;
+  padding: 9px 11px;
   border: 1px solid var(--warm-gray);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--card-bg);
   color: var(--ink);
   outline: none;
-  transition: border-color 0.2s;
-  margin-bottom: 12px;
+  font: 400 12px/1.2 'DM Sans', sans-serif;
+  margin-bottom: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .archive-search:focus {
-  border-color: var(--accent-amber);
+  border-color: rgba(90, 122, 98, 0.55);
+  box-shadow: 0 0 0 3px rgba(90, 122, 98, 0.08);
 }
 
 .archive-search::placeholder {
   color: var(--muted);
 }
 
-/* Archive items are simpler — just title + domain + date */
-.archive-item {
+.archive-list {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.08);
+  flex-direction: column;
+  gap: 6px;
 }
 
-.archive-item:last-child {
-  border-bottom: none;
+.archive-item {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid rgba(154, 145, 138, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 253, 249, 0.74);
+  overflow: hidden;
+  animation: fadeUp 0.3s ease both;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.archive-item:hover {
+  border-color: rgba(90, 122, 98, 0.42);
+  box-shadow: 0 3px 12px var(--shadow);
+}
+
+.archive-restore {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 10px 7px 10px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.archive-restore:focus-visible,
+.archive-forget:focus-visible {
+  outline: 2px solid var(--accent-sage);
+  outline-offset: -2px;
+}
+
+.archive-item-favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.archive-item-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .archive-item-title {
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: none;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-  transition: color 0.15s;
-}
-
-.archive-item-title:hover {
   color: var(--ink);
+  font: 400 12px/1.35 'DM Sans', sans-serif;
 }
 
-.archive-item-date {
-  font-size: 10px;
+.archive-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
   color: var(--muted);
-  opacity: 0.6;
+  font: 400 9px/1.3 'DM Sans', sans-serif;
+}
+
+.archive-item-meta > span:not(.archive-item-pinned) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-item-pinned {
   flex-shrink: 0;
+  color: var(--accent-amber);
+  border-radius: 3px;
+  background: rgba(200, 113, 58, 0.08);
+  padding: 2px 4px;
+}
+
+.archive-restore-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--accent-sage);
+  opacity: 0;
+  transform: translate(-2px, 2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.archive-item:hover .archive-restore-icon,
+.archive-restore:focus-visible .archive-restore-icon {
+  opacity: 0.9;
+  transform: translate(0, 0);
+}
+
+.archive-forget {
+  width: 27px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.archive-forget svg {
+  width: 13px;
+  height: 13px;
+}
+
+.archive-item:hover .archive-forget,
+.archive-forget:focus-visible {
+  opacity: 0.55;
+  border-left-color: rgba(154, 145, 138, 0.14);
+}
+
+.archive-forget:hover {
+  opacity: 1;
+  color: var(--status-abandoned);
+  background: rgba(179, 90, 90, 0.05);
+}
+
+.archive-item.restoring {
+  opacity: 0.45;
+  transform: translateX(8px);
+  pointer-events: none;
+}
+
+.archive-item.removing {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.archive-empty,
+.archive-no-results {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: center;
+  padding: 22px 18px;
+  border: 1px dashed rgba(154, 145, 138, 0.3);
+  border-radius: 7px;
+}
+
+.archive-empty-icon {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 8px;
+  color: var(--accent-sage);
+  opacity: 0.65;
+}
+
+.archive-empty-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.archive-restore-hint {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+  margin-top: 10px;
+  opacity: 0.72;
+  text-align: center;
+}
+
+@media (max-width: 800px) {
+  .dashboard-columns {
+    flex-direction: column;
+  }
+
+  .dashboard-columns .active-section {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .active-section .section-header {
+    flex-wrap: wrap;
+  }
+
+  .active-section .section-line {
+    min-width: 24px;
+  }
+
+  .missions.window-missions {
+    grid-template-columns: 1fr;
+  }
+
+  .archive-column {
+    width: 100%;
+    position: static;
+    max-height: none;
+  }
 }

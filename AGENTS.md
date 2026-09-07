@@ -12,11 +12,13 @@ Before doing anything technical, tell the user what they're about to get:
 >
 > Here's what makes it great:
 > - **See all your open tabs at a glance** grouped by domain on a grid
+> - **Switch to Windows view** to see the exact tabs in each Chrome window
+> - **Drag tabs between windows** or reorder them within the same window
 > - **Homepages group** pulls Gmail, X, LinkedIn, YouTube, GitHub homepages into one card for easy cleanup
 > - **Close tabs with style** satisfying swoosh sound + confetti burst
 > - **Duplicate detection** flags when you have the same page open twice
 > - **Click any tab title to jump to it** even across different Chrome windows
-> - **Save for later** bookmark individual tabs to a checklist before closing them
+> - **Archive for later** close individual tabs or whole groups to free memory, then restore them with one click
 > - **100% local** no server, no accounts, no data sent anywhere
 >
 > It's just a Chrome extension. Setup takes about 1 minute.
@@ -76,13 +78,15 @@ Once the extension is loaded:
 > You're all set! Open a **new tab** and you'll see Tab Out.
 >
 > Here's how it works:
-> 1. **Your open tabs are grouped by domain** in a grid layout.
-> 2. **Homepages** (Gmail inbox, X home, YouTube, etc.) are in their own group at the top.
-> 3. **Click any tab title** to jump directly to that tab.
-> 4. **Click the X** next to any tab to close just that one (with swoosh + confetti).
-> 5. **Click "Close all N tabs"** on a group to close the whole thing.
-> 6. **Duplicate tabs** are flagged with an amber "(2x)" badge. Click "Close duplicates" to keep one copy.
-> 7. **Save a tab for later** by clicking the bookmark icon before closing it. Saved tabs appear in the sidebar.
+> 1. **Use Domains / Windows** to switch between domain groups and browser windows.
+> 2. **In Windows view, drag a tab** to another window or a different position in the same window.
+> 3. **Homepages** (Gmail inbox, X home, YouTube, etc.) are in their own group at the top of Domains view.
+> 4. **Click any tab title** to jump directly to that tab.
+> 5. **Click the X** next to any tab to close just that one (with swoosh + confetti).
+> 6. **Click "Close all N tabs"** on a group to close the whole thing.
+> 7. **Duplicate tabs** are flagged with an amber "(2x)" badge. Click "Close duplicates" to keep one copy.
+> 8. **Archive a tab** with the archive-box icon, or archive a whole domain/window from its card. Archived tabs close immediately and appear in the right sidebar.
+> 9. **Restore an archived tab** by clicking it. It opens beside Tab Out in the current window and disappears from the Archive after Chrome opens it successfully.
 >
 > That's it! No server to run, no config files. Everything works right away.
 
@@ -91,6 +95,6 @@ Once the extension is loaded:
 ## Key Facts
 
 - Tab Out is a pure Chrome extension. No server, no Node.js, no npm.
-- Saved tabs are stored in `chrome.storage.local` (persists across sessions).
+- Archived tabs are stored in `chrome.storage.local` (persists across sessions).
 - 100% local. No data is sent to any external service.
 - To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.

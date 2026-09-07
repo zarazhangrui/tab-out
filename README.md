@@ -23,11 +23,14 @@ The agent will walk you through it. Takes about 1 minute.
 ## Features
 
 - **See all your tabs at a glance** on a clean grid, grouped by domain
+- **Switch between Domains and Windows** to see every real tab in each Chrome window
+- **Drag tabs between windows** or reorder them within the same window
 - **Homepages group** pulls Gmail inbox, X home, YouTube, LinkedIn, GitHub homepages into one card
 - **Close tabs with style** with swoosh sound + confetti burst
 - **Duplicate detection** flags when you have the same page open twice, with one-click cleanup
 - **Click any tab to jump to it** across windows, no new tab opened
-- **Save for later** bookmark tabs to a checklist before closing them
+- **Archive tabs for later** close tabs to free memory, then restore them into your current window with one click
+- **Archive whole groups** from a domain, a browser window, or your entire open-tab list
 - **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
 - **Expandable groups** show the first 8 tabs with a clickable "+N more"
 - **100% local** your data never leaves your machine
@@ -60,14 +63,16 @@ You'll see Tab Out.
 
 ```
 You open a new tab
-  -> Tab Out shows your open tabs grouped by domain
+  -> Tab Out shows your open tabs grouped by domain or browser window
+  -> In Windows view, drag a tab to another window or a new position
   -> Homepages (Gmail, X, etc.) get their own group at the top
   -> Click any tab title to jump to it
   -> Close groups you're done with (swoosh + confetti)
-  -> Save tabs for later before closing them
+  -> Archive tabs you want out of memory but not out of mind
+  -> Restore archived tabs into the current window with one click
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Archived tabs are stored in `chrome.storage.local`.
 
 ---
 
