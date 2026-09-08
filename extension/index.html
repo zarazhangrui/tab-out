@@ -49,8 +49,7 @@
   <!-- ================================================================
        MAIN CONTENT AREA — two-column layout
        Left: open tabs (domain/mission cards)
-       Right: saved for later checklist
-       The right column only renders when it has items (JS controls this)
+       Right: restorable archive rail
        ================================================================ -->
   <div class="dashboard-columns" id="dashboardColumns">
 
@@ -58,41 +57,35 @@
     <div class="active-section" id="openTabsSection" style="display:none">
       <div class="section-header">
         <h2 id="openTabsSectionTitle">Right now</h2>
+        <div class="view-switcher" role="group" aria-label="Group open tabs by">
+          <button class="view-switcher-btn active" data-action="set-open-tabs-view" data-view="domains" aria-pressed="true">Domains</button>
+          <button class="view-switcher-btn" data-action="set-open-tabs-view" data-view="windows" aria-pressed="false">Windows</button>
+        </div>
         <div class="section-line"></div>
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
       <div class="missions" id="openTabsMissions"></div>
     </div>
 
-    <!-- RIGHT COLUMN: Saved for Later checklist -->
-    <div class="deferred-column" id="deferredColumn" style="display:none">
+    <!-- RIGHT COLUMN: Archived tabs that can be restored into this window -->
+    <aside class="archive-column" id="archiveColumn">
       <div class="section-header">
-        <h2>Saved for later</h2>
+        <h2>Archive</h2>
         <div class="section-line"></div>
-        <div class="section-count" id="deferredCount"></div>
+        <div class="section-count" id="archiveCount" aria-live="polite">0 tabs</div>
       </div>
 
-      <!-- Active checklist items — injected by renderDeferredList() in app.js -->
-      <div class="deferred-list" id="deferredList"></div>
-
-      <!-- Empty state — shown when no active deferred tabs -->
-      <div class="deferred-empty" id="deferredEmpty" style="display:none">
-        Nothing saved. Living in the moment.
+      <p class="archive-description">Temporarily closed tabs live here without using tab memory.</p>
+      <input type="search" class="archive-search" id="archiveSearch" placeholder="Search archived tabs..." aria-label="Search archived tabs" style="display:none">
+      <div class="archive-list" id="archiveList"></div>
+      <div class="archive-empty" id="archiveEmpty">
+        <span class="archive-empty-icon" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m4.5 0V6a2.25 2.25 0 0 1 2.25-2.25h3A2.25 2.25 0 0 1 15.75 6v1.5m-12.375 0h17.25M9.75 12h4.5" /></svg>
+        </span>
+        Archive a tab to close it for now and bring it back later.
       </div>
-
-      <!-- Archive section — collapsed by default -->
-      <div class="deferred-archive" id="deferredArchive" style="display:none">
-        <button class="archive-toggle" id="archiveToggle">
-          <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-          Archive
-          <span class="archive-count" id="archiveCount"></span>
-        </button>
-        <div class="archive-body" id="archiveBody" style="display:none">
-          <input type="text" class="archive-search" id="archiveSearch" placeholder="Search archived tabs...">
-          <div class="archive-list" id="archiveList"></div>
-        </div>
-      </div>
-    </div>
+      <p class="archive-restore-hint">Click to restore here · ⌘/Ctrl-click for background</p>
+    </aside>
 
   </div><!-- end .dashboard-columns -->
 
