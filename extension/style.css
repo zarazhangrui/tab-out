@@ -5,6 +5,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
   --ink: #1a1613;
   --paper: #f8f5f0;
   --warm-gray: #e8e2da;
@@ -18,6 +19,27 @@
   --status-abandoned: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --hover-bg: rgba(26, 22, 19, 0.06);
+}
+
+/* Dark theme — same warm palette, inverted. Set on <html> by the inline
+   head script (no flash) and updated by applyTheme() in app.js. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #ece6de;
+  --paper: #171512;
+  --warm-gray: #37322c;
+  --muted: #9a9088;
+  --accent-amber: #d98a4e;
+  --accent-sage: #7ea888;
+  --accent-slate: #8fa2b3;
+  --accent-rose: #cc7878;
+  --status-active: #6cae7c;
+  --status-cooling: #d2a44c;
+  --status-abandoned: #cc7a7a;
+  --card-bg: #201d19;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --hover-bg: rgba(236, 230, 222, 0.08);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -38,6 +60,11 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 0;
+}
+
+/* Invert the (black) paper grain so it stays visible on dark surfaces */
+:root[data-theme="dark"] body::before {
+  filter: invert(1);
 }
 
 .container {
@@ -79,6 +106,46 @@ header {
   font-weight: 400;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+
+/* ---- Theme switcher (Light / System / Dark) ---- */
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: var(--card-bg);
+  flex-shrink: 0;
+}
+
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.theme-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.theme-btn:hover {
+  color: var(--ink);
+}
+
+.theme-btn.active {
+  background: var(--warm-gray);
+  color: var(--ink);
 }
 
 /* ---- Tab cleanup banner ---- */
@@ -874,7 +941,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .update-banner-dismiss:hover {
-  background: rgba(26, 22, 19, 0.06);
+  background: var(--hover-bg);
   color: var(--ink);
 }
 

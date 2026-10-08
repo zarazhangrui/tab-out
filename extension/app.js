@@ -1174,6 +1174,45 @@ async function renderDashboard() {
 
 
 /* ----------------------------------------------------------------
+   THEME — light / dark / system
+
+   Preference lives in localStorage so the inline <head> script can
+   apply it synchronously (no flash). "system" follows the OS setting
+   live via matchMedia.
+   ---------------------------------------------------------------- */
+
+const THEME_KEY = 'tab-out-theme';
+
+function currentThemePref() {
+  return localStorage.getItem(THEME_KEY) || 'system';
+}
+
+function resolveTheme(pref) {
+  const dark = pref === 'dark' ||
+    (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  return dark ? 'dark' : 'light';
+}
+
+/** Apply a preference and reflect it on the switcher buttons. */
+function applyTheme(pref) {
+  document.documentElement.dataset.theme = resolveTheme(pref);
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    const active = btn.dataset.themeChoice === pref;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function initTheme() {
+  applyTheme(currentThemePref());
+  // Re-resolve whenever the OS scheme changes (only matters in "system" mode)
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (currentThemePref() === 'system') applyTheme('system');
+  });
+}
+
+
+/* ----------------------------------------------------------------
    EVENT HANDLERS — using event delegation
 
    One listener on document handles ALL button clicks.
@@ -1187,6 +1226,14 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  // ---- Theme switcher ----
+  if (action === 'set-theme') {
+    const pref = actionEl.dataset.themeChoice;
+    localStorage.setItem(THEME_KEY, pref);
+    applyTheme(pref);
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1479,4 +1526,5 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+initTheme();
 renderDashboard();
