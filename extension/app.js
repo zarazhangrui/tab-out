@@ -296,6 +296,7 @@ async function dismissSavedTab(id) {
  * A filtered noise sweep that descends in pitch, like air moving.
  */
 function playCloseSound() {
+  if (isMuted()) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const t = ctx.currentTime;
@@ -1174,6 +1175,26 @@ async function renderDashboard() {
 
 
 /* ----------------------------------------------------------------
+   SOUND MUTE — silences the close "swoosh". Persisted in localStorage.
+   ---------------------------------------------------------------- */
+
+const MUTE_KEY = 'tab-out-muted';
+
+function isMuted() {
+  return localStorage.getItem(MUTE_KEY) === '1';
+}
+
+function applyMute(muted) {
+  const btn = document.getElementById('muteToggle');
+  if (!btn) return;
+  btn.classList.toggle('muted', muted);
+  btn.title = muted ? 'Unmute sound' : 'Mute sound';
+  btn.setAttribute('aria-label', btn.title);
+  btn.setAttribute('aria-pressed', String(muted));
+}
+
+
+/* ----------------------------------------------------------------
    EVENT HANDLERS — using event delegation
 
    One listener on document handles ALL button clicks.
@@ -1187,6 +1208,15 @@ document.addEventListener('click', async (e) => {
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  // ---- Mute / unmute the close sound ----
+  if (action === 'toggle-mute') {
+    const muted = !isMuted();
+    localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
+    applyMute(muted);
+    if (!muted) playCloseSound(); // audible confirmation when unmuting
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1479,4 +1509,5 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+applyMute(isMuted());
 renderDashboard();

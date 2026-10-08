@@ -81,6 +81,36 @@ header {
   text-transform: uppercase;
 }
 
+/* Standalone square icon button (sound mute) */
+.icon-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.icon-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-toggle:hover {
+  color: var(--ink);
+}
+
+/* Swap the speaker icon based on mute state */
+.icon-toggle .icon-sound-off { display: none; }
+.icon-toggle.muted .icon-sound-on { display: none; }
+.icon-toggle.muted .icon-sound-off { display: block; }
+
 /* ---- Tab cleanup banner ---- */
 .tab-cleanup-banner {
   background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));
