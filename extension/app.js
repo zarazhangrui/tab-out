@@ -707,6 +707,94 @@ const ICONS = {
    IN-MEMORY STORE FOR OPEN-TAB GROUPS
    ---------------------------------------------------------------- */
 let domainGroups = [];
+let semanticState = null;
+let semanticWritable = false;
+let lastWritten = null;
+let groupUi = { creating: false, renamingId: null };
+let suppressClick = false;
+
+function groupContext() {
+  const extra = typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : [];
+  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
+  return {
+    groups: semanticState.groups,
+    assignments: semanticState.assignments,
+    disabledBuiltinKeys: semanticState.disabledBuiltinKeys,
+    extraLandingPatterns: extra,
+    customGroups,
+  };
+}
+
+async function ensureSemanticState() {
+  if (semanticState) return;
+  try {
+    const storage = await chrome.storage.local.get('semanticGroups');
+    const loaded = TabOutGrouping.loadSemanticState(storage);
+    semanticState = loaded.semanticGroups;
+    semanticWritable = loaded.writable;
+    if (loaded.persist && loaded.writable) await persistSemanticState();
+  } catch (err) {
+    console.warn('[tab-out] Could not load groups:', err);
+    semanticState = TabOutGrouping.loadSemanticState({}).semanticGroups;
+    semanticWritable = false;
+    showToast('分组没能读取，已按自动规则显示');
+  }
+}
+
+async function persistSemanticState() {
+  if (!semanticWritable) {
+    showToast('分组数据版本无法识别，本次没有保存');
+    return false;
+  }
+  try {
+    lastWritten = JSON.stringify(semanticState);
+    await chrome.storage.local.set({ semanticGroups: semanticState });
+    return true;
+  } catch (err) {
+    console.error('[tab-out] Failed to save groups:', err);
+    lastWritten = null;
+    showToast('分组没能保存');
+    return false;
+  }
+}
+
+async function applyGroupResult(result, toast) {
+  if (!semanticWritable) {
+    showToast('分组数据版本无法识别，本次没有保存');
+    return;
+  }
+  if (result && result.error) {
+    showToast(result.error);
+    return;
+  }
+  if (!result || result.state === semanticState) return;
+  const previous = semanticState;
+  semanticState = result.state;
+  const saved = await persistSemanticState();
+  if (!saved) semanticState = previous;
+  else if (toast) showToast(toast);
+  groupUi = { creating: false, renamingId: null };
+  await renderStaticDashboard();
+}
+
+function renderGroupToolbar() {
+  const el = document.getElementById('groupToolbar');
+  if (!el) return;
+  if (groupUi.creating) {
+    el.innerHTML = `
+      <form class="group-form" data-action="create-group-form">
+        <input type="text" name="groupName" maxlength="40" aria-label="分组名称" placeholder="分组名称">
+        <button type="submit" class="action-btn">保存</button>
+        <button type="button" class="action-btn" data-action="cancel-create">取消</button>
+      </form>`;
+    const input = el.querySelector('input');
+    if (input) input.focus();
+    return;
+  }
+  el.innerHTML = `
+    <button type="button" class="action-btn" data-action="start-create-group">新建分组</button>
+    <button type="button" class="action-btn" data-action="restore-default-groups">恢复默认分组</button>`;
+}
 
 
 /* ----------------------------------------------------------------
@@ -757,21 +845,56 @@ function checkTabOutDupes() {
    OVERFLOW CHIPS ("+N more" expand button in domain cards)
    ---------------------------------------------------------------- */
 
-function buildOverflowChips(hiddenTabs, urlCounts = {}) {
-  const hiddenChips = hiddenTabs.map(tab => {
-    const label    = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), '');
-    const count    = urlCounts[tab.url] || 1;
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+function movableGroups() {
+  if (!semanticState) return [];
+  return TabOutGrouping.orderedGroupIds(semanticState)
+    .map(id => semanticState.groups.find(group => group.id === id))
+    .filter(Boolean);
+}
+
+function renderMoveControl(tab) {
+  const key = TabOutGrouping.normalizeAssignmentUrl(tab.url);
+  if (!key) return '';
+  const groups = movableGroups();
+  const current = TabOutGrouping.classifyTab(tab, groupContext()).groupId;
+  const listed = groups.some(group => group.id === current);
+  const placeholder = listed ? '' : '<option value="" selected>移动</option>';
+  const options = groups.map(group => {
+    const selected = group.id === current ? ' selected' : '';
+    return `<option value="${TabOutGrouping.escapeHtml(group.id)}"${selected}>${TabOutGrouping.escapeHtml(group.name)}</option>`;
+  }).join('');
+  const clear = Object.prototype.hasOwnProperty.call(semanticState.assignments, key)
+    ? '<option value="__clear__">恢复自动分类</option>'
+    : '';
+  const safeUrl = TabOutGrouping.escapeHtml(tab.url || '');
+  return `<label class="chip-move" draggable="false">
+      <span>移动</span>
+      <select aria-label="把这个标签移到分组" data-action="move-tab" data-tab-url="${safeUrl}" draggable="false">
+        ${placeholder}${options}${clear}
+      </select>
+    </label>`;
+}
+
+function renderPageChip(tab, urlCounts) {
+  let hostname = '';
+  try { hostname = new URL(tab.url).hostname; } catch {}
+  let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), hostname);
+  try {
+    const parsed = new URL(tab.url);
+    if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
+  } catch {}
+  const count = urlCounts[tab.url] || 1;
+  const dupeTag = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
+  const chipClass = count > 1 ? ' chip-has-dupes' : '';
+  const safeUrl = TabOutGrouping.escapeHtml(tab.url || '');
+  const safeTitle = TabOutGrouping.escapeHtml(label);
+  const normalized = TabOutGrouping.normalizeAssignmentUrl(tab.url) || '';
+  const faviconUrl = hostname ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=16` : '';
+  return `<div class="page-chip clickable${chipClass}" draggable="${normalized ? 'true' : 'false'}" data-action="focus-tab" data-tab-url="${safeUrl}" data-normalized-url="${TabOutGrouping.escapeHtml(normalized)}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
+        ${renderMoveControl(tab)}
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
@@ -780,7 +903,10 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
         </button>
       </div>
     </div>`;
-  }).join('');
+}
+
+function buildOverflowChips(hiddenTabs, urlCounts = {}) {
+  const hiddenChips = hiddenTabs.map(tab => renderPageChip(tab, urlCounts)).join('');
 
   return `
     <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
@@ -834,40 +960,39 @@ function renderDomainCard(group) {
   const visibleTabs = uniqueTabs.slice(0, 8);
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
-  const pageChips = visibleTabs.map(tab => {
-    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
-    // For localhost tabs, prepend port number so you can tell projects apart
-    try {
-      const parsed = new URL(tab.url);
-      if (parsed.hostname === 'localhost' && parsed.port) label = `${parsed.port} ${label}`;
-    } catch {}
-    const count    = urlCounts[tab.url];
-    const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
-      <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>`;
-  }).join('') + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
+  const pageChips = visibleTabs.map(tab => renderPageChip(tab, urlCounts)).join('')
+    + (extraCount > 0 ? buildOverflowChips(uniqueTabs.slice(8), urlCounts) : '');
+  const emptyHtml = tabCount === 0
+    ? `<p class="group-empty">${TabOutGrouping.escapeHtml(group.emptyText || '暂无标签')}</p>`
+    : '';
+  const safeGroupId = TabOutGrouping.escapeHtml(group.id || stableId);
+  const displayName = TabOutGrouping.escapeHtml(
+    isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))
+  );
+  let adminHtml = '';
+  if (group.canRename && groupUi.renamingId === group.id) {
+    adminHtml = `<form class="group-form" data-action="rename-group-form" data-group-id="${safeGroupId}">
+        <input type="text" name="groupName" maxlength="40" aria-label="分组名称" value="${displayName}">
+        <button type="submit" class="action-btn">保存</button>
+        <button type="button" class="action-btn" data-action="cancel-rename">取消</button>
+      </form>`;
+  } else {
+    if (group.canRename) {
+      adminHtml += `<button type="button" class="action-btn" data-action="start-rename-group" data-group-id="${safeGroupId}">重命名</button>`;
+    }
+    if (group.canDelete) {
+      adminHtml += `<button type="button" class="action-btn" data-action="delete-group" data-group-id="${safeGroupId}">删除分组</button>`;
+    }
+  }
 
-  let actionsHtml = `
-    <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
+  let actionsHtml = '';
+  if (tabCount > 0) {
+    actionsHtml = `
+    <button class="action-btn close-tabs" data-action="close-domain-tabs" data-group-id="${safeGroupId}">
       ${ICONS.close}
       Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
     </button>`;
+  }
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
@@ -878,15 +1003,16 @@ function renderDomainCard(group) {
   }
 
   return `
-    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-group-id="${safeGroupId}" data-droppable="${group.droppable ? 'true' : 'false'}">
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${displayName}</span>
+          <div class="group-admin">${adminHtml}</div>
           ${tabBadge}
           ${dupeBadge}
         </div>
-        <div class="mission-pages">${pageChips}</div>
+        <div class="mission-pages">${pageChips}${emptyHtml}</div>
         <div class="actions">${actionsHtml}</div>
       </div>
       <div class="mission-meta">
@@ -1026,135 +1152,99 @@ async function renderStaticDashboard() {
   if (greetingEl) greetingEl.textContent = getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
 
-  // --- Fetch tabs ---
+  // --- Fetch tabs and local groups ---
+  await ensureSemanticState();
   await fetchOpenTabs();
   const realTabs = getRealTabs();
-
-  // --- Group tabs by domain ---
-  // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
-  // so they can be closed together without affecting content tabs on the same domain.
-  const LANDING_PAGE_PATTERNS = [
-    { hostname: 'mail.google.com', test: (p, h) =>
-        !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'x.com',               pathExact: ['/home'] },
-    { hostname: 'www.linkedin.com',    pathExact: ['/'] },
-    { hostname: 'github.com',          pathExact: ['/'] },
-    { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
-    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
-  ];
-
-  function isLandingPage(url) {
-    try {
-      const parsed = new URL(url);
-      return LANDING_PAGE_PATTERNS.some(p => {
-        // Support both exact hostname and suffix matching (for wildcard subdomains)
-        const hostnameMatch = p.hostname
-          ? parsed.hostname === p.hostname
-          : p.hostnameEndsWith
-            ? parsed.hostname.endsWith(p.hostnameEndsWith)
-            : false;
-        if (!hostnameMatch) return false;
-        if (p.test)       return p.test(parsed.pathname, url);
-        if (p.pathPrefix) return parsed.pathname.startsWith(p.pathPrefix);
-        if (p.pathExact)  return p.pathExact.includes(parsed.pathname);
-        return parsed.pathname === '/';
-      });
-    } catch { return false; }
-  }
-
-  domainGroups = [];
-  const groupMap    = {};
+  const context = groupContext();
+  const buckets = new Map();
+  const customOrder = [];
+  const customLabels = new Map();
   const landingTabs = [];
 
-  // Custom group rules from config.local.js (if any)
-  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
-
-  // Check if a URL matches a custom group rule; returns the rule or null
-  function matchCustomGroup(url) {
-    try {
-      const parsed = new URL(url);
-      return customGroups.find(r => {
-        const hostMatch = r.hostname
-          ? parsed.hostname === r.hostname
-          : r.hostnameEndsWith
-            ? parsed.hostname.endsWith(r.hostnameEndsWith)
-            : false;
-        if (!hostMatch) return false;
-        if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
-        return true; // hostname matched, no path filter
-      }) || null;
-    } catch { return null; }
-  }
-
   for (const tab of realTabs) {
-    try {
-      if (isLandingPage(tab.url)) {
-        landingTabs.push(tab);
-        continue;
-      }
-
-      // Check custom group rules first (e.g. merge subdomains, split by path)
-      const customRule = matchCustomGroup(tab.url);
-      if (customRule) {
-        const key = customRule.groupKey;
-        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
-        groupMap[key].tabs.push(tab);
-        continue;
-      }
-
-      let hostname;
-      if (tab.url && tab.url.startsWith('file://')) {
-        hostname = 'local-files';
-      } else {
-        hostname = new URL(tab.url).hostname;
-      }
-      if (!hostname) continue;
-
-      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
-      groupMap[hostname].tabs.push(tab);
-    } catch {
-      // Skip malformed URLs
+    const result = TabOutGrouping.classifyTab(tab, context);
+    if (result.groupId === '__landing-pages__') {
+      landingTabs.push(tab);
+      continue;
     }
+    if (result.source === 'custom') {
+      if (!buckets.has(result.groupId)) {
+        buckets.set(result.groupId, []);
+        customOrder.push(result.groupId);
+        const rule = (context.customGroups || []).find(item => ('custom:' + item.groupKey) === result.groupId);
+        customLabels.set(result.groupId, rule ? rule.groupLabel : result.groupId);
+      }
+      buckets.get(result.groupId).push(tab);
+      continue;
+    }
+    if (!buckets.has(result.groupId)) buckets.set(result.groupId, []);
+    buckets.get(result.groupId).push(tab);
   }
 
+  const records = new Map(semanticState.groups.map(group => [group.id, group]));
+  domainGroups = [];
+  function pushStored(id, emptyText) {
+    const record = records.get(id);
+    if (!record) return;
+    const tabs = buckets.get(id) || [];
+    domainGroups.push({
+      id: record.id,
+      domain: record.id,
+      label: record.name,
+      tabs,
+      droppable: true,
+      canRename: true,
+      canDelete: record.builtinKey !== 'other',
+      emptyText: tabs.length === 0 ? emptyText : '',
+    });
+  }
+
+  for (const id of TabOutGrouping.orderedGroupIds(semanticState)) {
+    if (id === 'builtin-other') continue;
+    const record = records.get(id);
+    pushStored(id, record && record.kind === 'user' ? '把标签移到这里' : '暂无标签');
+  }
   if (landingTabs.length > 0) {
-    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
+    domainGroups.push({
+      id: '__landing-pages__',
+      domain: '__landing-pages__',
+      label: 'Homepages',
+      tabs: landingTabs,
+      droppable: false,
+      canRename: false,
+      canDelete: false,
+      emptyText: '',
+    });
   }
-
-  // Sort: landing pages first, then domains from landing page sites, then by tab count
-  // Collect exact hostnames and suffix patterns for priority sorting
-  const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
-  const landingSuffixes = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
-  function isLandingDomain(domain) {
-    if (landingHostnames.has(domain)) return true;
-    return landingSuffixes.some(s => domain.endsWith(s));
+  for (const id of customOrder) {
+    domainGroups.push({
+      id,
+      domain: id,
+      label: customLabels.get(id) || id,
+      tabs: buckets.get(id) || [],
+      droppable: false,
+      canRename: false,
+      canDelete: false,
+      emptyText: '',
+    });
   }
-  domainGroups = Object.values(groupMap).sort((a, b) => {
-    const aIsLanding = a.domain === '__landing-pages__';
-    const bIsLanding = b.domain === '__landing-pages__';
-    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
+  pushStored('builtin-other', '暂无标签');
 
-    const aIsPriority = isLandingDomain(a.domain);
-    const bIsPriority = isLandingDomain(b.domain);
-    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
-
-    return b.tabs.length - a.tabs.length;
-  });
-
-  // --- Render domain cards ---
+  // --- Render group cards ---
   const openTabsSection      = document.getElementById('openTabsSection');
   const openTabsMissionsEl   = document.getElementById('openTabsMissions');
   const openTabsSectionCount = document.getElementById('openTabsSectionCount');
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+  renderGroupToolbar();
 
-  if (domainGroups.length > 0 && openTabsSection) {
+  if (openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
-    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
+    openTabsSectionCount.innerHTML = `${domainGroups.length} group${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsMissionsEl.innerHTML = domainGroups.map(group => renderDomainCard(group)).join('');
+    const renameInput = openTabsMissionsEl.querySelector('form[data-action="rename-group-form"] input');
+    if (renameInput) renameInput.focus();
     openTabsSection.style.display = 'block';
-  } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
   }
 
   // --- Footer stats ---
@@ -1182,11 +1272,53 @@ async function renderDashboard() {
    ---------------------------------------------------------------- */
 
 document.addEventListener('click', async (e) => {
+  if (suppressClick) {
+    suppressClick = false;
+    if (e.target.closest('.page-chip[data-action="focus-tab"]')) return;
+  }
+  if (e.target.closest('.chip-move')) return;
+
   // Walk up the DOM to find the nearest element with data-action
   const actionEl = e.target.closest('[data-action]');
   if (!actionEl) return;
 
   const action = actionEl.dataset.action;
+
+  if (action === 'start-create-group') {
+    groupUi = { creating: true, renamingId: null };
+    renderGroupToolbar();
+    return;
+  }
+
+  if (action === 'cancel-create' || action === 'cancel-rename') {
+    groupUi = { creating: false, renamingId: null };
+    if (action === 'cancel-create') renderGroupToolbar();
+    else await renderStaticDashboard();
+    return;
+  }
+
+  if (action === 'start-rename-group') {
+    groupUi = { creating: false, renamingId: actionEl.dataset.groupId };
+    await renderStaticDashboard();
+    return;
+  }
+
+  if (action === 'delete-group') {
+    const groupId = actionEl.dataset.groupId;
+    const record = semanticState.groups.find(group => group.id === groupId);
+    if (!record || record.builtinKey === 'other') return;
+    const confirmed = window.confirm(`删除分组「${record.name}」？打开的标签会留在原来的页面，只是重新归类。`);
+    if (!confirmed) return;
+    await applyGroupResult(TabOutGrouping.deleteGroup(semanticState, groupId), '已删除分组');
+    return;
+  }
+
+  if (action === 'restore-default-groups') {
+    const confirmed = window.confirm('恢复已删除的默认分组？手动移到自建分组的标签保持不变。');
+    if (!confirmed) return;
+    await applyGroupResult(TabOutGrouping.restoreDefaultGroups(semanticState));
+    return;
+  }
 
   // ---- Close duplicate Tab Out tabs ----
   if (action === 'close-tabout-dupes') {
@@ -1244,15 +1376,9 @@ document.addEventListener('click', async (e) => {
       chip.style.opacity    = '0';
       chip.style.transform  = 'scale(0.8)';
       setTimeout(() => {
+        const parentCard = chip.closest('.mission-card');
         chip.remove();
-        // If the card now has no tabs, remove it too
-        const parentCard = document.querySelector('.mission-card:has(.mission-pages:empty)');
-        if (parentCard) animateCardOut(parentCard);
-        document.querySelectorAll('.mission-card').forEach(c => {
-          if (c.querySelectorAll('.page-chip[data-action="focus-tab"]').length === 0) {
-            animateCardOut(c);
-          }
-        });
+        settleCardAfterChipRemoval(parentCard);
       }, 200);
     }
 
@@ -1292,7 +1418,11 @@ document.addEventListener('click', async (e) => {
       chip.style.transition = 'opacity 0.2s, transform 0.2s';
       chip.style.opacity    = '0';
       chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => chip.remove(), 200);
+      setTimeout(() => {
+        const parentCard = chip.closest('.mission-card');
+        chip.remove();
+        settleCardAfterChipRemoval(parentCard);
+      }, 200);
     }
 
     showToast('Saved for later');
@@ -1340,29 +1470,27 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ---- Close all tabs in a domain group ----
+  // ---- Close all tabs currently shown in this group ----
+  // Exact URL only, so a tab moved to another group on the same site stays open.
   if (action === 'close-domain-tabs') {
-    const domainId = actionEl.dataset.domainId;
-    const group    = domainGroups.find(g => {
-      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId;
-    });
+    const group = domainGroups.find(item => item.id === actionEl.dataset.groupId);
     if (!group) return;
 
-    const urls      = group.tabs.map(t => t.url);
-    // Landing pages and custom groups (whose domain key isn't a real hostname)
-    // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
+    const urls = group.tabs.map(t => t.url);
+    await closeTabsExact(urls);
+    playCloseSound();
 
-    if (useExact) {
-      await closeTabsExact(urls);
-    } else {
-      await closeTabsByUrls(urls);
+    if (group.droppable) {
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+      showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${group.label || group.domain}`);
+      await renderStaticDashboard();
+      return;
     }
 
-    if (card) {
-      playCloseSound();
-      animateCardOut(card);
-    }
+    if (card) animateCardOut(card);
 
     // Remove from in-memory groups
     const idx = domainGroups.indexOf(group);
@@ -1429,6 +1557,7 @@ document.addEventListener('click', async (e) => {
     });
 
     showToast('All tabs closed. Fresh start.');
+    setTimeout(() => { renderStaticDashboard(); }, 700);
     return;
   }
 });
@@ -1479,4 +1608,161 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+document.addEventListener('submit', async (e) => {
+  const form = e.target.closest('form.group-form');
+  if (!form) return;
+  e.preventDefault();
+  const name = new FormData(form).get('groupName');
+  if (form.dataset.action === 'create-group-form') {
+    await applyGroupResult(TabOutGrouping.createGroup(semanticState, name), '已新建分组');
+    return;
+  }
+  if (form.dataset.action === 'rename-group-form') {
+    await applyGroupResult(
+      TabOutGrouping.renameGroup(semanticState, form.dataset.groupId, name),
+      '已重命名'
+    );
+  }
+});
+
+document.addEventListener('change', async (e) => {
+  const select = e.target.closest('select[data-action="move-tab"]');
+  if (!select) return;
+  const value = select.value;
+  const rawUrl = select.dataset.tabUrl;
+  if (!value) return;
+  if (value === '__clear__') {
+    await applyGroupResult(TabOutGrouping.clearAssignment(semanticState, rawUrl), '已恢复自动分类');
+    return;
+  }
+  const key = TabOutGrouping.normalizeAssignmentUrl(rawUrl);
+  await moveNormalizedUrl(key, value);
+});
+
+document.addEventListener('dragstart', (e) => {
+  if (e.target.closest('.chip-move')) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  const chip = e.target.closest('.page-chip[data-action="focus-tab"]');
+  if (!chip) return;
+  const url = chip.dataset.normalizedUrl;
+  if (!url || !e.dataTransfer) {
+    e.preventDefault();
+    return;
+  }
+  e.dataTransfer.setData(TabOutGrouping.DRAG_MIME, url);
+  e.dataTransfer.setData('text/plain', TabOutGrouping.DRAG_MIME + ' ' + url);
+  e.dataTransfer.effectAllowed = 'move';
+  chip.dataset.dragging = '1';
+});
+
+function dragTypes(event) {
+  return event.dataTransfer ? [...event.dataTransfer.types] : [];
+}
+
+function dragCard(event) {
+  const card = event.target.closest('.mission-card[data-droppable="true"]');
+  if (!card || !event.dataTransfer) return null;
+  const types = dragTypes(event);
+  if (!types.includes(TabOutGrouping.DRAG_MIME) && !types.includes('text/plain')) return null;
+  return card;
+}
+
+function readDragUrl(dataTransfer) {
+  const custom = dataTransfer.getData(TabOutGrouping.DRAG_MIME);
+  if (custom) return custom;
+  const text = dataTransfer.getData('text/plain') || '';
+  const prefix = TabOutGrouping.DRAG_MIME + ' ';
+  return text.startsWith(prefix) ? text.slice(prefix.length) : '';
+}
+
+document.addEventListener('dragenter', (e) => {
+  const card = dragCard(e);
+  if (!card) return;
+  e.preventDefault();
+  card.classList.add('group-drop-target');
+});
+
+document.addEventListener('dragover', (e) => {
+  const card = dragCard(e);
+  if (!card) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  card.classList.add('group-drop-target');
+});
+
+document.addEventListener('dragleave', (e) => {
+  const card = e.target.closest('.mission-card[data-droppable="true"]');
+  if (!card) return;
+  if (card.contains(e.relatedTarget)) return;
+  card.classList.remove('group-drop-target');
+});
+
+document.addEventListener('drop', async (e) => {
+  const card = e.target.closest('.mission-card[data-droppable="true"]');
+  document.querySelectorAll('.group-drop-target').forEach(el => el.classList.remove('group-drop-target'));
+  if (!card || !e.dataTransfer) return;
+  const url = readDragUrl(e.dataTransfer);
+  if (!url) return;
+  e.preventDefault();
+  e.stopPropagation();
+  await moveNormalizedUrl(url, card.dataset.groupId);
+});
+
+document.addEventListener('dragend', (e) => {
+  const chip = e.target.closest('.page-chip');
+  if (chip && chip.dataset.dragging === '1') {
+    suppressClick = true;
+    delete chip.dataset.dragging;
+  }
+  document.querySelectorAll('.group-drop-target').forEach(el => el.classList.remove('group-drop-target'));
+});
+
+function settleCardAfterChipRemoval(card) {
+  if (!card) return;
+  const remaining = card.querySelectorAll('.page-chip[data-action="focus-tab"]').length;
+  if (remaining > 0) return;
+  if (card.dataset.droppable === 'true') {
+    const pages = card.querySelector('.mission-pages');
+    if (pages && !pages.querySelector('.group-empty')) {
+      const hint = (card.dataset.groupId || '').startsWith('user-') ? '把标签移到这里' : '暂无标签';
+      pages.insertAdjacentHTML('beforeend', `<p class="group-empty">${hint}</p>`);
+    }
+    return;
+  }
+  animateCardOut(card);
+}
+
+async function moveNormalizedUrl(key, targetId) {
+  if (!semanticWritable) {
+    showToast('分组数据版本无法识别，本次没有保存');
+    return;
+  }
+  if (!key || !targetId) return;
+  const tab = openTabs.find(item => TabOutGrouping.normalizeAssignmentUrl(item.url) === key);
+  if (!tab) return;
+  const current = TabOutGrouping.classifyTab(tab, groupContext()).groupId;
+  if (current === targetId) return;
+  const record = semanticState.groups.find(group => group.id === targetId);
+  await applyGroupResult(
+    TabOutGrouping.assignUrl(semanticState, tab.url, targetId),
+    `已移到「${record ? record.name : ''}」`
+  );
+}
+
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.semanticGroups) return;
+    const incoming = JSON.stringify(changes.semanticGroups.newValue ?? null);
+    if (incoming === lastWritten) return;
+    const loaded = TabOutGrouping.loadSemanticState({ semanticGroups: changes.semanticGroups.newValue });
+    semanticState = loaded.semanticGroups;
+    semanticWritable = loaded.writable;
+    if (loaded.persist && loaded.writable) persistSemanticState();
+    renderStaticDashboard();
+  });
+}
+
 renderDashboard();
