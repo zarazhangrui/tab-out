@@ -1156,3 +1156,90 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   opacity: 0.6;
   flex-shrink: 0;
 }
+
+/* 语义分组：标题栏、拖放和键盘移动 */
+header {
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.group-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.group-form input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  padding: 6px 10px;
+  min-width: 140px;
+}
+
+.group-admin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.group-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.chip-move {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.chip-move select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 4px;
+  padding: 2px 4px;
+  max-width: 9em;
+}
+
+.mission-card.group-drop-target {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .header-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .chip-move select {
+    max-width: 7em;
+  }
+}
